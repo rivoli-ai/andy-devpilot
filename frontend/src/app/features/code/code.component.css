@@ -218,6 +218,17 @@
   height: 16px;
 }
 
+.tab-btn-link {
+  text-decoration: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tab-btn-link:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
 .tab-badge {
   display: inline-flex;
   align-items: center;

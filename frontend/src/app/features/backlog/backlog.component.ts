@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy } from '../../core/services/backlog.service';
 import { RepositoryService } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
@@ -31,7 +31,7 @@ interface ExpandedState {
 @Component({
   selector: 'app-backlog',
   standalone: true,
-  imports: [CommonModule, FormsModule, AddBacklogItemModalComponent],
+  imports: [CommonModule, FormsModule, RouterLink, AddBacklogItemModalComponent],
   templateUrl: './backlog.component.html',
   styleUrl: './backlog.component.css'
 })
