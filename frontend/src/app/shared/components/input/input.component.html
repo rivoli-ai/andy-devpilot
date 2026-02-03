@@ -1,0 +1,21 @@
+<div class="input-wrapper">
+  @if (label()) {
+    <label [class.input-label]="true" [class.input-label-required]="required()">
+      {{ label() }}
+    </label>
+  }
+  <input
+    [type]="type()"
+    [placeholder]="placeholder()"
+    [value]="value"
+    [disabled]="disabled()"
+    [required]="required()"
+    [class]="'input input-' + size()"
+    [class.input-error]="!!error()"
+    (input)="onInput($event)"
+    (blur)="onTouched()"
+  />
+  @if (error()) {
+    <span class="input-error-message">{{ error() }}</span>
+  }
+</div>

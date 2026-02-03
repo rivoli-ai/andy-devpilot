@@ -1,0 +1,389 @@
+<div class="code-container">
+  <!-- Header -->
+  <div class="code-header">
+    <div class="header-left">
+      <button class="back-btn" (click)="goBack()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 12H5M12 19l-7-7 7-7"/>
+        </svg>
+      </button>
+      <div class="repo-info">
+        <h1 class="repo-name">{{ repository()?.name || 'Repository' }}</h1>
+        <span class="repo-full-name">{{ repository()?.fullName }}</span>
+      </div>
+    </div>
+    
+    <div class="header-actions">
+      <!-- Branch selector (only show on code tab) -->
+      @if (activeTab() === 'code') {
+        <div class="branch-selector">
+          <button class="branch-btn" (click)="toggleBranchDropdown()">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="6" y1="3" x2="6" y2="15"/>
+              <circle cx="18" cy="6" r="3"/>
+              <circle cx="6" cy="18" r="3"/>
+              <path d="M18 9a9 9 0 0 1-9 9"/>
+            </svg>
+            <span>{{ currentBranch() || 'main' }}</span>
+            <svg class="dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </button>
+          
+          @if (showBranchDropdown()) {
+            <div class="branch-dropdown">
+              <div class="dropdown-header">Switch branches</div>
+              <div class="branch-list">
+                @for (branch of branches(); track branch.name) {
+                  <button 
+                    class="branch-item" 
+                    [class.active]="branch.name === currentBranch()"
+                    (click)="selectBranch(branch)">
+                    @if (branch.name === currentBranch()) {
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="20 6 9 17 4 12"/>
+                      </svg>
+                    }
+                    <span>{{ branch.name }}</span>
+                    @if (branch.isDefault) {
+                      <span class="default-badge">default</span>
+                    }
+                  </button>
+                }
+              </div>
+            </div>
+          }
+        </div>
+      }
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="repo-tabs">
+    <button 
+      class="tab-btn" 
+      [class.active]="activeTab() === 'code'"
+      (click)="switchTab('code')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="16 18 22 12 16 6"/>
+        <polyline points="8 6 2 12 8 18"/>
+      </svg>
+      <span>Code</span>
+    </button>
+    <button 
+      class="tab-btn" 
+      [class.active]="activeTab() === 'pullRequests'"
+      (click)="switchTab('pullRequests')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="18" cy="18" r="3"/>
+        <circle cx="6" cy="6" r="3"/>
+        <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+        <line x1="6" y1="9" x2="6" y2="21"/>
+      </svg>
+      <span>Pull Requests</span>
+      @if (openPrCount() > 0) {
+        <span class="tab-badge">{{ openPrCount() }}</span>
+      }
+    </button>
+  </div>
+
+  <!-- Error state -->
+  @if (error()) {
+    <div class="error-message">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span>{{ error() }}</span>
+    </div>
+  }
+
+  <!-- CODE TAB -->
+  @if (activeTab() === 'code') {
+    <!-- Loading state -->
+    @if (loading()) {
+      <div class="loading-container">
+        <div class="loading-spinner"></div>
+        <span>Loading repository contents...</span>
+      </div>
+    }
+
+    <!-- Main content -->
+    @if (!loading() && !error()) {
+      <div class="code-content">
+      <!-- File tree panel -->
+      <div class="file-tree-panel">
+        <div class="tree-header">
+          <span class="tree-title">Explorer</span>
+        </div>
+        
+        <div class="tree-content">
+          @if (flattenedTree().length === 0) {
+            <div class="empty-state">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+              </svg>
+              <p>No files found</p>
+            </div>
+          } @else {
+            <div class="tree-items">
+              @for (node of flattenedTree(); track node.path) {
+                <button 
+                  class="tree-node" 
+                  [class.directory]="node.type === 'dir'"
+                  [class.file]="node.type === 'file'"
+                  [class.expanded]="node.isExpanded"
+                  [class.selected]="selectedFilePath() === node.path"
+                  [style.padding-left.px]="12 + (node.depth * 16)"
+                  (click)="onNodeClick(node)">
+                  
+                  <!-- Expand/collapse chevron for folders -->
+                  @if (node.type === 'dir') {
+                    <span class="chevron" [class.expanded]="node.isExpanded">
+                      @if (node.isLoading) {
+                        <svg class="spinner" viewBox="0 0 24 24">
+                          <circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/>
+                        </svg>
+                      } @else {
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M9 18l6-6-6-6"/>
+                        </svg>
+                      }
+                    </span>
+                  } @else {
+                    <span class="chevron-spacer"></span>
+                  }
+                  
+                  <!-- Icon -->
+                  <span class="node-icon" [attr.data-type]="getFileIcon(node)">
+                    @if (node.type === 'dir') {
+                      @if (node.isExpanded) {
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M19 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2z"/>
+                        </svg>
+                      } @else {
+                        <svg viewBox="0 0 24 24" fill="currentColor">
+                          <path d="M10 4H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+                        </svg>
+                      }
+                    } @else {
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                      </svg>
+                    }
+                  </span>
+                  
+                  <!-- Name -->
+                  <span class="node-name">{{ node.name }}</span>
+                </button>
+              }
+            </div>
+          }
+        </div>
+      </div>
+
+      <!-- File viewer panel -->
+      <div class="file-viewer-panel">
+        @if (!selectedFile() && !fileLoading()) {
+          <div class="no-file-selected">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+              <polyline points="14 2 14 8 20 8"/>
+              <line x1="16" y1="13" x2="8" y2="13"/>
+              <line x1="16" y1="17" x2="8" y2="17"/>
+              <polyline points="10 9 9 9 8 9"/>
+            </svg>
+            <h3>Select a file to view</h3>
+            <p>Choose a file from the explorer to view its contents</p>
+          </div>
+        } @else if (fileLoading()) {
+          <div class="file-loading">
+            <div class="loading-spinner small"></div>
+            <span>Loading file...</span>
+          </div>
+        } @else if (selectedFile()) {
+          <div class="file-viewer">
+            <div class="file-header">
+              <div class="file-info">
+                <span class="file-name">{{ selectedFile()?.name }}</span>
+                <span class="file-path">{{ selectedFile()?.path }}</span>
+              </div>
+              <div class="file-meta">
+                @if (selectedFile()?.language) {
+                  <span class="language-badge">{{ selectedFile()?.language }}</span>
+                }
+                <span class="file-size">{{ formatFileSize(selectedFile()?.size) }}</span>
+                <button class="close-btn" (click)="closeFile()">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"/>
+                    <line x1="6" y1="6" x2="18" y2="18"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            
+            @if (selectedFile()?.isBinary) {
+              <div class="binary-notice">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                  <line x1="9" y1="9" x2="15" y2="15"/>
+                  <line x1="15" y1="9" x2="9" y2="15"/>
+                </svg>
+                <p>Binary file cannot be displayed</p>
+              </div>
+            } @else {
+              <div class="file-content">
+                <table class="code-lines">
+                  <tbody>
+                    @for (line of fileLines(); track line; let i = $index) {
+                      <tr class="code-line">
+                        <td class="line-number">{{ i + 1 }}</td>
+                        <td class="line-content"><pre>{{ line }}</pre></td>
+                      </tr>
+                    }
+                  </tbody>
+                </table>
+              </div>
+            }
+          </div>
+        }
+      </div>
+    </div>
+    }
+  }
+
+  <!-- PULL REQUESTS TAB -->
+  @if (activeTab() === 'pullRequests') {
+    <div class="pr-container">
+      <!-- PR Filters -->
+      <div class="pr-filters">
+        <button 
+          class="pr-filter-btn" 
+          [class.active]="prFilter() === 'open'"
+          (click)="setPrFilter('open')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="18" cy="18" r="3"/>
+            <circle cx="6" cy="6" r="3"/>
+            <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+            <line x1="6" y1="9" x2="6" y2="21"/>
+          </svg>
+          {{ openPrCount() }} Open
+        </button>
+        <button 
+          class="pr-filter-btn" 
+          [class.active]="prFilter() === 'closed'"
+          (click)="setPrFilter('closed')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 11l3 3L22 4"/>
+            <circle cx="6" cy="6" r="3"/>
+            <path d="M6 9v12"/>
+          </svg>
+          {{ closedPrCount() }} Closed
+        </button>
+      </div>
+
+      <!-- PR Loading -->
+      @if (prLoading()) {
+        <div class="loading-container">
+          <div class="loading-spinner"></div>
+          <span>Loading pull requests...</span>
+        </div>
+      }
+
+      <!-- PR List -->
+      @if (!prLoading()) {
+        @if (filteredPullRequests().length === 0) {
+          <div class="pr-empty">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="18" r="3"/>
+              <circle cx="6" cy="6" r="3"/>
+              <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+              <line x1="6" y1="9" x2="6" y2="21"/>
+            </svg>
+            <h3>No pull requests</h3>
+            <p>There are no {{ prFilter() === 'open' ? 'open' : prFilter() === 'closed' ? 'closed' : '' }} pull requests in this repository</p>
+          </div>
+        } @else {
+          <div class="pr-list">
+            @for (pr of filteredPullRequests(); track pr.number) {
+              <div class="pr-item" (click)="openPrUrl(pr.url)">
+                <div class="pr-icon" [class.open]="pr.state === 'open'" [class.merged]="pr.state === 'merged'" [class.closed]="pr.state === 'closed'">
+                  @if (pr.state === 'open') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="18" cy="18" r="3"/>
+                      <circle cx="6" cy="6" r="3"/>
+                      <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+                      <line x1="6" y1="9" x2="6" y2="21"/>
+                    </svg>
+                  } @else if (pr.state === 'merged') {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="18" cy="18" r="3"/>
+                      <circle cx="6" cy="6" r="3"/>
+                      <path d="M6 9v3a6 6 0 0 0 6 6h3"/>
+                    </svg>
+                  } @else {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="18" cy="18" r="3"/>
+                      <circle cx="6" cy="6" r="3"/>
+                      <line x1="6" y1="9" x2="6" y2="21"/>
+                      <line x1="18" y1="9" x2="18" y2="15"/>
+                    </svg>
+                  }
+                </div>
+                
+                <div class="pr-content">
+                  <div class="pr-title-row">
+                    <span class="pr-title">{{ pr.title }}</span>
+                    @if (pr.isDraft) {
+                      <span class="pr-badge draft">Draft</span>
+                    }
+                    @for (label of pr.labels.slice(0, 3); track label) {
+                      <span class="pr-label">{{ label }}</span>
+                    }
+                  </div>
+                  <div class="pr-meta">
+                    <span class="pr-number">#{{ pr.number }}</span>
+                    <span class="pr-author">
+                      @if (pr.authorAvatarUrl) {
+                        <img [src]="pr.authorAvatarUrl" [alt]="pr.author" class="author-avatar"/>
+                      }
+                      {{ pr.author }}
+                    </span>
+                    <span class="pr-time">{{ getRelativeTime(pr.createdAt) }}</span>
+                    <span class="pr-branches">
+                      <code>{{ pr.sourceBranch }}</code>
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M5 12h14M12 5l7 7-7 7"/>
+                      </svg>
+                      <code>{{ pr.targetBranch }}</code>
+                    </span>
+                  </div>
+                </div>
+                
+                <div class="pr-stats">
+                  @if (pr.comments > 0) {
+                    <span class="pr-stat" title="Comments">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+                      </svg>
+                      {{ pr.comments }}
+                    </span>
+                  }
+                  <span class="pr-stat additions" title="Additions">+{{ pr.additions }}</span>
+                  <span class="pr-stat deletions" title="Deletions">-{{ pr.deletions }}</span>
+                </div>
+              </div>
+            }
+          </div>
+        }
+      }
+    </div>
+  }
+</div>
+
+<!-- Click outside to close branch dropdown -->
+@if (showBranchDropdown()) {
+  <div class="dropdown-backdrop" (click)="showBranchDropdown.set(false)"></div>
+}

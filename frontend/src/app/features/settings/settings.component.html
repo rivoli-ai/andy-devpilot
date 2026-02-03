@@ -1,0 +1,406 @@
+<div class="settings-container">
+  <div class="settings-header">
+    <h1>Settings</h1>
+    <p class="settings-subtitle">Manage your account and connected providers</p>
+  </div>
+
+  <!-- Success Message -->
+  @if (successMessage()) {
+    <div class="success-message">
+      <svg class="message-icon" viewBox="0 0 24 24" fill="none">
+        <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>{{ successMessage() }}</span>
+    </div>
+  }
+
+  <!-- Error Message -->
+  @if (error()) {
+    <div class="error-message">
+      <svg class="message-icon" viewBox="0 0 24 24" fill="none">
+        <path d="M12 8V12M12 16H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+      </svg>
+      <span>{{ error() }}</span>
+    </div>
+  }
+
+  <div class="settings-grid">
+    <!-- Account Section -->
+    <app-card class="settings-section">
+      <div class="section-header">
+        <h2>Account</h2>
+      </div>
+      
+      @if (user()) {
+        <div class="account-info">
+          <div class="avatar">
+            {{ (user()!.name || user()!.email).charAt(0).toUpperCase() }}
+          </div>
+          <div class="account-details">
+            <div class="account-name">{{ user()!.name || 'No name set' }}</div>
+            <div class="account-email">{{ user()!.email }}</div>
+          </div>
+        </div>
+      }
+
+      <div class="section-actions">
+        <button class="btn-danger" (click)="logout()">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M17 16L21 12M21 12L17 8M21 12H9M13 16V17C13 18.6569 11.6569 20 10 20H6C4.34315 20 3 18.6569 3 17V7C3 5.34315 4.34315 4 6 4H10C11.6569 4 13 5.34315 13 7V8" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          Sign out
+        </button>
+      </div>
+    </app-card>
+
+    <!-- Connected Providers Section -->
+    <app-card class="settings-section providers-section">
+      <div class="section-header">
+        <h2>Connected Providers</h2>
+        <p class="section-description">Link your accounts to sync repositories from different sources</p>
+      </div>
+
+      @if (loading()) {
+        <div class="loading-state">
+          <div class="spinner"></div>
+          <span>Loading providers...</span>
+        </div>
+      } @else {
+        <div class="providers-list">
+          <!-- GitHub -->
+          <div class="provider-item">
+            <div class="provider-info">
+              <div class="provider-icon github">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+              </div>
+              <div class="provider-details">
+                <div class="provider-name">GitHub</div>
+                @if (isProviderLinked('GitHub')) {
+                  <div class="provider-status connected">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M9 12L11 14L15 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Connected as {{ getProviderUsername('GitHub') }}
+                  </div>
+                } @else {
+                  <div class="provider-status">Not connected</div>
+                }
+              </div>
+            </div>
+            <div class="provider-actions">
+              @if (isProviderLinked('GitHub')) {
+                <button 
+                  class="btn-outline btn-sm" 
+                  (click)="unlinkProvider('GitHub')"
+                  [disabled]="actionLoading() === 'github'">
+                  @if (actionLoading() === 'github') {
+                    <span class="btn-spinner"></span>
+                  }
+                  Disconnect
+                </button>
+              } @else {
+                <button 
+                  class="btn-primary btn-sm" 
+                  (click)="linkGitHub()"
+                  [disabled]="actionLoading() === 'github'">
+                  @if (actionLoading() === 'github') {
+                    <span class="btn-spinner"></span>
+                  }
+                  Connect
+                </button>
+              }
+            </div>
+          </div>
+
+          <!-- Azure DevOps -->
+          <div class="provider-item">
+            <div class="provider-info">
+              <div class="provider-icon azure">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
+                </svg>
+              </div>
+              <div class="provider-details">
+                <div class="provider-name">Azure DevOps</div>
+                @if (hasAzureDevOpsConfig()) {
+                  <div class="provider-status connected">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M9 12L11 14L15 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Configured for {{ azureDevOpsOrg() }}
+                  </div>
+                } @else if (isProviderLinked('AzureDevOps')) {
+                  <div class="provider-status connected">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <path d="M9 12L11 14L15 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Connected via OAuth
+                  </div>
+                } @else {
+                  <div class="provider-status">Not configured</div>
+                }
+              </div>
+            </div>
+          </div>
+          
+        </div>
+      }
+    </app-card>
+
+    <!-- Provider Tokens Section -->
+    <app-card class="settings-section tokens-section">
+      <div class="section-header">
+        <h2>Personal Access Tokens</h2>
+        <p class="section-description">Configure PATs for code browsing and repository access</p>
+      </div>
+
+      <div class="tokens-list">
+        <!-- Azure DevOps PAT -->
+        <div class="token-config">
+          <div class="token-header">
+            <div class="provider-icon azure small">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
+              </svg>
+            </div>
+            <div class="token-info">
+              <h3>Azure DevOps</h3>
+              @if (hasAzureDevOpsPat()) {
+                <span class="token-status configured">PAT configured</span>
+              } @else {
+                <span class="token-status">No PAT configured</span>
+              }
+            </div>
+          </div>
+
+          <div class="config-form">
+            <div class="form-group">
+              <label for="azureOrg">Organization Name</label>
+              <input 
+                id="azureOrg"
+                type="text" 
+                placeholder="e.g., mycompany (from dev.azure.com/mycompany)"
+                [ngModel]="azureDevOpsOrg()"
+                (ngModelChange)="azureDevOpsOrg.set($event)"
+              />
+            </div>
+            
+            <div class="form-group">
+              <label for="azurePat">
+                Personal Access Token
+                <a href="https://dev.azure.com/_usersSettings/tokens" target="_blank" rel="noopener" class="help-link">
+                  Create PAT
+                </a>
+              </label>
+              <div class="password-input">
+                <input 
+                  id="azurePat"
+                  [type]="showAzurePat() ? 'text' : 'password'" 
+                  [placeholder]="hasAzureDevOpsPat() ? '••••••••••••••••' : 'Paste your PAT here'"
+                  [ngModel]="azureDevOpsPat()"
+                  (ngModelChange)="azureDevOpsPat.set($event)"
+                />
+                <button type="button" class="toggle-visibility" (click)="toggleShowAzurePat()">
+                  @if (showAzurePat()) {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+                      <line x1="1" y1="1" x2="23" y2="23"/>
+                    </svg>
+                  } @else {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                      <circle cx="12" cy="12" r="3"/>
+                    </svg>
+                  }
+                </button>
+              </div>
+              <p class="field-hint">Create a PAT with "Code (Read)" scope for code browsing</p>
+            </div>
+            
+            <div class="config-actions">
+              <button 
+                class="btn-primary btn-sm" 
+                (click)="saveAzureDevOpsSettings()" 
+                [disabled]="actionLoading() === 'azure-settings' || (!azureDevOpsOrg() && !azureDevOpsPat())">
+                @if (actionLoading() === 'azure-settings') {
+                  <span class="btn-spinner"></span>
+                }
+                Save
+              </button>
+              @if (hasAzureDevOpsConfig()) {
+                <button 
+                  class="btn-outline btn-sm btn-danger-outline" 
+                  (click)="clearAzureDevOpsSettings()"
+                  [disabled]="actionLoading() === 'azure-clear'">
+                  @if (actionLoading() === 'azure-clear') {
+                    <span class="btn-spinner"></span>
+                  }
+                  Clear
+                </button>
+              }
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </app-card>
+
+    <!-- AI Configuration Section -->
+    <app-card class="settings-section ai-section">
+      <div class="section-header">
+        <h2>AI Configuration</h2>
+        <p class="section-description">Configure AI provider for code generation and backlog creation</p>
+      </div>
+
+      <div class="ai-config">
+        <!-- Provider Selection -->
+        <div class="provider-selection">
+          <label>AI Provider</label>
+          <div class="provider-buttons">
+            <button 
+              class="provider-btn openai"
+              [class.active]="aiProvider() === 'openai'"
+              (click)="setAiProvider('openai')">
+              <span class="provider-emoji">🤖</span>
+              <span class="provider-label">OpenAI</span>
+            </button>
+            <button 
+              class="provider-btn anthropic"
+              [class.active]="aiProvider() === 'anthropic'"
+              (click)="setAiProvider('anthropic')">
+              <span class="provider-emoji">🧠</span>
+              <span class="provider-label">Anthropic</span>
+            </button>
+            <button 
+              class="provider-btn ollama"
+              [class.active]="aiProvider() === 'ollama'"
+              (click)="setAiProvider('ollama')">
+              <span class="provider-emoji">🦙</span>
+              <span class="provider-label">Ollama</span>
+            </button>
+            <button 
+              class="provider-btn custom"
+              [class.active]="aiProvider() === 'custom'"
+              (click)="setAiProvider('custom')">
+              <span class="provider-emoji">⚙️</span>
+              <span class="provider-label">Custom</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- API Key -->
+        <div class="form-group">
+          <label for="aiApiKey">
+            API Key
+            @switch (aiProvider()) {
+              @case ('openai') {
+                <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="help-link">Get key</a>
+              }
+              @case ('anthropic') {
+                <a href="https://console.anthropic.com/" target="_blank" rel="noopener" class="help-link">Get key</a>
+              }
+            }
+          </label>
+          <div class="password-input">
+            <input 
+              id="aiApiKey"
+              [type]="showAiApiKey() ? 'text' : 'password'" 
+              [placeholder]="hasAiApiKey() ? '••••••••••••••••' : 'Enter your API key'"
+              [ngModel]="aiApiKey()"
+              (ngModelChange)="aiApiKey.set($event)"
+            />
+            <button type="button" class="toggle-visibility" (click)="toggleShowAiApiKey()">
+              @if (showAiApiKey()) {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/>
+                  <line x1="1" y1="1" x2="23" y2="23"/>
+                </svg>
+              } @else {
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                  <circle cx="12" cy="12" r="3"/>
+                </svg>
+              }
+            </button>
+          </div>
+          @if (hasAiApiKey()) {
+            <p class="field-hint success">API key is configured</p>
+          }
+        </div>
+
+        <!-- Model -->
+        <div class="form-group">
+          <label for="aiModel">Model</label>
+          @switch (aiProvider()) {
+            @case ('openai') {
+              <select id="aiModel" [ngModel]="aiModel()" (ngModelChange)="aiModel.set($event)">
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="gpt-4o-mini">GPT-4o Mini</option>
+                <option value="gpt-4-turbo">GPT-4 Turbo</option>
+                <option value="o1">O1</option>
+                <option value="o1-mini">O1 Mini</option>
+              </select>
+            }
+            @case ('anthropic') {
+              <select id="aiModel" [ngModel]="aiModel()" (ngModelChange)="aiModel.set($event)">
+                <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
+                <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
+                <option value="claude-3-opus-20240229">Claude 3 Opus</option>
+                <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
+              </select>
+            }
+            @default {
+              <input 
+                id="aiModel"
+                type="text" 
+                placeholder="Enter model name"
+                [ngModel]="aiModel()"
+                (ngModelChange)="aiModel.set($event)"
+              />
+            }
+          }
+        </div>
+
+        <!-- Base URL (for custom/ollama) -->
+        @if (aiProvider() === 'ollama' || aiProvider() === 'custom') {
+          <div class="form-group">
+            <label for="aiBaseUrl">Base URL</label>
+            <input 
+              id="aiBaseUrl"
+              type="text" 
+              [placeholder]="aiProvider() === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'"
+              [ngModel]="aiBaseUrl()"
+              (ngModelChange)="aiBaseUrl.set($event)"
+            />
+          </div>
+        }
+
+        <!-- Actions -->
+        <div class="config-actions">
+          <button 
+            class="btn-primary btn-sm" 
+            (click)="saveAiSettings()" 
+            [disabled]="actionLoading() === 'ai-settings'">
+            @if (actionLoading() === 'ai-settings') {
+              <span class="btn-spinner"></span>
+            }
+            Save AI Settings
+          </button>
+          @if (isAiConfigured()) {
+            <button 
+              class="btn-outline btn-sm btn-danger-outline" 
+              (click)="clearAiSettings()"
+              [disabled]="actionLoading() === 'ai-clear'">
+              @if (actionLoading() === 'ai-clear') {
+                <span class="btn-spinner"></span>
+              }
+              Clear
+            </button>
+          }
+        </div>
+      </div>
+    </app-card>
+  </div>
+</div>

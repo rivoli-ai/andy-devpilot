@@ -1,0 +1,6 @@
+@DevPilot.API_HostAddress = http://localhost:5173
+
+GET {{DevPilot.API_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
