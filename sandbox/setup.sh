@@ -6,7 +6,7 @@
 # Run: curl -sSL <url> | sudo bash
 #
 # Version: 2.1.0 - Fixed Zed launch (no script wrapper, USER sandbox)
-SETUP_VERSION="2.1.0"
+SETUP_VERSION="2.2.0"
 
 set -e
 
@@ -1801,23 +1801,32 @@ echo "D-Bus address: $DBUS_SESSION_BUS_ADDRESS"
 # Initialize gnome-keyring with empty password (avoids password prompt)
 echo "" | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null || true
 
-# Start desktop with D-Bus
-startxfce4 &
-sleep 3
-
-# Configure Firefox as default browser for http/https URLs
-mkdir -p /home/sandbox/.local/share/applications
+# Configure XFCE panel and desktop BEFORE starting the session (so they are used on first load)
 mkdir -p /home/sandbox/.config/xfce4
-xdg-mime default firefox.desktop x-scheme-handler/http 2>/dev/null || true
-xdg-mime default firefox.desktop x-scheme-handler/https 2>/dev/null || true
-xdg-settings set default-web-browser firefox.desktop 2>/dev/null || true
+mkdir -p /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml
 
-# Configure XFCE to use Firefox as preferred web browser
-echo "WebBrowser=firefox" > /home/sandbox/.config/xfce4/helpers.rc
-
-# Configure taskbar to only show Terminal, Firefox, and Zed
-# Create Firefox launcher
+# Create taskbar launchers (Terminal=17, Firefox=19, Zed=21) - must exist before panel reads config
+mkdir -p /home/sandbox/.config/xfce4/panel/launcher-17
 mkdir -p /home/sandbox/.config/xfce4/panel/launcher-19
+mkdir -p /home/sandbox/.config/xfce4/panel/launcher-21
+
+# Terminal launcher - copy from system or create minimal one
+if [ -f /usr/share/applications/xfce4-terminal-emulator.desktop ]; then
+  cp /usr/share/applications/xfce4-terminal-emulator.desktop /home/sandbox/.config/xfce4/panel/launcher-17/xfce4-terminal-emulator.desktop
+else
+  cat > /home/sandbox/.config/xfce4/panel/launcher-17/xfce4-terminal-emulator.desktop << 'TERMINALLAUNCHER'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Exec=xfce4-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+Name=Terminal
+Comment=Terminal emulator
+TERMINALLAUNCHER
+fi
+
+# Firefox launcher
 cat > /home/sandbox/.config/xfce4/panel/launcher-19/firefox.desktop << 'FIREFOXLAUNCHER'
 [Desktop Entry]
 Version=1.0
@@ -1831,8 +1840,7 @@ Name=Firefox
 Comment=Browse the web with Firefox
 FIREFOXLAUNCHER
 
-# Create Zed launcher
-mkdir -p /home/sandbox/.config/xfce4/panel/launcher-21
+# Zed launcher
 cat > /home/sandbox/.config/xfce4/panel/launcher-21/zed.desktop << 'ZEDLAUNCHER'
 [Desktop Entry]
 Version=1.0
@@ -1846,8 +1854,7 @@ Name=Zed
 Comment=Code editor
 ZEDLAUNCHER
 
-# Update panel config to only show Terminal, Firefox, and Zed (remove File Manager and App Finder)
-mkdir -p /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml
+# Panel config: only Terminal, Firefox, Zed on taskbar (panel-2)
 cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 'PANELCONFIG'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-panel" version="1.0">
@@ -1942,10 +1949,7 @@ cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 
 </channel>
 PANELCONFIG
 
-echo "Firefox and Zed configured in taskbar" >> /tmp/sandbox-debug.log
-
-# Set dark/black desktop background
-mkdir -p /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml
+# Dark desktop background
 cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'DESKTOPCONFIG'
 <?xml version="1.0" encoding="UTF-8"?>
 <channel name="xfce4-desktop" version="1.0">
@@ -1982,7 +1986,27 @@ cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml <
   </property>
 </channel>
 DESKTOPCONFIG
-echo "Dark background configured" >> /tmp/sandbox-debug.log
+
+# Firefox as default browser
+echo "WebBrowser=firefox" > /home/sandbox/.config/xfce4/helpers.rc
+mkdir -p /home/sandbox/.local/share/applications
+xdg-mime default firefox.desktop x-scheme-handler/http 2>/dev/null || true
+xdg-mime default firefox.desktop x-scheme-handler/https 2>/dev/null || true
+xdg-settings set default-web-browser firefox.desktop 2>/dev/null || true
+
+echo "Panel and desktop configured (Terminal, Firefox, Zed)" >> /tmp/sandbox-debug.log
+
+# Start desktop with D-Bus (after config is in place)
+startxfce4 &
+sleep 5
+
+# Restart panel so it reloads our config (Terminal, Firefox, Zed only)
+# XFCE may have written default config on first start; this ensures our config is used
+pkill -9 xfce4-panel 2>/dev/null || true
+sleep 1
+DISPLAY=:0 xfce4-panel &
+sleep 1
+echo "Panel restarted with Terminal, Firefox, Zed" >> /tmp/sandbox-debug.log
 
 # Start VNC server
 x11vnc -display $DISPLAY -forever -shared -rfbport 5900 -nopw -xkb &
