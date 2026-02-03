@@ -1,0 +1,99 @@
+.app-container {
+  display: flex;
+  min-height: 100vh;
+  background: var(--surface-ground);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.app-content {
+  flex: 1;
+  margin-left: var(--sidebar-width);
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.main-content {
+  flex: 1;
+  margin-top: var(--header-height);
+  padding: var(--space-8);
+  animation: fadeIn var(--duration-slow) var(--ease-out);
+  width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* VNC Docked Right - Content shifts to left */
+.app-container.vnc-docked-right {
+  width: 55%;
+}
+
+.app-container.vnc-docked-right .app-content {
+  width: 100%;
+}
+
+.app-container.vnc-docked-right .main-content {
+  padding-right: var(--space-4);
+}
+
+/* VNC Docked Bottom - Content shrinks vertically */
+.app-container.vnc-docked-bottom {
+  height: 55vh;
+  min-height: auto;
+  overflow: hidden;
+}
+
+.app-container.vnc-docked-bottom .app-content {
+  min-height: auto;
+  height: 100%;
+}
+
+.app-container.vnc-docked-bottom .main-content {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: var(--space-4);
+}
+
+/* Sidebar Overlay */
+.sidebar-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: calc(var(--z-sticky) - 1);
+  animation: fadeIn var(--duration-base) var(--ease-out);
+}
+
+@media (max-width: 768px) {
+  .app-content {
+    margin-left: 0;
+    width: 100%;
+  }
+
+  .main-content {
+    padding: var(--space-4);
+    overflow-x: hidden;
+    min-width: 0;
+  }
+
+  .sidebar-overlay.visible {
+    display: block;
+  }
+
+  /* On mobile, docked modes take full width/height */
+  .app-container.vnc-docked-right,
+  .app-container.vnc-docked-bottom {
+    width: 100%;
+    height: 50vh;
+    min-height: auto;
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

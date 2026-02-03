@@ -1,0 +1,266 @@
+<div class="data-grid-container" [style.height]="height">
+  <!-- Toolbar -->
+  @if (enableFiltering || enableGrouping) {
+    <div class="grid-toolbar">
+      @if (enableGrouping) {
+        <div class="toolbar-section">
+          <label class="toolbar-label">Group by:</label>
+          <div class="group-buttons">
+            @for (column of columns; track column.field) {
+              @if (column.groupable !== false) {
+                <button
+                  class="group-btn"
+                  [class.active]="isGrouped(column.field)"
+                  (click)="toggleGroup(column.field)"
+                >
+                  {{ column.header }}
+                  @if (isGrouped(column.field)) {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="18" y1="6" x2="6" y2="18"/>
+                      <line x1="6" y1="6" x2="18" y2="18"/>
+                    </svg>
+                  }
+                </button>
+              }
+            }
+          </div>
+        </div>
+      }
+      
+      @if (enableFiltering && hasActiveFilters()) {
+        <button class="clear-filters-btn" (click)="clearFilters()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+          Clear Filters
+        </button>
+      }
+    </div>
+  }
+
+  <!-- Grid Table -->
+  <div class="grid-wrapper">
+    <table class="data-grid-table">
+      <!-- Header -->
+      <thead>
+        <tr class="grid-header-row">
+          @for (column of columns; track column.field) {
+            <th
+              class="grid-header-cell"
+              [style.width.px]="columnWidths().get(column.field)"
+              [class.sortable]="column.sortable !== false && enableSorting"
+              [class.pinned-left]="column.pinned === 'left'"
+              [class.pinned-right]="column.pinned === 'right'"
+              (click)="column.sortable !== false && enableSorting ? toggleSort(column.field) : null"
+            >
+              <div class="header-content">
+                <span class="header-text">{{ column.header }}</span>
+                
+                @if (column.sortable !== false && enableSorting) {
+                  <span class="sort-indicator">
+                    @if (getSortDirection(column.field) === 'asc') {
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="18 15 12 9 6 15"/>
+                      </svg>
+                    } @else if (getSortDirection(column.field) === 'desc') {
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    } @else {
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" opacity="0.3">
+                        <polyline points="18 15 12 9 6 15"/>
+                        <polyline points="6 9 12 15 18 9"/>
+                      </svg>
+                    }
+                  </span>
+                }
+              </div>
+              
+              @if (column.resizable !== false && enableColumnResize) {
+                <div
+                  class="resize-handle"
+                  (mousedown)="startResize(column, $event)"
+                ></div>
+              }
+            </th>
+          }
+        </tr>
+        
+        <!-- Filter Row -->
+        @if (enableFiltering) {
+          <tr class="grid-filter-row">
+            @for (column of columns; track column.field) {
+              <td class="grid-filter-cell" [style.width.px]="columnWidths().get(column.field)">
+                @if (column.filterable !== false) {
+                  <input
+                    type="text"
+                    class="filter-input"
+                    [value]="getFilter(column.field)"
+                    (input)="setFilter(column.field, $any($event.target).value)"
+                    placeholder="Filter..."
+                  />
+                }
+              </td>
+            }
+          </tr>
+        }
+      </thead>
+      
+      <!-- Body -->
+      <tbody>
+        @if (displayData().length === 0) {
+          <tr>
+            <td [attr.colspan]="columns.length" class="empty-message">
+              <div class="empty-content">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                </svg>
+                <p>{{ emptyMessage }}</p>
+              </div>
+            </td>
+          </tr>
+        } @else {
+          @for (item of paginatedDisplayData(); track item.index) {
+            @if (item.isGroup) {
+              <!-- Group Header Row -->
+              <tr class="group-header-row" [class]="'group-level-' + (item.level || 0)" (click)="toggleGroupExpansion(item.groupKey!)">
+                <td [attr.colspan]="columns.length" class="group-header-cell">
+                  <div class="group-header-content" [style.padding-left.px]="(item.level || 0) * 24 + 12">
+                    <svg
+                      class="group-expand-icon"
+                      [class.expanded]="isGroupExpanded(item.groupKey!)"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                    >
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                    <span class="group-label">
+                      {{ item.groupField ? getColumnHeader(item.groupField) : 'Group' }}: <strong>{{ item.groupValue }}</strong>
+                    </span>
+                    @if (showGroupCounts) {
+                      <span class="group-count">({{ item.count }} {{ item.count === 1 ? 'item' : 'items' }})</span>
+                    }
+                  </div>
+                </td>
+              </tr>
+            } @else {
+              <!-- Data Row -->
+              <tr
+                class="grid-row"
+                (click)="onRowClick(item.row)"
+                (dblclick)="onRowDoubleClick(item.row)"
+              >
+                @for (column of columns; track column.field) {
+                  <td
+                    class="grid-cell"
+                    [style.width.px]="columnWidths().get(column.field)"
+                    [class.pinned-left]="column.pinned === 'left'"
+                    [class.pinned-right]="column.pinned === 'right'"
+                  >
+                    @if (column.cellTemplate) {
+                      <ng-container *ngTemplateOutlet="column.cellTemplate; context: { $implicit: getCellValue(item.row, column.field), row: item.row, column: column }"></ng-container>
+                    } @else if (column.cellRenderer) {
+                      <span 
+                        [innerHTML]="sanitizeHtml(column.cellRenderer(getCellValue(item.row, column.field), item.row))"
+                        (click)="onCellClick($event)"
+                      ></span>
+                    } @else {
+                      <span class="cell-value">{{ getCellValue(item.row, column.field) || '-' }}</span>
+                    }
+                  </td>
+                }
+              </tr>
+            }
+          }
+        }
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination Footer -->
+  @if (enablePagination && totalFilteredItems() > 0) {
+    <div class="grid-pagination">
+      <div class="pagination-info">
+        <span class="pagination-text">
+          Showing <strong>{{ paginationInfo().start }}</strong> to <strong>{{ paginationInfo().end }}</strong> of <strong>{{ paginationInfo().total }}</strong> items
+        </span>
+      </div>
+      
+      <div class="pagination-controls">
+        <div class="page-size-selector">
+          <label>Rows:</label>
+          <select [value]="_pageSize()" (change)="setPageSize(+$any($event.target).value)">
+            @for (size of pageSizeOptions; track size) {
+              <option [value]="size">{{ size }}</option>
+            }
+          </select>
+        </div>
+        
+        <div class="page-buttons">
+          <button 
+            class="page-btn" 
+            [disabled]="currentPage() === 1"
+            (click)="firstPage()"
+            title="First page"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="11 17 6 12 11 7"/>
+              <polyline points="18 17 13 12 18 7"/>
+            </svg>
+          </button>
+          <button 
+            class="page-btn" 
+            [disabled]="currentPage() === 1"
+            (click)="previousPage()"
+            title="Previous page"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </button>
+          
+          @for (page of getPageNumbers(); track $index) {
+            @if (page === -1) {
+              <span class="page-ellipsis">...</span>
+            } @else {
+              <button 
+                class="page-btn page-number"
+                [class.active]="page === currentPage()"
+                (click)="goToPage(page)"
+              >
+                {{ page }}
+              </button>
+            }
+          }
+          
+          <button 
+            class="page-btn" 
+            [disabled]="currentPage() === totalPages()"
+            (click)="nextPage()"
+            title="Next page"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="9 18 15 12 9 6"/>
+            </svg>
+          </button>
+          <button 
+            class="page-btn" 
+            [disabled]="currentPage() === totalPages()"
+            (click)="lastPage()"
+            title="Last page"
+          >
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="13 17 18 12 13 7"/>
+              <polyline points="6 17 11 12 6 7"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
+  }
+</div>

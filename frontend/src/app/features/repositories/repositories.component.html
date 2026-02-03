@@ -1,0 +1,424 @@
+<div class="repositories-container">
+  <div class="page-header">
+    <div class="header-content">
+      <h1 class="page-title">Repositories</h1>
+      <p class="page-subtitle">Manage and analyze your repositories from GitHub and Azure DevOps</p>
+    </div>
+    <div class="header-actions">
+      <div class="view-toggle">
+        <button
+          class="view-btn"
+          [class.active]="viewMode() === 'cards'"
+          (click)="viewMode.set('cards')"
+          title="Card View"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+        </button>
+        <button
+          class="view-btn"
+          [class.active]="viewMode() === 'grid'"
+          (click)="viewMode.set('grid')"
+          title="Grid View"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="3" x2="21" y2="3"/>
+            <line x1="3" y1="12" x2="21" y2="12"/>
+            <line x1="3" y1="21" x2="21" y2="21"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Success Message -->
+  @if (successMessage()) {
+    <div class="success-toast">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M9 12L11 14L15 10M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z"/>
+      </svg>
+      <span>{{ successMessage() }}</span>
+    </div>
+  }
+
+  <app-card padding="md" class="sync-section">
+    <div class="sync-content">
+      <!-- Sync Dropdown -->
+      <div class="sync-dropdown">
+        <app-button 
+          variant="primary" 
+          size="md"
+          [disabled]="syncing() || loading() || !hasLinkedProvider()"
+          [loading]="syncing()"
+          (click)="toggleSyncMenu()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3m9 9a9 9 0 0 1-9-9m9 9c1.66 0 3-4.03 3-9s-1.34-9-3-9m0 18c-1.66 0-3-4.03-3-9s1.34-9 3-9m-9 9a9 9 0 0 1 9-9"/>
+          </svg>
+          @if (syncing()) {
+            <span>Syncing from {{ syncingProvider() === 'all' ? 'All Providers' : syncingProvider() }}...</span>
+          } @else {
+            <span>Sync Repositories</span>
+          }
+          <svg class="dropdown-arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" [class.open]="showSyncMenu()">
+            <polyline points="6 9 12 15 18 9"/>
+          </svg>
+        </app-button>
+
+        @if (showSyncMenu()) {
+          <div class="sync-menu">
+            <!-- GitHub Option -->
+            <button 
+              class="sync-menu-item"
+              [disabled]="!isProviderLinked('GitHub') || syncing()"
+              (click)="syncFromGitHub()">
+              <div class="provider-icon github">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+              </div>
+              <div class="provider-info">
+                <span class="provider-name">GitHub</span>
+                @if (isProviderLinked('GitHub')) {
+                  <span class="provider-status connected">{{ getProviderUsername('GitHub') }}</span>
+                } @else {
+                  <span class="provider-status">Not connected</span>
+                }
+              </div>
+              @if (!isProviderLinked('GitHub')) {
+                <button class="connect-link" (click)="navigateToSettings(); $event.stopPropagation()">Connect</button>
+              }
+            </button>
+
+            <!-- Azure DevOps Option -->
+            <button 
+              class="sync-menu-item"
+              [disabled]="!isProviderLinked('AzureDevOps') || syncing()"
+              (click)="syncFromAzureDevOps()">
+              <div class="provider-icon azure">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
+                </svg>
+              </div>
+              <div class="provider-info">
+                <span class="provider-name">Azure DevOps</span>
+                @if (isProviderLinked('AzureDevOps')) {
+                  <span class="provider-status connected">{{ getProviderUsername('AzureDevOps') }}</span>
+                } @else {
+                  <span class="provider-status">Not connected</span>
+                }
+              </div>
+              @if (!isProviderLinked('AzureDevOps')) {
+                <button class="connect-link" (click)="navigateToSettings(); $event.stopPropagation()">Connect</button>
+              }
+            </button>
+
+            <!-- Divider -->
+            @if (isProviderLinked('GitHub') && isProviderLinked('AzureDevOps')) {
+              <div class="sync-menu-divider"></div>
+              <button 
+                class="sync-menu-item sync-all"
+                [disabled]="syncing()"
+                (click)="syncFromAllProviders()">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 12a9 9 0 0 1-9 9m9-9a9 9 0 0 0-9-9m9 9H3"/>
+                </svg>
+                <span>Sync from all providers</span>
+              </button>
+            }
+          </div>
+        }
+      </div>
+
+      <div class="sync-info">
+        <p class="sync-title">Pull your latest repositories</p>
+        @if (hasLinkedProvider()) {
+          <p class="sync-help">Sync repositories from your connected providers</p>
+        } @else {
+          <p class="sync-help">
+            <a (click)="navigateToSettings()" class="link">Connect a provider</a> to start syncing repositories
+          </p>
+        }
+      </div>
+    </div>
+  </app-card>
+
+  <!-- Sandbox Status Bar -->
+  @if (sandboxCount() > 0) {
+    <div class="sandbox-status-bar">
+      <div class="sandbox-info">
+        <div class="sandbox-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <span class="sandbox-count">
+          <strong>{{ sandboxCount() }}</strong> / {{ MAX_SANDBOXES }} sandboxes running
+        </span>
+        @if (sandboxCount() >= MAX_SANDBOXES) {
+          <span class="sandbox-warning">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            At capacity - oldest will be replaced
+          </span>
+        }
+      </div>
+      <button class="close-all-btn" (click)="closeAllSandboxes()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+        Close All
+      </button>
+    </div>
+  }
+
+  @if (loading()) {
+    <div class="status-message loading">
+      <svg class="animate-pulse" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+      </svg>
+      <span>Loading repositories...</span>
+    </div>
+  }
+
+  @if (error()) {
+    <div class="status-message error">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/>
+        <line x1="12" y1="8" x2="12" y2="12"/>
+        <line x1="12" y1="16" x2="12.01" y2="16"/>
+      </svg>
+      <span>{{ error() }}</span>
+    </div>
+  }
+
+  @if (!loading() && !error()) {
+    @if (repositories().length === 0) {
+      <app-card padding="lg" class="empty-state">
+        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+        </svg>
+        <h3 class="empty-title">No repositories yet</h3>
+        <p class="empty-description">Sync your GitHub repositories to get started with AI-powered analysis</p>
+      </app-card>
+    } @else {
+      <!-- Provider Tabs -->
+      <div class="provider-tabs">
+        <button 
+          class="provider-tab" 
+          [class.active]="activeProviderTab() === 'all'"
+          (click)="setProviderTab('all')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7"/>
+            <rect x="14" y="3" width="7" height="7"/>
+            <rect x="14" y="14" width="7" height="7"/>
+            <rect x="3" y="14" width="7" height="7"/>
+          </svg>
+          <span>All</span>
+          <span class="tab-count">{{ allCount() }}</span>
+        </button>
+        
+        <button 
+          class="provider-tab github" 
+          [class.active]="activeProviderTab() === 'GitHub'"
+          (click)="setProviderTab('GitHub')"
+          [disabled]="githubCount() === 0">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+          </svg>
+          <span>GitHub</span>
+          <span class="tab-count">{{ githubCount() }}</span>
+        </button>
+        
+        <button 
+          class="provider-tab azure" 
+          [class.active]="activeProviderTab() === 'AzureDevOps'"
+          (click)="setProviderTab('AzureDevOps')"
+          [disabled]="azureDevOpsCount() === 0">
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
+          </svg>
+          <span>Azure DevOps</span>
+          <span class="tab-count">{{ azureDevOpsCount() }}</span>
+        </button>
+      </div>
+
+      @if (viewMode() === 'cards') {
+        <div class="repositories-grid">
+          @for (repo of filteredRepositories(); track repo.id) {
+            <div class="repo-card" [class.loading]="isCreatingSandbox(repo.id)">
+              <!-- Card Header -->
+              <div class="repo-card-header">
+                <div class="repo-icon">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                  </svg>
+                </div>
+                <div class="repo-visibility" [class.private]="repo.isPrivate">
+                  @if (repo.isPrivate) {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                      <path d="M7 11V7a5 5 0 0110 0v4"/>
+                    </svg>
+                    <span>Private</span>
+                  } @else {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <circle cx="12" cy="12" r="10"/>
+                      <line x1="2" y1="12" x2="22" y2="12"/>
+                      <path d="M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10 15.3 15.3 0 014-10z"/>
+                    </svg>
+                    <span>Public</span>
+                  }
+                </div>
+              </div>
+
+              <!-- Card Body -->
+              <div class="repo-card-body">
+                <h3 class="repo-name">{{ repo.name }}</h3>
+                <div class="repo-org">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                    <circle cx="12" cy="7" r="4"/>
+                  </svg>
+                  <span>{{ repo.organizationName }}</span>
+                </div>
+                <p class="repo-description">{{ repo.description || 'No description available' }}</p>
+              </div>
+
+              <!-- Card Meta -->
+              <div class="repo-card-meta">
+                @if (repo.defaultBranch) {
+                  <div class="meta-item">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="6" y1="3" x2="6" y2="15"/>
+                      <circle cx="18" cy="6" r="3"/>
+                      <circle cx="6" cy="18" r="3"/>
+                      <path d="M18 9a9 9 0 01-9 9"/>
+                    </svg>
+                    <span>{{ repo.defaultBranch }}</span>
+                  </div>
+                }
+                <div class="meta-item provider" [class.github]="repo.provider === 'GitHub'" [class.azure]="repo.provider === 'AzureDevOps'">
+                  @if (repo.provider === 'GitHub') {
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                    </svg>
+                    <span>GitHub</span>
+                  } @else if (repo.provider === 'AzureDevOps') {
+                    <svg viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
+                    </svg>
+                    <span>Azure DevOps</span>
+                  } @else {
+                    <span>{{ repo.provider }}</span>
+                  }
+                </div>
+              </div>
+
+              <!-- Card Actions -->
+              <div class="repo-card-actions">
+                <a [routerLink]="['/backlog', repo.id]" class="action-btn primary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="8" y1="6" x2="21" y2="6"/>
+                    <line x1="8" y1="12" x2="21" y2="12"/>
+                    <line x1="8" y1="18" x2="21" y2="18"/>
+                    <line x1="3" y1="6" x2="3.01" y2="6"/>
+                    <line x1="3" y1="12" x2="3.01" y2="12"/>
+                    <line x1="3" y1="18" x2="3.01" y2="18"/>
+                  </svg>
+                  <span>Backlog</span>
+                </a>
+                <a [routerLink]="['/code', repo.id]" class="action-btn secondary">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="16 18 22 12 16 6"/>
+                    <polyline points="8 6 2 12 8 18"/>
+                  </svg>
+                  <span>Code</span>
+                </a>
+              </div>
+            </div>
+          }
+        </div>
+      } @else {
+        <!-- Grid View -->
+        <app-data-grid
+          [columns]="gridColumns"
+          [data]="filteredRepositories()"
+          [enableFiltering]="true"
+          [enableSorting]="true"
+          [enableGrouping]="true"
+          [enableColumnResize]="true"
+          [height]="'calc(100vh - 360px)'"
+          (rowClick)="onGridRowClick($event)"
+          (rowDoubleClick)="onGridRowDoubleClick($event)"
+        ></app-data-grid>
+      }
+    }
+  }
+</div>
+
+
+<!-- Azure DevOps Organization Prompt Modal -->
+@if (showAzureDevOpsOrgPrompt()) {
+  <div class="modal-overlay" (click)="cancelAzureDevOpsOrgPrompt()">
+    <div class="modal-content" (click)="$event.stopPropagation()">
+      <div class="modal-header">
+        <h3>Connect to Azure DevOps</h3>
+        <button class="modal-close" (click)="cancelAzureDevOpsOrgPrompt()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="modal-body">
+        @if (error()) {
+          <div class="modal-error">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span>{{ error() }}</span>
+          </div>
+        }
+        
+        <p class="modal-description">
+          Enter your Azure DevOps organization name to sync repositories.
+        </p>
+        
+        <div class="form-group">
+          <label for="orgName">Organization Name <span class="required">*</span></label>
+          <input 
+            id="orgName"
+            type="text" 
+            placeholder="e.g., mycompany (from dev.azure.com/mycompany)"
+            [value]="azureDevOpsOrgName()"
+            (input)="azureDevOpsOrgName.set($any($event.target).value)"
+            (keyup.enter)="submitAzureDevOpsOrg()"
+          />
+        </div>
+        
+        <p class="field-hint">
+          Configure your PAT in <a routerLink="/settings">Settings</a> if OAuth doesn't work.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" (click)="cancelAzureDevOpsOrgPrompt()">Cancel</button>
+        <button class="btn-primary" (click)="submitAzureDevOpsOrg()" [disabled]="!azureDevOpsOrgName().trim()">
+          Sync Repositories
+        </button>
+      </div>
+    </div>
+  </div>
+}
+

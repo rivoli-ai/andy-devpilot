@@ -1,0 +1,363 @@
+<!-- Backdrop (only visible when floating, not when docked or embedded) -->
+@if (dockPosition() === 'floating' && !embedded()) {
+  <div class="vnc-backdrop visible" (click)="toggleMinimize()"></div>
+}
+
+<!-- Minimized Widget (not shown when embedded) -->
+@if (dockPosition() === 'minimized' && !embedded()) {
+  <div class="vnc-minimized" [class.ready-for-pr]="readyForPr()" (click)="toggleMinimize()" [style.right]="minimizedStyle().right">
+    <!-- Ready for PR Alert Badge -->
+    @if (readyForPr()) {
+      <div class="pr-alert-badge" (click)="toggleMinimize(); $event.stopPropagation()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="18" cy="18" r="3"/>
+          <circle cx="6" cy="6" r="3"/>
+          <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+          <line x1="6" y1="9" x2="6" y2="21"/>
+        </svg>
+        <span>Push PR</span>
+      </div>
+    }
+    <div class="minimized-icon" [class.has-story]="implementationContext()" [class.pr-ready]="readyForPr()">
+      @if (readyForPr()) {
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="18" cy="18" r="3"/>
+          <circle cx="6" cy="6" r="3"/>
+          <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+          <line x1="6" y1="9" x2="6" y2="21"/>
+        </svg>
+      } @else if (implementationContext()) {
+        <span class="story-badge">S</span>
+      } @else {
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+          <line x1="8" y1="21" x2="16" y2="21"/>
+          <line x1="12" y1="17" x2="12" y2="21"/>
+        </svg>
+      }
+    </div>
+    <div class="minimized-info">
+      @if (readyForPr()) {
+        <span class="minimized-pr-ready">Ready for PR!</span>
+        <span class="minimized-story">{{ implementationContext()?.storyTitle || viewerTitle() }}</span>
+      } @else {
+        @if (implementationContext(); as ctx) {
+          <span class="minimized-repo">{{ ctx.repositoryFullName.split('/')[1] }}</span>
+          <span class="minimized-story">{{ ctx.storyTitle }}</span>
+        } @else {
+          <span class="minimized-title">{{ viewerTitle() }}</span>
+        }
+        <span class="minimized-status" [class]="connectionState()">
+          <span class="status-dot"></span>
+          {{ connectionStateText() }}
+        </span>
+      }
+    </div>
+    <div class="minimized-actions">
+      <button class="mini-btn expand-btn" (click)="toggleMinimize(); $event.stopPropagation()" title="Expand">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"/>
+        </svg>
+      </button>
+      <button class="mini-btn close-btn" (click)="close(); $event.stopPropagation()" title="Close">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="18" y1="6" x2="6" y2="18"/>
+          <line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
+    </div>
+  </div>
+}
+
+<!-- Main Popup Container -->
+@if (dockPosition() !== 'minimized' || embedded()) {
+  <div class="vnc-popup"
+       [class.embedded]="embedded()"
+       #popupContainer
+       [class.floating]="dockPosition() === 'floating'"
+       [class.docked-right]="dockPosition() === 'right'"
+       [class.docked-bottom]="dockPosition() === 'bottom'"
+       [style.width]="popupStyle().width"
+       [style.height]="popupStyle().height"
+       [style.left]="popupStyle().left"
+       [style.top]="popupStyle().top"
+       [style.right]="popupStyle().right"
+       [style.bottom]="popupStyle().bottom">
+
+    <!-- Header / Title Bar -->
+    <div class="popup-header" (mousedown)="onDragStart($event)">
+      <div class="header-left">
+        <div class="app-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+        </div>
+        <span class="title">{{ viewerTitle() }}</span>
+        <div class="connection-badge" [class]="connectionState()">
+          <span class="badge-dot"></span>
+          <span class="badge-text">{{ connectionStateText() }}</span>
+        </div>
+      </div>
+
+      <div class="header-actions">
+        <!-- Dock buttons -->
+        <button class="action-btn" 
+                [class.active]="dockPosition() === 'floating'"
+                (click)="setDockPosition('floating')"
+                title="Float">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+          </svg>
+        </button>
+        <button class="action-btn"
+                [class.active]="dockPosition() === 'right'"
+                (click)="setDockPosition('right')"
+                title="Dock Right">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="15" y1="3" x2="15" y2="21"/>
+          </svg>
+        </button>
+        <button class="action-btn"
+                [class.active]="dockPosition() === 'bottom'"
+                (click)="setDockPosition('bottom')"
+                title="Dock Bottom">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/>
+            <line x1="3" y1="15" x2="21" y2="15"/>
+          </svg>
+        </button>
+        
+        <div class="action-divider"></div>
+        
+        <!-- Refresh -->
+        <button class="action-btn" (click)="refreshIframe()" title="Refresh">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M21 2v6h-6"/>
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8"/>
+            <path d="M3 22v-6h6"/>
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16"/>
+          </svg>
+        </button>
+        
+        <!-- Open in New Tab -->
+        <button class="action-btn" (click)="openInNewTab()" title="Open in New Tab">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+            <polyline points="15 3 21 3 21 9"/>
+            <line x1="10" y1="14" x2="21" y2="3"/>
+          </svg>
+        </button>
+        
+        @if (isConnected()) {
+          <button class="action-btn" (click)="toggleFullscreen()" title="Fullscreen">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+            </svg>
+          </button>
+        }
+
+        <!-- Minimize -->
+        <button class="action-btn" (click)="toggleMinimize()" title="Minimize">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+        </button>
+
+        <!-- Close -->
+        <button class="action-btn close-btn" (click)="close()" title="Close">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Content Area with Split View -->
+    <div class="popup-content" [class.with-conversations]="showConversations() && bridgePort()">
+      <!-- VNC Section -->
+      <div class="vnc-section">
+        <!-- Connection Controls (only show when error, not when connecting) -->
+        @if (hasError()) {
+          <div class="connection-overlay">
+            <div class="connection-card">
+              <div class="error-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+              </div>
+              <h3>Connection Failed</h3>
+              <p>{{ error() || 'Unable to connect to remote desktop' }}</p>
+              <button class="connect-button" (click)="connect()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Retry
+              </button>
+            </div>
+          </div>
+        }
+
+        <!-- Loading State (show while connecting, before iframe loads) -->
+        @if (isConnecting() && !hasIframeUrl()) {
+          <div class="loading-overlay">
+            <div class="loader">
+              <div class="loader-ring"></div>
+              <div class="loader-ring"></div>
+              <div class="loader-ring"></div>
+            </div>
+            <p>Connecting to remote desktop...</p>
+          </div>
+        }
+
+        <!-- VNC Iframe - always render when we have a URL -->
+        <iframe 
+          #vncIframe
+          [src]="iframeSrc()"
+          class="vnc-iframe"
+          [class.visible]="hasIframeUrl()"
+          width="100%"
+          height="100%"
+          style="border: none;"
+          (load)="onIframeLoad()">
+        </iframe>
+      </div>
+
+      <!-- AI Conversations Panel (Right Side) -->
+      @if (bridgePort()) {
+        <div class="conversations-panel" [class.collapsed]="!showConversations()">
+          <!-- Push & Create PR Button (when implementing user story) -->
+          @if (implementationContext()) {
+            <div class="push-pr-section">
+              @if (pushPrSuccess()) {
+                <div class="push-pr-success">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                    <polyline points="22 4 12 14.01 9 11.01"/>
+                  </svg>
+                  <span>PR created!</span>
+                  <a [href]="pushPrSuccess()!.url" target="_blank" rel="noopener" class="pr-link">Open PR</a>
+                </div>
+              } @else {
+                <button 
+                  class="push-pr-btn"
+                  (click)="pushAndCreatePr()"
+                  [disabled]="pushCreatingPr()">
+                  @if (pushCreatingPr()) {
+                    <span class="push-spinner"></span>
+                    <span>Pushing...</span>
+                  } @else {
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 2L11 13"/>
+                      <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+                    </svg>
+                    <span>Push & Create PR</span>
+                  }
+                </button>
+                @if (pushPrError()) {
+                  <small class="push-pr-error">{{ pushPrError() }}</small>
+                }
+              }
+            </div>
+          }
+          <div class="conversations-toggle" (click)="toggleConversations()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                 [style.transform]="showConversations() ? 'rotate(0deg)' : 'rotate(180deg)'">
+              <polyline points="15 18 9 12 15 6"/>
+            </svg>
+          </div>
+          
+          @if (showConversations()) {
+            <div class="conversations-header">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+              </svg>
+              <span>AI Responses</span>
+              @if (conversations().length > 0) {
+                <span class="conv-count">{{ conversations().length }}</span>
+              }
+            </div>
+            
+            <div class="conversations-content">
+              @if (conversations().length === 0) {
+                <div class="no-conversations">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M8 12h8"/>
+                  </svg>
+                  <p>Waiting for AI responses...</p>
+                  <small>Type a message below or use Zed's agent panel</small>
+                </div>
+              } @else {
+                <div class="conversations-list">
+                  @for (conv of conversations(); track conv.id) {
+                    <div class="conversation-item">
+                      <div class="conv-user">
+                        <span class="role-badge user">You</span>
+                        <p class="user-msg">{{ conv.user_message }}</p>
+                      </div>
+                      @if (conv.assistant_message) {
+                        <div class="conv-assistant">
+                          <span class="role-badge assistant">AI</span>
+                          <div class="assistant-msg markdown-content" [innerHTML]="conv.assistant_message | markdown"></div>
+                        </div>
+                      }
+                      <div class="conv-meta">
+                        <span class="conv-model">{{ conv.model }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            </div>
+            
+            <!-- Message Input -->
+            <div class="message-input-container">
+              <div class="message-input-wrapper">
+                <textarea 
+                  #messageInput
+                  class="message-input"
+                  [(ngModel)]="newMessage"
+                  placeholder="Send a message to Zed..."
+                  (keydown)="onMessageKeyDown($event)"
+                  [disabled]="isSending()"
+                  rows="1"></textarea>
+                <button 
+                  class="send-btn" 
+                  (click)="sendMessage()"
+                  [disabled]="!newMessage.trim() || isSending()">
+                  @if (isSending()) {
+                    <div class="send-spinner"></div>
+                  } @else {
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <line x1="22" y1="2" x2="11" y2="13"/>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                  }
+                </button>
+              </div>
+              <small class="input-hint">Press Enter to send, Shift+Enter for new line</small>
+            </div>
+          }
+        </div>
+      }
+    </div>
+
+    <!-- Resize Handles (only for floating mode) -->
+    @if (dockPosition() === 'floating') {
+      <div class="resize-handle resize-n" (mousedown)="onResizeStart($event, 'n')"></div>
+      <div class="resize-handle resize-e" (mousedown)="onResizeStart($event, 'e')"></div>
+      <div class="resize-handle resize-s" (mousedown)="onResizeStart($event, 's')"></div>
+      <div class="resize-handle resize-w" (mousedown)="onResizeStart($event, 'w')"></div>
+      <div class="resize-handle resize-ne" (mousedown)="onResizeStart($event, 'ne')"></div>
+      <div class="resize-handle resize-se" (mousedown)="onResizeStart($event, 'se')"></div>
+      <div class="resize-handle resize-sw" (mousedown)="onResizeStart($event, 'sw')"></div>
+      <div class="resize-handle resize-nw" (mousedown)="onResizeStart($event, 'nw')"></div>
+    }
+  </div>
+}
