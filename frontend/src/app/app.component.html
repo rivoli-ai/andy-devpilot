@@ -1,0 +1,70 @@
+@if (authService.isLoggedIn()) {
+  <div class="app-container" [class]="getContentClasses()">
+    <app-sidebar [isCollapsed]="sidebarCollapsed()" />
+    <div class="app-content">
+      <app-header (toggleSidebar)="toggleSidebar()" />
+      <main class="main-content">
+        <router-outlet />
+      </main>
+    </div>
+    @if (sidebarOpen()) {
+      <div class="sidebar-overlay" (click)="toggleSidebar()"></div>
+    }
+  </div>
+} @else {
+  <!-- No sidebar/header for unauthenticated pages (login, callback) -->
+  <router-outlet />
+}
+
+<!-- Floating VNC Viewers -->
+@for (viewer of floatingViewers(); track viewer.id) {
+  <app-vnc-viewer 
+    [config]="viewer.config"
+    [viewerId]="viewer.id"
+    [viewerIndex]="0"
+    [initialDockPosition]="viewer.dockPosition"
+    [viewerTitle]="viewer.title || 'Sandbox'"
+    [bridgePort]="viewer.bridgePort"
+    [implementationContext]="viewer.implementationContext"
+    (closeEvent)="onVncViewerClose(viewer.id)">
+  </app-vnc-viewer>
+}
+
+<!-- Minimized VNC Viewers -->
+@for (viewer of minimizedViewers(); track viewer.id; let i = $index) {
+  <app-vnc-viewer 
+    [config]="viewer.config"
+    [viewerId]="viewer.id"
+    [viewerIndex]="i"
+    [initialDockPosition]="viewer.dockPosition"
+    [viewerTitle]="viewer.title || 'Sandbox'"
+    [bridgePort]="viewer.bridgePort"
+    [implementationContext]="viewer.implementationContext"
+    (closeEvent)="onVncViewerClose(viewer.id)">
+  </app-vnc-viewer>
+}
+
+<!-- Right Docked Panel (with tabs if multiple viewers) -->
+@if (rightDockedViewers().length > 0) {
+  <app-dock-panel
+    [viewers]="rightDockedViewers()"
+    [position]="'right'"
+    (viewerClosed)="onVncViewerClose($event)"
+    (viewerUndocked)="onViewerUndocked($event)"
+    (viewerMinimized)="onViewerMinimized($event)">
+  </app-dock-panel>
+}
+
+<!-- Bottom Docked Panel (with tabs if multiple viewers) -->
+@if (bottomDockedViewers().length > 0) {
+  <app-dock-panel
+    [viewers]="bottomDockedViewers()"
+    [position]="'bottom'"
+    (viewerClosed)="onVncViewerClose($event)"
+    (viewerUndocked)="onViewerUndocked($event)"
+    (viewerMinimized)="onViewerMinimized($event)">
+  </app-dock-panel>
+}
+
+<!-- Global Toast Notifications -->
+<app-toast />

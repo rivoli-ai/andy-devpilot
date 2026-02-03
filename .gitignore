@@ -1,0 +1,2 @@
+# Local development config (secrets)
+src/API/appsettings.Development.json

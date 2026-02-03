@@ -1,0 +1,76 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  border-radius: var(--radius-full);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition: all var(--duration-base) var(--ease-out);
+}
+
+.badge-primary {
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--brand-primary);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.badge-secondary {
+  background: rgba(139, 92, 246, 0.12);
+  color: var(--brand-secondary);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+.badge-success {
+  background: var(--success-50);
+  color: var(--success-600);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.badge-warning {
+  background: var(--warning-50);
+  color: var(--warning-600);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.badge-error {
+  background: var(--error-50);
+  color: var(--error-600);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.badge-info {
+  background: var(--info-50);
+  color: var(--info-600);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* Dark mode adjustments */
+[data-theme="dark"] .badge-primary {
+  background: rgba(99, 102, 241, 0.15);
+}
+
+[data-theme="dark"] .badge-secondary {
+  background: rgba(139, 92, 246, 0.15);
+}
+
+[data-theme="dark"] .badge-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+}
+
+[data-theme="dark"] .badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+[data-theme="dark"] .badge-error {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+}
+
+[data-theme="dark"] .badge-info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
+}
