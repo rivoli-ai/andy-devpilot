@@ -1,6 +1,6 @@
 import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { ActivatedRoute, Router } from '@angular/router';
+import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { 
   RepositoryService, 
@@ -29,7 +29,7 @@ export type TabType = 'code' | 'pullRequests';
 @Component({
   selector: 'app-code',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, RouterLink],
   templateUrl: './code.component.html',
   styleUrl: './code.component.css'
 })

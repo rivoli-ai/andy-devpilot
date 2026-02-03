@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy, signal, computed, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { ActivatedRoute } from '@angular/router';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy } from '../../core/services/backlog.service';
 import { RepositoryService } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
@@ -10,7 +10,7 @@ import { SandboxBridgeService, ZedConversation } from '../../core/services/sandb
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { AuthService } from '../../core/services/auth.service';
-import { getVncHtmlUrl } from '../../core/config/vps.config';
+import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
 import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
@@ -31,7 +31,7 @@ interface ExpandedState {
 @Component({
   selector: 'app-backlog',
   standalone: true,
-  imports: [CommonModule, FormsModule, AddBacklogItemModalComponent],
+  imports: [CommonModule, FormsModule, RouterLink, AddBacklogItemModalComponent],
   templateUrl: './backlog.component.html',
   styleUrl: './backlog.component.css'
 })
@@ -828,7 +828,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
               });
             }, 20000); // 20s for Zed to start
           }
-        }, 7000); // 7s wait for sandbox/VNC to be ready
+        }, VPS_CONFIG.sandboxReadyDelayMs);
       },
       error: (err) => {
         console.error('Failed to create sandbox:', err);
@@ -1010,7 +1010,7 @@ Start by exploring the codebase and then provide your implementation plan.`;
           setTimeout(() => {
             this.sendBacklogPrompt(sandbox.bridge_port!);
           }, 20000); // 20s for Zed to start
-        }, 7000); // 7s wait for sandbox/VNC to be ready
+        }, VPS_CONFIG.sandboxReadyDelayMs);
       },
       error: (err) => {
         this.generationError.set('Failed to create sandbox: ' + (err.message || 'Unknown error'));

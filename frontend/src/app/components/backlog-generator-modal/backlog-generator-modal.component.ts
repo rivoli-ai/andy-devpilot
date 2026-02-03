@@ -9,7 +9,7 @@ import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { RepositoryService } from '../../core/services/repository.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { Repository } from '../../shared/models/repository.model';
-import { getVncHtmlUrl } from '../../core/config/vps.config';
+import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
 import { ButtonComponent } from '../../shared/components';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 
@@ -586,13 +586,13 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
             sandbox.bridge_port!
           );
 
-          // Wait for Zed to fully initialize before sending prompt (same as analyze - 15 seconds)
+          // Wait for Zed to fully initialize before sending prompt
           this.state.set('waiting_sandbox');
           setTimeout(() => {
             console.log('Sending backlog generation prompt to Zed...');
             this.sendBacklogPrompt(sandbox.bridge_port!);
-          }, 15000); // Wait 15 seconds for Zed to fully initialize (same as analyze)
-        }, 7000); // Wait 7 seconds for container services (same as analyze)
+          }, 15000); // Wait for Zed to fully initialize
+        }, VPS_CONFIG.sandboxReadyDelayMs);
       },
       error: (err) => {
         console.error('Failed to create sandbox:', err);

@@ -6,7 +6,7 @@
 # Run: curl -sSL <url> | sudo bash
 #
 # Version: 2.1.0 - Fixed Zed launch (no script wrapper, USER sandbox)
-SETUP_VERSION="2.1.0"
+SETUP_VERSION="2.2.0"
 
 set -e
 
@@ -116,7 +116,7 @@ ENV RESOLUTION=1920x1080x24
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb x11vnc novnc websockify nginx \
     xfce4 xfce4-terminal xterm screen thunar mousepad \
-    firefox xterm screen \
+    xterm screen \
     sudo wget curl git ca-certificates \
     python3 python3-pip python3-venv dbus-x11 \
     fonts-dejavu fonts-liberation \
@@ -125,8 +125,32 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     mesa-vulkan-drivers \
     xdotool wmctrl xclip xsel \
     xdg-desktop-portal xdg-desktop-portal-gtk \
+    xdg-utils bzip2 xz-utils \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then \
+        curl -L "https://download.mozilla.org/?product=firefox-latest&os=linux64-aarch64&lang=en-US" -o /tmp/firefox.tar.xz; \
+    else \
+        curl -L "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US" -o /tmp/firefox.tar.xz; \
+    fi && \
+    tar -xJf /tmp/firefox.tar.xz -C /opt/ && \
+    ln -sf /opt/firefox/firefox /usr/local/bin/firefox && \
+    rm /tmp/firefox.tar.xz
+
+# Create Firefox desktop file with --no-sandbox flag (required for Docker)
+RUN echo '[Desktop Entry]\n\
+Name=Firefox\n\
+Comment=Web Browser\n\
+Exec=/opt/firefox/firefox --no-sandbox %u\n\
+Terminal=false\n\
+Type=Application\n\
+Icon=/opt/firefox/browser/chrome/icons/default/default128.png\n\
+Categories=Network;WebBrowser;\n\
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;\n\
+StartupWMClass=firefox' > /usr/share/applications/firefox.desktop
 
 # Install Python packages for ACP agent and bridge API in a virtual environment
 RUN python3 -m venv /opt/devpilot-venv && \
@@ -1777,9 +1801,212 @@ echo "D-Bus address: $DBUS_SESSION_BUS_ADDRESS"
 # Initialize gnome-keyring with empty password (avoids password prompt)
 echo "" | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null || true
 
-# Start desktop with D-Bus
+# Configure XFCE panel and desktop BEFORE starting the session (so they are used on first load)
+mkdir -p /home/sandbox/.config/xfce4
+mkdir -p /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml
+
+# Create taskbar launchers (Terminal=17, Firefox=19, Zed=21) - must exist before panel reads config
+mkdir -p /home/sandbox/.config/xfce4/panel/launcher-17
+mkdir -p /home/sandbox/.config/xfce4/panel/launcher-19
+mkdir -p /home/sandbox/.config/xfce4/panel/launcher-21
+
+# Terminal launcher - copy from system or create minimal one
+if [ -f /usr/share/applications/xfce4-terminal-emulator.desktop ]; then
+  cp /usr/share/applications/xfce4-terminal-emulator.desktop /home/sandbox/.config/xfce4/panel/launcher-17/xfce4-terminal-emulator.desktop
+else
+  cat > /home/sandbox/.config/xfce4/panel/launcher-17/xfce4-terminal-emulator.desktop << 'TERMINALLAUNCHER'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Exec=xfce4-terminal
+Terminal=false
+Categories=System;TerminalEmulator;
+Name=Terminal
+Comment=Terminal emulator
+TERMINALLAUNCHER
+fi
+
+# Firefox launcher
+cat > /home/sandbox/.config/xfce4/panel/launcher-19/firefox.desktop << 'FIREFOXLAUNCHER'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Exec=/opt/firefox/firefox --no-sandbox %u
+Icon=/opt/firefox/browser/chrome/icons/default/default128.png
+StartupNotify=true
+Terminal=false
+Categories=Network;WebBrowser;
+Name=Firefox
+Comment=Browse the web with Firefox
+FIREFOXLAUNCHER
+
+# Zed launcher
+cat > /home/sandbox/.config/xfce4/panel/launcher-21/zed.desktop << 'ZEDLAUNCHER'
+[Desktop Entry]
+Version=1.0
+Type=Application
+Exec=/home/sandbox/.local/bin/zed
+Icon=/home/sandbox/.local/zed.app/share/icons/hicolor/512x512/apps/zed.png
+StartupNotify=true
+Terminal=false
+Categories=Development;IDE;
+Name=Zed
+Comment=Code editor
+ZEDLAUNCHER
+
+# Panel config: only Terminal, Firefox, Zed on taskbar (panel-2)
+cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 'PANELCONFIG'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-panel" version="1.0">
+  <property name="configver" type="int" value="2"/>
+  <property name="panels" type="array">
+    <value type="int" value="1"/>
+    <value type="int" value="2"/>
+    <property name="dark-mode" type="bool" value="true"/>
+    <property name="panel-1" type="empty">
+      <property name="position" type="string" value="p=6;x=0;y=0"/>
+      <property name="length" type="uint" value="100"/>
+      <property name="position-locked" type="bool" value="true"/>
+      <property name="icon-size" type="uint" value="16"/>
+      <property name="size" type="uint" value="26"/>
+      <property name="plugin-ids" type="array">
+        <value type="int" value="1"/>
+        <value type="int" value="2"/>
+        <value type="int" value="3"/>
+        <value type="int" value="4"/>
+        <value type="int" value="5"/>
+        <value type="int" value="6"/>
+        <value type="int" value="8"/>
+        <value type="int" value="11"/>
+        <value type="int" value="12"/>
+        <value type="int" value="13"/>
+        <value type="int" value="14"/>
+      </property>
+    </property>
+    <property name="panel-2" type="empty">
+      <property name="autohide-behavior" type="uint" value="1"/>
+      <property name="position" type="string" value="p=10;x=0;y=0"/>
+      <property name="length" type="uint" value="1"/>
+      <property name="position-locked" type="bool" value="true"/>
+      <property name="size" type="uint" value="48"/>
+      <property name="plugin-ids" type="array">
+        <value type="int" value="15"/>
+        <value type="int" value="16"/>
+        <value type="int" value="17"/>
+        <value type="int" value="19"/>
+        <value type="int" value="21"/>
+        <value type="int" value="22"/>
+      </property>
+    </property>
+  </property>
+  <property name="plugins" type="empty">
+    <property name="plugin-1" type="string" value="applicationsmenu"/>
+    <property name="plugin-2" type="string" value="tasklist">
+      <property name="grouping" type="uint" value="1"/>
+    </property>
+    <property name="plugin-3" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-4" type="string" value="pager"/>
+    <property name="plugin-5" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-6" type="string" value="systray">
+      <property name="square-icons" type="bool" value="true"/>
+    </property>
+    <property name="plugin-8" type="string" value="pulseaudio">
+      <property name="enable-keyboard-shortcuts" type="bool" value="true"/>
+      <property name="show-notifications" type="bool" value="true"/>
+    </property>
+    <property name="plugin-11" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-12" type="string" value="clock"/>
+    <property name="plugin-13" type="string" value="separator">
+      <property name="style" type="uint" value="0"/>
+    </property>
+    <property name="plugin-14" type="string" value="actions"/>
+    <property name="plugin-15" type="string" value="showdesktop"/>
+    <property name="plugin-16" type="string" value="separator"/>
+    <property name="plugin-17" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="xfce4-terminal-emulator.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-19" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="firefox.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-21" type="string" value="launcher">
+      <property name="items" type="array">
+        <value type="string" value="zed.desktop"/>
+      </property>
+    </property>
+    <property name="plugin-22" type="string" value="separator"/>
+  </property>
+</channel>
+PANELCONFIG
+
+# Dark desktop background
+cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-desktop.xml << 'DESKTOPCONFIG'
+<?xml version="1.0" encoding="UTF-8"?>
+<channel name="xfce4-desktop" version="1.0">
+  <property name="backdrop" type="empty">
+    <property name="screen0" type="empty">
+      <property name="monitorscreen" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="color-style" type="int" value="0"/>
+          <property name="image-style" type="int" value="0"/>
+          <property name="rgba1" type="array">
+            <value type="double" value="0.101961"/>
+            <value type="double" value="0.101961"/>
+            <value type="double" value="0.117647"/>
+            <value type="double" value="1"/>
+          </property>
+        </property>
+      </property>
+      <property name="monitoreDP-1" type="empty">
+        <property name="workspace0" type="empty">
+          <property name="color-style" type="int" value="0"/>
+          <property name="image-style" type="int" value="0"/>
+          <property name="rgba1" type="array">
+            <value type="double" value="0.101961"/>
+            <value type="double" value="0.101961"/>
+            <value type="double" value="0.117647"/>
+            <value type="double" value="1"/>
+          </property>
+        </property>
+      </property>
+    </property>
+  </property>
+  <property name="desktop-icons" type="empty">
+    <property name="style" type="int" value="0"/>
+  </property>
+</channel>
+DESKTOPCONFIG
+
+# Firefox as default browser
+echo "WebBrowser=firefox" > /home/sandbox/.config/xfce4/helpers.rc
+mkdir -p /home/sandbox/.local/share/applications
+xdg-mime default firefox.desktop x-scheme-handler/http 2>/dev/null || true
+xdg-mime default firefox.desktop x-scheme-handler/https 2>/dev/null || true
+xdg-settings set default-web-browser firefox.desktop 2>/dev/null || true
+
+echo "Panel and desktop configured (Terminal, Firefox, Zed)" >> /tmp/sandbox-debug.log
+
+# Start desktop with D-Bus (after config is in place)
 startxfce4 &
-sleep 3
+sleep 5
+
+# Restart panel so it reloads our config (Terminal, Firefox, Zed only)
+# XFCE may have written default config on first start; this ensures our config is used
+pkill -9 xfce4-panel 2>/dev/null || true
+sleep 1
+DISPLAY=:0 xfce4-panel &
+sleep 1
+echo "Panel restarted with Terminal, Firefox, Zed" >> /tmp/sandbox-debug.log
 
 # Start VNC server
 x11vnc -display $DISPLAY -forever -shared -rfbport 5900 -nopw -xkb &
@@ -1912,7 +2139,22 @@ export MESA_GL_VERSION_OVERRIDE=4.5
 export GALLIUM_DRIVER=llvmpipe
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 export __GLX_VENDOR_LIBRARY_NAME=mesa
-export VK_ICD_FILENAMES=""
+
+# CRITICAL: Explicitly select lavapipe (software Vulkan) device
+# Without this, Zed fails with "VK_KHR_get_physical_device_properties2 not supported"
+export MESA_VK_DEVICE_SELECT=10005:0
+
+# Set ICD file - try generic name first, then architecture-specific
+if [ -f /usr/share/vulkan/icd.d/lvp_icd.json ]; then
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+else
+    ARCH=$(uname -m)
+    if [ "$ARCH" = "aarch64" ]; then
+        export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.aarch64.json
+    elif [ "$ARCH" = "x86_64" ]; then
+        export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+    fi
+fi
 export DISABLE_LAYER_AMD_SWITCHABLE_GRAPHICS_1=1
 
 # Suppress Vulkan/GPU warnings
@@ -1982,9 +2224,21 @@ export MESA_GL_VERSION_OVERRIDE=4.5
 export GALLIUM_DRIVER=llvmpipe
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
-# Force Mesa to use llvmpipe for Vulkan
+# CRITICAL: Explicitly select lavapipe (software Vulkan) device
+# Without this, Zed fails with "VK_KHR_get_physical_device_properties2 not supported"
 export MESA_VK_DEVICE_SELECT=10005:0
-export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+
+# Set ICD file - try generic name first, then architecture-specific
+if [ -f /usr/share/vulkan/icd.d/lvp_icd.json ]; then
+    export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+else
+    ARCH=\$(uname -m)
+    if [ "\$ARCH" = "aarch64" ]; then
+        export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.aarch64.json
+    elif [ "\$ARCH" = "x86_64" ]; then
+        export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+    fi
+fi
 
 # Allow emulated GPU - skip the warning dialog
 export ZED_ALLOW_EMULATED_GPU=1

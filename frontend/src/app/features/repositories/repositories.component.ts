@@ -11,7 +11,7 @@ import { AIConfigService } from '../../core/services/ai-config.service';
 import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
 import { Repository } from '../../shared/models/repository.model';
 import { ButtonComponent, CardComponent, BadgeComponent, DataGridComponent, GridColumn } from '../../shared/components';
-import { getVncHtmlUrl } from '../../core/config/vps.config';
+import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
 
 /**
  * Component for displaying and managing repositories
@@ -480,7 +480,7 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
         console.log('Sandbox created:', sandbox);
         console.log('Repo:', repo.name, 'Branch:', repo.defaultBranch);
         
-        // Wait for the container services to fully start
+        // Wait for the container services to fully start (XFCE, panel, VNC, Zed)
         setTimeout(() => {
           this.creatingSandboxFor.set(null);
           console.log('Opening VNC viewer for sandbox:', sandbox.id);
@@ -504,7 +504,7 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
           // Trigger auto-analysis via Bridge API after Zed has time to start
           if (sandbox.bridge_port) {
             setTimeout(() => {
-              console.log('Triggering auto-analysis virepoa Bridge API...');
+              console.log('Triggering auto-analysis via Bridge API...');
               this.sandboxBridgeService.sendZedPrompt(
                 sandbox.bridge_port!,
                 'Please analyze this repository. Give me an overview of the project structure, main technologies used, and any potential improvements or issues you notice.'
@@ -516,9 +516,9 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
                   console.warn('Failed to send analysis prompt (Zed may not be ready yet):', err);
                 }
               });
-            }, 15000); // Wait 15 seconds for Zed to fully initialize
+            }, 15000); // Wait for Zed to fully initialize
           }
-        }, 7000);
+        }, VPS_CONFIG.sandboxReadyDelayMs);
       },
       error: (err) => {
         console.warn('Sandbox API error:', err);

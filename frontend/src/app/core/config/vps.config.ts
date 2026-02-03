@@ -10,7 +10,12 @@ export const VPS_CONFIG = {
   /** Sandbox Manager API port */
   sandboxApiPort: 8090,
   /** VNC password (optional) */
-  password: ''
+  password: '',
+  /**
+   * Delay in ms to wait after sandbox creation before opening VNC / sending prompts.
+   * Must be long enough for: XFCE + panel restart + VNC + Zed to start.
+   */
+  sandboxReadyDelayMs: 13000
 };
 
 /**
