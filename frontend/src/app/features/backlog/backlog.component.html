@@ -12,6 +12,15 @@
         Backlog
       </h1>
       <span class="repo-name">{{ repositoryName() }}</span>
+      <nav class="view-switcher">
+        <a [routerLink]="['/code', repositoryId()]" class="view-link" title="View repository code">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="16 18 22 12 16 6"/>
+            <polyline points="8 6 2 12 8 18"/>
+          </svg>
+          <span>Code</span>
+        </a>
+      </nav>
     </div>
     <div class="header-actions">
       <div class="prompt-options-trigger">
@@ -189,12 +198,21 @@
       </div>
       <div class="stat-divider"></div>
       <div class="stat-item-progress">
-        <div class="progress-header">
-          <span class="progress-label">Overall Progress</span>
-          <span class="progress-percentage">{{ backlogProgress() }}%</span>
-        </div>
-        <div class="progress-track">
-          <div class="progress-fill-global" [style.width.%]="backlogProgress()"></div>
+        <div class="progress-circle-wrap">
+          <svg class="progress-circle" viewBox="0 0 36 36" [attr.aria-label]="'Overall progress ' + backlogProgress() + '%'">
+            <circle class="progress-circle-track" cx="18" cy="18" r="14" fill="none" stroke-width="3"/>
+            <circle
+              class="progress-circle-fill"
+              cx="18"
+              cy="18"
+              r="14"
+              fill="none"
+              stroke-width="3"
+              stroke-dasharray="87.96"
+              [attr.stroke-dashoffset]="87.96 - (backlogProgress() / 100) * 87.96"
+            />
+          </svg>
+          <span class="progress-circle-value">{{ backlogProgress() }}%</span>
         </div>
       </div>
     </div>
@@ -320,36 +338,45 @@
         <span>{{ error() }}</span>
       </div>
     } @else if (generationState() !== 'idle' && generationState() !== 'error' && generationState() !== 'complete') {
-      <!-- Generation Waiting Room: single unified design, no duplicates -->
+      <!-- Generation Waiting Room: overlay with improved progress design -->
       <div class="generation-waiting-room">
+        <div class="waiting-room-backdrop"></div>
         <div class="waiting-room-card">
-          <!-- Step progress indicator -->
-          <div class="step-progress">
+          <div class="waiting-room-header">
+            <span class="waiting-room-badge">Generating backlog</span>
+            <span class="waiting-room-step">Step {{ currentStepOrder() }} of {{ generationSteps().length }}</span>
+          </div>
+
+          <!-- Stepper: dots with labels -->
+          <div class="stepper">
             @for (step of generationSteps(); track step.id) {
               <div 
-                class="step-dot" 
+                class="stepper-item"
                 [class.active]="step.id === currentStepId()"
                 [class.done]="step.order < currentStepOrder()">
+                <div class="stepper-dot">
+                  @if (step.order < currentStepOrder()) {
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                      <polyline points="20 6 9 17 4 12"/>
+                    </svg>
+                  }
+                </div>
+                <span class="stepper-label">{{ step.label }}</span>
               </div>
               @if (!$last) {
-                <div class="step-connector" [class.done]="step.order < currentStepOrder()"></div>
+                <div class="stepper-line" [class.done]="step.order < currentStepOrder()"></div>
               }
             }
           </div>
-          <div class="step-labels">
-            <span class="step-current">{{ currentStepLabel() }}</span>
-            <span class="step-count">Step {{ currentStepOrder() }} of {{ generationSteps().length }}</span>
-          </div>
 
-          <!-- Status content -->
+          <!-- Current step content -->
           <div class="waiting-status">
-            <div class="status-icon">
+            <div class="waiting-status-icon">
               <span class="spinner-large"></span>
             </div>
-            <h2>{{ currentStepTitle() }}</h2>
-            <p>{{ currentStepDescription() }}</p>
+            <h2 class="waiting-status-title">{{ currentStepTitle() }}</h2>
+            <p class="waiting-status-desc">{{ currentStepDescription() }}</p>
 
-            <!-- AI response preview: only here, only when waiting_response -->
             @if (generationState() === 'waiting_response' && latestResponse()) {
               <div class="ai-response-card">
                 <div class="ai-response-header">
