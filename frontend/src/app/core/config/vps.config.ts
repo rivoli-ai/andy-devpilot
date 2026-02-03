@@ -4,13 +4,18 @@
  */
 export const VPS_CONFIG = {
   /** VPS IP address or hostname */
-  ip: 'localhost',
+  ip: '217.154.24.12',
   /** noVNC port (default: 6080) - used for single container mode */
   novncPort: 6080,
   /** Sandbox Manager API port */
   sandboxApiPort: 8090,
   /** VNC password (optional) */
-  password: ''
+  password: '',
+  /**
+   * Delay in ms to wait after sandbox creation before opening VNC / sending prompts.
+   * Must be long enough for: XFCE + panel restart + VNC + Zed to start.
+   */
+  sandboxReadyDelayMs: 13000
 };
 
 /**
