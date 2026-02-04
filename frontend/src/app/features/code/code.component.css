@@ -636,49 +636,197 @@
   margin: 0;
 }
 
-/* File content */
-.file-content {
+/* File content - code viewer */
+.file-content.code-viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #0d1117;
+  border-radius: 0 0 var(--radius-lg) 0;
+}
+
+.code-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-4);
+  background: #161b22;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.code-lang-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #8b949e;
+}
+
+.copy-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-family: var(--font-sans);
+  color: #8b949e;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s, border-color 0.15s;
+}
+
+.copy-btn:hover {
+  color: #c9d1d9;
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.15);
+}
+
+.copy-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.code-scroll {
   flex: 1;
   overflow: auto;
-  background: var(--surface-primary);
+  min-height: 0;
 }
 
 .code-lines {
   width: 100%;
+  min-width: max-content;
   border-collapse: collapse;
-  font-family: var(--font-mono);
+  font-family: 'JetBrains Mono', 'SF Mono', 'Monaco', 'Menlo', 'Consolas', monospace;
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
+  tab-size: 4;
 }
 
 .code-line {
-  height: 20px;
+  transition: background 0.1s ease;
 }
 
 .code-line:hover {
-  background: var(--surface-hover);
+  background: rgba(255, 255, 255, 0.04);
 }
 
 .line-number {
-  width: 50px;
-  padding: 0 var(--space-3);
+  width: 48px;
+  min-width: 48px;
+  padding: 0 12px;
   text-align: right;
-  color: var(--text-muted);
+  font-size: 12px;
+  color: #484f58;
   user-select: none;
-  border-right: 1px solid var(--border-light);
-  background: var(--surface-secondary);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  background: #0d1117;
   vertical-align: top;
+  line-height: 1.6;
 }
 
 .line-content {
-  padding: 0 var(--space-3);
+  padding: 0 16px;
   white-space: pre;
-  color: var(--text-primary);
+  overflow: visible;
+  color: #c9d1d9;
+  vertical-align: top;
 }
 
-.line-content pre {
-  margin: 0;
+.line-code {
   font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  margin: 0;
+  padding: 0;
+  background: none;
+  border: none;
+  display: block;
+  min-height: 1.6em;
+}
+
+/* Prism syntax highlighting - GitHub Dark (scoped to code viewer) */
+.code-viewer .token.comment,
+.code-viewer .token.prolog,
+.code-viewer .token.doctype,
+.code-viewer .token.cdata {
+  color: #8b949e;
+  font-style: italic;
+}
+
+.code-viewer .token.punctuation {
+  color: #c9d1d9;
+}
+
+.code-viewer .token.property {
+  color: #79c0ff;
+}
+
+.code-viewer .token.tag,
+.code-viewer .token.constant,
+.code-viewer .token.symbol,
+.code-viewer .token.deleted {
+  color: #ff7b72;
+}
+
+.code-viewer .token.boolean,
+.code-viewer .token.number {
+  color: #79c0ff;
+}
+
+.code-viewer .token.selector,
+.code-viewer .token.attr-name,
+.code-viewer .token.char,
+.code-viewer .token.builtin,
+.code-viewer .token.inserted {
+  color: #a5d6ff;
+}
+
+.code-viewer .token.string {
+  color: #a5d6ff;
+}
+
+.code-viewer .token.operator,
+.code-viewer .token.entity,
+.code-viewer .token.url,
+.code-viewer .token.variable {
+  color: #79c0ff;
+}
+
+.code-viewer .token.atrule,
+.code-viewer .token.attr-value,
+.code-viewer .token.function {
+  color: #d2a8ff;
+}
+
+.code-viewer .token.class-name {
+  color: #ffa657;
+}
+
+.code-viewer .token.keyword {
+  color: #ff7b72;
+}
+
+.code-viewer .token.regex,
+.code-viewer .token.important {
+  color: #ffa657;
+}
+
+/* JSON */
+.code-viewer[data-lang="json"] .token.property {
+  color: #7ee787;
+}
+
+/* SQL */
+.code-viewer .token.keyword.sql {
+  color: #ff7b72;
+}
+
+.code-viewer .token.string.sql {
+  color: #a5d6ff;
 }
 
 /* Light theme adjustments */
