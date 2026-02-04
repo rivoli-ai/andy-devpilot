@@ -70,6 +70,33 @@ export interface PullRequest {
   reviewers: string[];
 }
 
+// Code Analysis interfaces
+export interface CodeAnalysisResult {
+  id: string;
+  repositoryId: string;
+  branch: string;
+  summary: string;
+  architecture?: string;
+  keyComponents?: string;
+  dependencies?: string;
+  recommendations?: string;
+  analyzedAt: string;
+  model?: string;
+}
+
+export interface FileAnalysisResult {
+  id: string;
+  repositoryId: string;
+  filePath: string;
+  branch: string;
+  explanation: string;
+  keyFunctions?: string;
+  complexity?: string;
+  suggestions?: string;
+  analyzedAt: string;
+  model?: string;
+}
+
 /**
  * Service for managing repositories
  * Uses signals for reactive state management
@@ -280,5 +307,66 @@ export class RepositoryService {
    */
   getAuthenticatedCloneUrl(repositoryId: string): Observable<{ cloneUrl: string }> {
     return this.apiService.get<{ cloneUrl: string }>(`/repositories/${repositoryId}/clone-url`);
+  }
+
+  // ============================================
+  // Code Analysis Methods
+  // ============================================
+
+  /**
+   * Get stored code analysis for a repository
+   */
+  getCodeAnalysis(repositoryId: string, branch?: string): Observable<CodeAnalysisResult> {
+    let url = `/repositories/${repositoryId}/analysis`;
+    if (branch) url += `?branch=${encodeURIComponent(branch)}`;
+    return this.apiService.get<CodeAnalysisResult>(url);
+  }
+
+  /**
+   * Save code analysis results (frontend-driven sandbox flow)
+   */
+  saveCodeAnalysis(
+    repositoryId: string, 
+    analysis: {
+      branch?: string;
+      summary: string;
+      architecture?: string;
+      keyComponents?: string;
+      dependencies?: string;
+      recommendations?: string;
+      model?: string;
+    }
+  ): Observable<CodeAnalysisResult> {
+    return this.apiService.post<CodeAnalysisResult>(
+      `/repositories/${repositoryId}/analysis`,
+      analysis
+    );
+  }
+
+  /**
+   * Get stored file analysis
+   */
+  getFileAnalysis(repositoryId: string, filePath: string, branch?: string): Observable<FileAnalysisResult> {
+    let url = `/repositories/${repositoryId}/analysis/file?path=${encodeURIComponent(filePath)}`;
+    if (branch) url += `&branch=${encodeURIComponent(branch)}`;
+    return this.apiService.get<FileAnalysisResult>(url);
+  }
+
+  /**
+   * Trigger a new file analysis
+   * Uses direct AI chat completion (no sandbox needed)
+   */
+  analyzeFile(repositoryId: string, filePath: string, fileContent: string, branch?: string): Observable<FileAnalysisResult> {
+    return this.apiService.post<FileAnalysisResult>(
+      `/repositories/${repositoryId}/analysis/file`,
+      { filePath, fileContent, branch }
+    );
+  }
+
+  /**
+   * Delete all stored analysis for a repository (for refresh)
+   */
+  deleteAnalysis(repositoryId: string): Observable<{ message: string }> {
+    return this.apiService.delete<{ message: string }>(`/repositories/${repositoryId}/analysis`);
   }
 }
