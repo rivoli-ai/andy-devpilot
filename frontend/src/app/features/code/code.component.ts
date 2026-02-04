@@ -11,6 +11,7 @@ import {
   PullRequest
 } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
+import { CodeHighlightPipe } from '../../shared/pipes/code-highlight.pipe';
 
 // Extended tree item with children and state
 export interface TreeNode extends RepositoryTreeItem {
@@ -29,7 +30,7 @@ export type TabType = 'code' | 'pullRequests';
 @Component({
   selector: 'app-code',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink],
+  imports: [CommonModule, FormsModule, RouterLink, CodeHighlightPipe],
   templateUrl: './code.component.html',
   styleUrl: './code.component.css'
 })
@@ -72,6 +73,24 @@ export class CodeComponent implements OnInit {
     const file = this.selectedFile();
     if (!file || file.isBinary) return [];
     return file.content.split('\n');
+  });
+
+  /** Lines with index for @for track (track by index) */
+  fileLinesWithIndex = computed(() => {
+    const lines = this.fileLines();
+    return lines.map((line, index) => ({ line, index }));
+  });
+
+  /** Language for syntax highlighting (from file.language or file extension) */
+  fileLanguage = computed(() => {
+    const file = this.selectedFile();
+    if (!file) return null;
+    if (file.language) return file.language;
+    const name = file.name || '';
+    const dot = name.lastIndexOf('.');
+    if (dot >= 0) return name.slice(dot + 1);
+    if (name.toLowerCase() === 'dockerfile') return 'dockerfile';
+    return null;
   });
 
   // PR computed values
@@ -258,6 +277,15 @@ export class CodeComponent implements OnInit {
   closeFile(): void {
     this.selectedFile.set(null);
     this.selectedFilePath.set(null);
+  }
+
+  copyFileContent(): void {
+    const file = this.selectedFile();
+    if (!file || file.isBinary) return;
+    navigator.clipboard.writeText(file.content).then(
+      () => { /* optional: show toast */ },
+      () => { /* fallback or ignore */ }
+    );
   }
 
   toggleBranchDropdown(): void {

@@ -246,17 +246,31 @@
                 <p>Binary file cannot be displayed</p>
               </div>
             } @else {
-              <div class="file-content">
-                <table class="code-lines">
-                  <tbody>
-                    @for (line of fileLines(); track line; let i = $index) {
-                      <tr class="code-line">
-                        <td class="line-number">{{ i + 1 }}</td>
-                        <td class="line-content"><pre>{{ line }}</pre></td>
-                      </tr>
-                    }
-                  </tbody>
-                </table>
+              <div class="file-content code-viewer" [attr.data-lang]="fileLanguage()">
+                <div class="code-toolbar">
+                  <span class="code-lang-label">{{ fileLanguage() || 'plaintext' }}</span>
+                  <button type="button" class="copy-btn" (click)="copyFileContent()" title="Copy to clipboard">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                      <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    Copy
+                  </button>
+                </div>
+                <div class="code-scroll">
+                  <table class="code-lines">
+                    <tbody>
+                      @for (item of fileLinesWithIndex(); track item.index) {
+                        <tr class="code-line">
+                          <td class="line-number" aria-hidden="true">{{ item.index + 1 }}</td>
+                          <td class="line-content">
+                            <code class="line-code" [innerHTML]="item.line | codeHighlight: fileLanguage()"></code>
+                          </td>
+                        </tr>
+                      }
+                    </tbody>
+                  </table>
+                </div>
               </div>
             }
           </div>
