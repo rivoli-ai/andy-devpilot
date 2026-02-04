@@ -102,6 +102,16 @@
   color: white;
 }
 
+/* Analysis-specific minimized styling (purple/violet gradient) */
+.minimized-icon.has-analysis {
+  background: linear-gradient(135deg, #8b5cf6 0%, #a855f7 100%);
+}
+
+.minimized-icon.has-analysis svg {
+  width: 18px;
+  height: 18px;
+}
+
 .minimized-repo {
   font-size: 10px;
   font-weight: 500;

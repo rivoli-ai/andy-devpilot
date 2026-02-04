@@ -11,6 +11,32 @@
       <h1>DevPilot</h1>
     </div>
     <div class="header-actions">
+      @if (sandboxCount() > 0) {
+        <div class="header-sandbox">
+          <div class="header-sandbox-info">
+            <span class="header-sandbox-icon" aria-hidden="true">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                <line x1="8" y1="21" x2="16" y2="21"/>
+                <line x1="12" y1="17" x2="12" y2="21"/>
+              </svg>
+            </span>
+            <span class="header-sandbox-count">
+              <strong>{{ sandboxCount() }}</strong>/{{ MAX_SANDBOXES }} sandbox{{ sandboxCount() !== 1 ? 'es' : '' }}
+            </span>
+            @if (atCapacity) {
+              <span class="header-sandbox-warning" title="At capacity">!</span>
+            }
+          </div>
+          <button type="button" class="header-sandbox-close" (click)="closeAllSandboxes()" title="Close all sandboxes">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"/>
+              <line x1="6" y1="6" x2="18" y2="18"/>
+            </svg>
+            Close all
+          </button>
+        </div>
+      }
       <button (click)="toggleTheme()" class="theme-toggle" aria-label="Toggle theme">
         @if (themeService.theme() === 'light') {
           <svg class="theme-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

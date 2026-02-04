@@ -18,13 +18,18 @@
         <span>Push PR</span>
       </div>
     }
-    <div class="minimized-icon" [class.has-story]="implementationContext()" [class.pr-ready]="readyForPr()">
+    <div class="minimized-icon" [class.has-story]="implementationContext() && !isAnalysisSandbox()" [class.has-analysis]="isAnalysisSandbox()" [class.pr-ready]="readyForPr()">
       @if (readyForPr()) {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="18" cy="18" r="3"/>
           <circle cx="6" cy="6" r="3"/>
           <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
           <line x1="6" y1="9" x2="6" y2="21"/>
+        </svg>
+      } @else if (isAnalysisSandbox()) {
+        <!-- Lightning bolt icon for analysis sandboxes -->
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
         </svg>
       } @else if (implementationContext()) {
         <span class="story-badge">S</span>

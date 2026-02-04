@@ -45,6 +45,15 @@ public interface IGitHubService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets the head (source) branch name of a pull request from its URL.
+    /// Used to clone the PR branch when continuing work on a story that already has a PR.
+    /// </summary>
+    System.Threading.Tasks.Task<string?> GetPullRequestHeadBranchAsync(
+        string accessToken,
+        string prUrl,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets issues and milestones from a GitHub repository
     /// </summary>
     System.Threading.Tasks.Task<GitHubIssuesHierarchyDto> GetIssuesAsync(

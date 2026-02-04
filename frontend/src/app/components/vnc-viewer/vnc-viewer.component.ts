@@ -2,7 +2,7 @@ import { Component, OnInit, OnDestroy, ViewChild, ElementRef, signal, effect, in
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { Subject, interval, takeUntil, switchMap, filter } from 'rxjs';
+import { Subject, interval, takeUntil, switchMap, filter, startWith } from 'rxjs';
 import { VncService } from '../../core/services/vnc.service';
 import { VncViewerService, DockPosition } from '../../core/services/vnc-viewer.service';
 import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
@@ -94,6 +94,12 @@ export class VncViewerComponent implements OnInit, OnDestroy {
 
   // Ready for PR state - shows alert on minimized widget
   readyForPr = signal<boolean>(false);
+
+  // Check if this is an analysis sandbox (not a user story implementation)
+  isAnalysisSandbox = computed(() => {
+    const ctx = this.implementationContext();
+    return ctx?.storyId?.startsWith('analysis-') ?? false;
+  });
 
   // VNC iframe URL
   private vncIframeUrlRaw = signal<string>('');
@@ -247,13 +253,15 @@ export class VncViewerComponent implements OnInit, OnDestroy {
 
   /**
    * Start polling for AI conversations from the Bridge API
+   * Fetches immediately then every 3s (so restored sandboxes show existing LLM chat right away)
    */
   private startConversationPolling(): void {
     const port = this.bridgePort();
     if (!port) return;
 
-    // Poll every 3 seconds
+    // Fetch immediately then every 3 seconds
     interval(3000).pipe(
+      startWith(0),
       takeUntil(this.destroy$),
       filter(() => !!this.bridgePort()),
       switchMap(() => this.sandboxBridgeService.getAllConversations(this.bridgePort()!))
