@@ -4,9 +4,11 @@ using DevPilot.Application.Queries;
 using DevPilot.Application.UseCases;
 using DevPilot.Application.Services;
 using DevPilot.Domain.Interfaces;
+using DevPilot.Domain.Entities;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
+using System.Security.Claims;
 
 /// <summary>
 /// Controller for managing backlog (Epics, Features, User Stories)
@@ -22,6 +24,8 @@ public class BacklogController : ControllerBase
     private readonly IUserStoryRepository _userStoryRepository;
     private readonly IEpicRepository _epicRepository;
     private readonly IFeatureRepository _featureRepository;
+    private readonly ILinkedProviderRepository _linkedProviderRepository;
+    private readonly IUserRepository _userRepository;
 
     public BacklogController(
         IMediator mediator, 
@@ -29,7 +33,9 @@ public class BacklogController : ControllerBase
         IGitHubService gitHubService,
         IUserStoryRepository userStoryRepository,
         IEpicRepository epicRepository,
-        IFeatureRepository featureRepository)
+        IFeatureRepository featureRepository,
+        ILinkedProviderRepository linkedProviderRepository,
+        IUserRepository userRepository)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -37,6 +43,8 @@ public class BacklogController : ControllerBase
         _userStoryRepository = userStoryRepository ?? throw new ArgumentNullException(nameof(userStoryRepository));
         _epicRepository = epicRepository ?? throw new ArgumentNullException(nameof(epicRepository));
         _featureRepository = featureRepository ?? throw new ArgumentNullException(nameof(featureRepository));
+        _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
+        _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
     }
 
     /// <summary>
@@ -281,16 +289,30 @@ public class BacklogController : ControllerBase
     /// Checks GitHub for PR status and updates story status accordingly:
     /// - PR open -> PendingReview
     /// - PR merged -> Done
+    /// Uses the authenticated user's GitHub token from the database.
     /// </summary>
     /// <param name="repositoryId">The ID of the repository</param>
-    /// <param name="request">Contains the GitHub access token</param>
     [HttpPost("repository/{repositoryId}/sync-pr-status")]
+    [Authorize]
     public async Task<IActionResult> SyncPrStatuses(
         Guid repositoryId,
-        [FromBody] SyncPrStatusRequest request,
         CancellationToken cancellationToken)
     {
         _logger.LogInformation("Syncing PR statuses for repository {RepositoryId}", repositoryId);
+
+        // Get user ID from JWT token
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { error = "Invalid user token" });
+        }
+
+        // Get GitHub access token from database
+        var accessToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
+        if (string.IsNullOrEmpty(accessToken))
+        {
+            return BadRequest(new { error = "GitHub is not connected. Please link your GitHub account first." });
+        }
 
         // Get all stories for this repository
         var query = new GetBacklogByRepositoryIdQuery(repositoryId);
@@ -316,7 +338,7 @@ public class BacklogController : ControllerBase
                     {
                         // Get PR status from GitHub
                         var prStatus = await _gitHubService.GetPullRequestStatusAsync(
-                            request.AccessToken,
+                            accessToken,
                             story.PrUrl,
                             cancellationToken);
 
@@ -446,6 +468,75 @@ public class BacklogController : ControllerBase
             });
         }
     }
+
+    /// <summary>
+    /// Get the head (source) branch name of a pull request from its URL.
+
+    /// Used when opening a story that already has a PR so the sandbox can clone that branch.
+    /// Uses the authenticated user's GitHub token from the database.
+    /// </summary>
+    [HttpPost("pr-head-branch")]
+    [Authorize]
+    public async Task<IActionResult> GetPrHeadBranch(
+        [FromBody] PrHeadBranchRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.PrUrl))
+        {
+            return BadRequest(new { error = "prUrl is required" });
+        }
+
+        // Get user ID from JWT token
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { error = "Invalid user token" });
+        }
+
+        // Get GitHub access token from database
+        var accessToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
+        if (string.IsNullOrEmpty(accessToken))
+        {
+            return BadRequest(new { error = "GitHub is not connected. Please link your GitHub account first." });
+        }
+
+        try
+        {
+            var branch = await _gitHubService.GetPullRequestHeadBranchAsync(
+                accessToken,
+                request.PrUrl,
+                cancellationToken);
+
+            if (string.IsNullOrEmpty(branch))
+            {
+                return NotFound(new { error = "Could not get PR head branch", prUrl = request.PrUrl });
+            }
+
+            return Ok(new { branch });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to get PR head branch for {PrUrl}", request.PrUrl);
+            return BadRequest(new { error = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Get GitHub access token from linked providers or legacy user field
+    /// </summary>
+    private async Task<string?> GetGitHubAccessTokenAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        // First try linked providers (new approach)
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.GitHub, cancellationToken);
+        if (!string.IsNullOrEmpty(linkedProvider?.AccessToken))
+        {
+            return linkedProvider.AccessToken;
+        }
+
+        // Fallback to legacy GitHubAccessToken field on User
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        return user?.GitHubAccessToken;
+    }
 }
 
 /// <summary>
@@ -462,6 +553,15 @@ public class UpdateStoryStatusRequest
 /// </summary>
 public class SyncPrStatusRequest
 {
+    public string AccessToken { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Request model for getting PR head branch (for cloning when continuing a story with existing PR)
+/// </summary>
+public class PrHeadBranchRequest
+{
+    public string PrUrl { get; set; } = string.Empty;
     public string AccessToken { get; set; } = string.Empty;
 }
 

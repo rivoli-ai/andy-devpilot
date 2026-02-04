@@ -670,9 +670,9 @@
                           <span class="work-item-title">{{ story.title }}</span>
                         </div>
                         <div class="row-status">
-                          <span class="status-badge" [class]="getStatusClass(story.status)">
-                            <span class="status-icon">{{ getStatusIcon(story.status) }}</span>
-                            {{ story.status }}
+                          <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(story))">
+                            <span class="status-icon">{{ getStatusIcon(getEffectiveStoryStatus(story)) }}</span>
+                            {{ getEffectiveStoryStatus(story) }}
                           </span>
                           @if (story.prUrl) {
                             <a [href]="story.prUrl" target="_blank" rel="noopener" class="pr-badge" title="View Pull Request" (click)="$event.stopPropagation()">
@@ -691,7 +691,7 @@
                           </span>
                         </div>
                         <div class="row-progress">
-                          <span class="progress-text">{{ getStatusPercentage(story.status) }}%</span>
+                          <span class="progress-text">{{ getStoryProgress(story) }}%</span>
                         </div>
                       </div>
 
@@ -720,7 +720,7 @@
                                 </div>
                                 <div class="detail-meta-item">
                                   <span class="meta-label">Status</span>
-                                  <span class="meta-value">{{ story.status }}</span>
+                                  <span class="meta-value">{{ getEffectiveStoryStatus(story) }}</span>
                                 </div>
                                 @if (story.prUrl) {
                                   <div class="detail-meta-item pr-link-item">
@@ -863,9 +863,9 @@
                 </span>
               </div>
               <div class="row-status">
-                <span class="status-badge" [class]="getStatusClass(item.story.status)">
-                  <span class="status-icon">{{ getStatusIcon(item.story.status) }}</span>
-                  {{ item.story.status }}
+                <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(item.story))">
+                  <span class="status-icon">{{ getStatusIcon(getEffectiveStoryStatus(item.story)) }}</span>
+                  {{ getEffectiveStoryStatus(item.story) }}
                 </span>
                 @if (item.story.prUrl) {
                   <a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-badge" title="View Pull Request" (click)="$event.stopPropagation()">
@@ -879,7 +879,7 @@
                 }
               </div>
               <div class="row-points">
-                <span class="progress-text">{{ getStatusPercentage(item.story.status) }}%</span>
+                <span class="progress-text">{{ getStoryProgress(item.story) }}%</span>
               </div>
             </div>
 

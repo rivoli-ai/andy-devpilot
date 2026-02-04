@@ -8,7 +8,8 @@ import { VncViewerComponent } from './components/vnc-viewer/vnc-viewer.component
 import { DockPanelComponent } from './components/dock-panel/dock-panel.component';
 import { ToastComponent } from './components/toast/toast.component';
 import { VncViewerService, VncViewer } from './core/services/vnc-viewer.service';
-import { SandboxService } from './core/services/sandbox.service';
+import { SandboxService, Sandbox } from './core/services/sandbox.service';
+import { getVncHtmlUrl } from './core/config/vps.config';
 import { AuthService } from './core/services/auth.service';
 import { CommonModule } from '@angular/common';
 
@@ -85,8 +86,8 @@ export class AppComponent implements OnInit, OnDestroy {
       })
     );
 
-    // Clean up ghost sandboxes on startup
-    this.cleanupGhostSandboxes();
+    // Restore running sandboxes so they survive page refresh
+    this.restoreRunningSandboxes();
   }
 
   ngOnDestroy(): void {
@@ -94,23 +95,34 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Clean up any sandboxes that are running but don't have a corresponding viewer
+   * Restore running sandboxes from the API and open viewers so they survive page refresh
    */
-  private cleanupGhostSandboxes(): void {
+  private restoreRunningSandboxes(): void {
     this.sandboxService.listSandboxes().subscribe({
-      next: (sandboxes) => {
-        console.log('Found', sandboxes.length, 'running sandboxes on startup');
-        const viewerIds = this.vncViewerService.viewers.map(v => v.id);
-        
-        // Delete sandboxes that don't have a viewer
+      next: (sandboxes: Sandbox[]) => {
+        if (sandboxes.length === 0) return;
+        console.log('Restoring', sandboxes.length, 'running sandbox(es)');
         sandboxes.forEach(sandbox => {
-          if (!viewerIds.includes(sandbox.id)) {
-            console.log('Cleaning up ghost sandbox:', sandbox.id);
-            this.sandboxService.deleteSandbox(sandbox.id).subscribe();
-          }
+          const stored = this.vncViewerService.getStoredContext(sandbox.id);
+          const config = {
+            url: getVncHtmlUrl(sandbox.port),
+            autoConnect: true,
+            scalingMode: 'local' as const,
+            useIframe: true
+          };
+          const title = stored?.title ?? `Sandbox ${sandbox.id.slice(0, 6)}`;
+          // Use stored bridgePort so chat/LLM panel works after refresh (list API may not return bridge_port)
+          const bridgePort = stored?.bridgePort ?? sandbox.bridge_port;
+          this.vncViewerService.open(
+            config,
+            sandbox.id,
+            title,
+            bridgePort,
+            stored?.implementationContext ?? undefined
+          );
         });
       },
-      error: (err) => console.log('Could not check for ghost sandboxes:', err)
+      error: (err) => console.warn('Could not list sandboxes for restore:', err)
     });
   }
 

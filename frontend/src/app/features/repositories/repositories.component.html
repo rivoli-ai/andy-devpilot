@@ -146,41 +146,6 @@
     </div>
   </app-card>
 
-  <!-- Sandbox Status Bar -->
-  @if (sandboxCount() > 0) {
-    <div class="sandbox-status-bar">
-      <div class="sandbox-info">
-        <div class="sandbox-icon">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-            <line x1="8" y1="21" x2="16" y2="21"/>
-            <line x1="12" y1="17" x2="12" y2="21"/>
-          </svg>
-        </div>
-        <span class="sandbox-count">
-          <strong>{{ sandboxCount() }}</strong> / {{ MAX_SANDBOXES }} sandboxes running
-        </span>
-        @if (sandboxCount() >= MAX_SANDBOXES) {
-          <span class="sandbox-warning">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            At capacity - oldest will be replaced
-          </span>
-        }
-      </div>
-      <button class="close-all-btn" (click)="closeAllSandboxes()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <line x1="18" y1="6" x2="6" y2="18"/>
-          <line x1="6" y1="6" x2="18" y2="18"/>
-        </svg>
-        Close All
-      </button>
-    </div>
-  }
-
   @if (loading()) {
     <div class="status-message loading">
       <svg class="animate-pulse" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

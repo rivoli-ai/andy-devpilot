@@ -122,6 +122,26 @@ public class GitHubService : IGitHubService
         }
     }
 
+    public async System.Threading.Tasks.Task<string?> GetPullRequestHeadBranchAsync(
+        string accessToken,
+        string prUrl,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClient(accessToken);
+
+        try
+        {
+            var (owner, repo, prNumber) = ParsePrUrl(prUrl);
+            var pr = await client.PullRequest.Get(owner, repo, prNumber);
+            return pr.Head?.Ref;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error getting PR head branch for {PrUrl}", prUrl);
+            return null;
+        }
+    }
+
     /// <summary>
     /// Parses a GitHub PR URL to extract owner, repo, and PR number
     /// Example: https://github.com/owner/repo/pull/123
