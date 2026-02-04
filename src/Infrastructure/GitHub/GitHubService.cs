@@ -596,8 +596,17 @@ public class GitHubService : IGitHubService
             var pullRequests = await client.PullRequest.GetAllForRepository(owner, repo, request);
             var result = new List<PullRequestDto>();
 
+            // Fetch details for each PR to get additions/deletions (limited to first 20 to avoid rate limiting)
+            var prNumbers = pullRequests.Take(20).Select(pr => pr.Number).ToList();
+            var detailTasks = prNumbers.Select(num => client.PullRequest.Get(owner, repo, num));
+            var prDetails = await System.Threading.Tasks.Task.WhenAll(detailTasks);
+            var detailsMap = prDetails.ToDictionary(pr => pr.Number);
+
             foreach (var pr in pullRequests)
             {
+                // Try to get detailed info, fall back to list data
+                var hasDetails = detailsMap.TryGetValue(pr.Number, out var details);
+                
                 var prDto = new PullRequestDto
                 {
                     Number = pr.Number,
@@ -615,11 +624,11 @@ public class GitHubService : IGitHubService
                     ClosedAt = pr.ClosedAt?.DateTime,
                     IsMerged = pr.Merged,
                     IsDraft = pr.Draft,
-                    Comments = pr.Comments,
-                    Commits = pr.Commits,
-                    Additions = pr.Additions,
-                    Deletions = pr.Deletions,
-                    ChangedFiles = pr.ChangedFiles,
+                    Comments = hasDetails ? details!.Comments : pr.Comments,
+                    Commits = hasDetails ? details!.Commits : pr.Commits,
+                    Additions = hasDetails ? details!.Additions : pr.Additions,
+                    Deletions = hasDetails ? details!.Deletions : pr.Deletions,
+                    ChangedFiles = hasDetails ? details!.ChangedFiles : pr.ChangedFiles,
                     Labels = pr.Labels?.Select(l => l.Name).ToList() ?? new List<string>(),
                     Reviewers = pr.RequestedReviewers?.Select(r => r.Login).ToList() ?? new List<string>()
                 };
