@@ -23,6 +23,7 @@
     "@ngrx/store": "^17.2.0",
     "marked": "^17.0.1",
     "marked-highlight": "^2.2.3",
+    "mermaid": "^11.12.2",
     "prismjs": "^1.30.0",
     "rxjs": "~7.8.0",
     "tslib": "^2.3.0",

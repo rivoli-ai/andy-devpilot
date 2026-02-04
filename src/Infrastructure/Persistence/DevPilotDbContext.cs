@@ -20,6 +20,8 @@ public class DevPilotDbContext : DbContext
     public DbSet<UserStory> UserStories => Set<UserStory>();
     public DbSet<Task> Tasks => Set<Task>();
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
+    public DbSet<CodeAnalysis> CodeAnalyses => Set<CodeAnalysis>();
+    public DbSet<FileAnalysis> FileAnalyses => Set<FileAnalysis>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -153,6 +155,46 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.Complexity).HasColumnName("complexity").HasMaxLength(64);
             entity.Property(e => e.AssignedTo).HasColumnName("assigned_to").HasMaxLength(256);
             entity.HasOne(e => e.UserStory).WithMany(us => us.Tasks).HasForeignKey(e => e.UserStoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<CodeAnalysis>(entity =>
+        {
+            entity.ToTable("code_analyses");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
+            entity.Property(e => e.Branch).HasColumnName("branch").HasMaxLength(256);
+            entity.Property(e => e.Summary).HasColumnName("summary");
+            entity.Property(e => e.Architecture).HasColumnName("architecture");
+            entity.Property(e => e.KeyComponents).HasColumnName("key_components");
+            entity.Property(e => e.Dependencies).HasColumnName("dependencies");
+            entity.Property(e => e.Recommendations).HasColumnName("recommendations");
+            entity.Property(e => e.AnalyzedAt).HasColumnName("analyzed_at");
+            entity.Property(e => e.Model).HasColumnName("model").HasMaxLength(128);
+            entity.HasOne(e => e.Repository).WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.RepositoryId, e.Branch }).IsUnique();
+        });
+
+        modelBuilder.Entity<FileAnalysis>(entity =>
+        {
+            entity.ToTable("file_analyses");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
+            entity.Property(e => e.FilePath).HasColumnName("file_path").HasMaxLength(1024);
+            entity.Property(e => e.Branch).HasColumnName("branch").HasMaxLength(256);
+            entity.Property(e => e.Explanation).HasColumnName("explanation");
+            entity.Property(e => e.KeyFunctions).HasColumnName("key_functions");
+            entity.Property(e => e.Complexity).HasColumnName("complexity");
+            entity.Property(e => e.Suggestions).HasColumnName("suggestions");
+            entity.Property(e => e.AnalyzedAt).HasColumnName("analyzed_at");
+            entity.Property(e => e.Model).HasColumnName("model").HasMaxLength(128);
+            entity.HasOne(e => e.Repository).WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.RepositoryId, e.FilePath, e.Branch }).IsUnique();
         });
     }
 }

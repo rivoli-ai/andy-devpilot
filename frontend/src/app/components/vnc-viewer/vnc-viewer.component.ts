@@ -95,6 +95,12 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   // Ready for PR state - shows alert on minimized widget
   readyForPr = signal<boolean>(false);
 
+  // Check if this is an analysis sandbox (not a user story implementation)
+  isAnalysisSandbox = computed(() => {
+    const ctx = this.implementationContext();
+    return ctx?.storyId?.startsWith('analysis-') ?? false;
+  });
+
   // VNC iframe URL
   private vncIframeUrlRaw = signal<string>('');
 

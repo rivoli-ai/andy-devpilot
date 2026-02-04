@@ -30,7 +30,8 @@
             "scripts": [],
             "allowedCommonJsDependencies": [
               "prismjs",
-              "marked-highlight"
+              "marked-highlight",
+              "mermaid"
             ]
           },
           "configurations": {
@@ -38,13 +39,13 @@
               "budgets": [
                 {
                   "type": "initial",
-                  "maximumWarning": "500kb",
-                  "maximumError": "1mb"
+                  "maximumWarning": "1mb",
+                  "maximumError": "2mb"
                 },
                 {
                   "type": "anyComponentStyle",
-                  "maximumWarning": "40kb",
-                  "maximumError": "64kb"
+                  "maximumWarning": "50kb",
+                  "maximumError": "80kb"
                 }
               ],
               "outputHashing": "all"

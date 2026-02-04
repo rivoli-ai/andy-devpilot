@@ -38,6 +38,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IUserRepository, PostgresUserRepository>();
         services.AddScoped<IUserStoryRepository, PostgresUserStoryRepository>();
         services.AddScoped<ILinkedProviderRepository, PostgresLinkedProviderRepository>();
+        services.AddScoped<ICodeAnalysisRepository, PostgresCodeAnalysisRepository>();
+        services.AddScoped<IFileAnalysisRepository, PostgresFileAnalysisRepository>();
 
         // Register authentication service
         services.AddScoped<AuthenticationService>();
@@ -49,8 +51,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddHttpClient("AzureDevOps");
         services.AddScoped<IAzureDevOpsService, AzureDevOpsService>();
 
-        // Register AI Analysis service
+        // Register AI Analysis services
         services.AddScoped<IAnalysisService, AnalysisService>();
+        services.AddScoped<ICodeAnalysisService, CodeAnalysisService>();
 
         // Register VPS/Zed services (optional - can be enabled via configuration)
         services.AddHttpClient("VPSGateway");
