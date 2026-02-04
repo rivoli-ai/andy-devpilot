@@ -46,6 +46,12 @@ export class AIConfigService {
   isLoaded = this.loadedSignal.asReadonly();
 
   constructor() {
+    // Load GitHub token from localStorage (for manual PAT entry in AI settings)
+    const storedGithubToken = localStorage.getItem('devpilot_github_token');
+    if (storedGithubToken) {
+      this.githubTokenSignal.set(storedGithubToken);
+    }
+    
     // Load config from server on init
     this.loadFromServer();
   }

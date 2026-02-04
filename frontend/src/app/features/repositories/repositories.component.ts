@@ -34,11 +34,9 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
   creatingSandboxFor = signal<string | null>(null);
   error = signal<string | null>(null);
   successMessage = signal<string | null>(null);
-  sandboxCount = signal<number>(0);
   showSyncMenu = signal<boolean>(false);
   showAzureDevOpsOrgPrompt = signal<boolean>(false);
   azureDevOpsOrgName = signal<string>('');
-  readonly MAX_SANDBOXES = 5;
   viewMode = signal<'cards' | 'grid'>('cards');
   
   // Provider filter
@@ -76,12 +74,7 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
     private aiConfigService: AIConfigService,
     private sandboxBridgeService: SandboxBridgeService,
     private elementRef: ElementRef
-  ) {
-    // Track sandbox count
-    this.vncViewerService.viewers$.subscribe(viewers => {
-      this.sandboxCount.set(viewers.length);
-    });
-  }
+  ) {}
 
   // Close dropdown when clicking outside
   @HostListener('document:click', ['$event'])
@@ -554,10 +547,6 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
   /**
    * Close all open sandboxes
    */
-  closeAllSandboxes(): void {
-    this.vncViewerService.closeAll();
-  }
-
   logout(): void {
     this.authService.logout();
     this.router.navigate(['/login']);

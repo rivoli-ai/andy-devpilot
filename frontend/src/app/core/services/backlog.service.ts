@@ -90,15 +90,24 @@ export class BacklogService {
   }
 
   /**
+   * Get the head (source) branch name of a pull request from its URL.
+   * Used when opening a story that already has a PR so the sandbox can clone that branch.
+   * The backend uses the authenticated user's GitHub token from the database.
+   */
+  getPrHeadBranch(prUrl: string): Observable<{ branch: string }> {
+    return this.apiService.post<{ branch: string }>('/backlog/pr-head-branch', { prUrl });
+  }
+
+  /**
    * Sync PR statuses for all stories with PRs in a repository
    * Checks GitHub for PR status and updates story status accordingly:
    * - PR open -> PendingReview
    * - PR merged -> Done
    */
-  syncPrStatuses(repositoryId: string, accessToken: string): Observable<SyncPrStatusResponse> {
+  syncPrStatuses(repositoryId: string): Observable<SyncPrStatusResponse> {
     return this.apiService.post<SyncPrStatusResponse>(
       `/backlog/repository/${repositoryId}/sync-pr-status`,
-      { accessToken }
+      {}
     ).pipe(
       tap(response => {
         if (response.success && response.updatedCount > 0) {

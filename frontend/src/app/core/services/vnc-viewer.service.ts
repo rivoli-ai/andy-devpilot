@@ -30,6 +30,15 @@ export interface VncViewer {
  * Service for managing multiple VNC viewer instances
  * Limited to MAX_SANDBOXES concurrent viewers
  */
+const SANDBOX_CONTEXTS_KEY = 'devpilot_sandbox_contexts';
+
+/** Stored per sandbox for restore after page refresh (chat/LLM panel needs bridgePort) */
+export interface StoredSandboxContext {
+  implementationContext?: ImplementationContext;
+  title?: string;
+  bridgePort?: number;
+}
+
 @Injectable({
   providedIn: 'root'
 })
@@ -95,13 +104,20 @@ export class VncViewerService {
     if (existingIndex >= 0) {
       console.log('Viewer already exists, updating:', viewerId);
       const viewers = [...this.viewersSubject.value];
+      const merged = implementationContext ?? viewers[existingIndex].implementationContext;
+      const mergedTitle = title ?? viewers[existingIndex].title;
+      const mergedPort = bridgePort ?? viewers[existingIndex].bridgePort;
       viewers[existingIndex] = {
         ...viewers[existingIndex],
         config,
         dockPosition: 'floating',
-        bridgePort: bridgePort ?? viewers[existingIndex].bridgePort,
-        implementationContext: implementationContext ?? viewers[existingIndex].implementationContext
+        bridgePort: mergedPort,
+        implementationContext: merged,
+        title: mergedTitle
       };
+      if (merged || mergedTitle || mergedPort !== undefined) {
+        this.setStoredContext(viewerId, { implementationContext: merged, title: mergedTitle, bridgePort: mergedPort });
+      }
       this.viewersSubject.next(viewers);
       return viewerId;
     }
@@ -125,6 +141,10 @@ export class VncViewerService {
       bridgePort,
       implementationContext
     };
+
+    if (implementationContext || title || bridgePort !== undefined) {
+      this.setStoredContext(viewerId, { implementationContext, title, bridgePort });
+    }
     
     console.log('Creating new viewer:', newViewer.id, 'Total will be:', this.count + 1);
     this.viewersSubject.next([...this.viewersSubject.value, newViewer]);
@@ -138,6 +158,7 @@ export class VncViewerService {
     const viewer = this.viewersSubject.value.find(v => v.id === viewerId);
     if (viewer) {
       console.log('Closing viewer:', viewerId);
+      this.removeStoredContext(viewerId);
       const viewers = this.viewersSubject.value.filter(v => v.id !== viewerId);
       this.viewersSubject.next(viewers);
       // Emit for sandbox cleanup
@@ -230,6 +251,41 @@ export class VncViewerService {
     return this.viewersSubject.value.reduce((oldest, current) => 
       current.createdAt < oldest.createdAt ? current : oldest
     );
+  }
+
+  /**
+   * Get stored context for a sandbox (for restore after page refresh)
+   */
+  getStoredContext(sandboxId: string): StoredSandboxContext | null {
+    try {
+      const raw = localStorage.getItem(SANDBOX_CONTEXTS_KEY);
+      if (!raw) return null;
+      const obj = JSON.parse(raw) as Record<string, StoredSandboxContext>;
+      return obj[sandboxId] ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  private setStoredContext(sandboxId: string, ctx: StoredSandboxContext): void {
+    try {
+      const raw = localStorage.getItem(SANDBOX_CONTEXTS_KEY);
+      const obj = (raw ? JSON.parse(raw) : {}) as Record<string, StoredSandboxContext>;
+      obj[sandboxId] = ctx;
+      localStorage.setItem(SANDBOX_CONTEXTS_KEY, JSON.stringify(obj));
+    } catch (e) {
+      console.warn('Failed to persist sandbox context', e);
+    }
+  }
+
+  private removeStoredContext(sandboxId: string): void {
+    try {
+      const raw = localStorage.getItem(SANDBOX_CONTEXTS_KEY);
+      if (!raw) return;
+      const obj = JSON.parse(raw) as Record<string, StoredSandboxContext>;
+      delete obj[sandboxId];
+      localStorage.setItem(SANDBOX_CONTEXTS_KEY, JSON.stringify(obj));
+    } catch {}
   }
 
   /**

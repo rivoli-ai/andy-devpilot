@@ -1741,12 +1741,23 @@ def git_push_and_create_pr():
         push_result = subprocess.run(['git', 'push', '-u', '--force-with-lease', 'origin', branch_name],
                                     cwd=git_path, capture_output=True, text=True, env=env)
         if push_result.returncode != 0:
-            return jsonify({
-                "error": "Failed to push",
-                "stderr": push_result.stderr,
-                "stdout": push_result.stdout,
-                "branch": branch_name
-            }), 400
+            # Retry after unshallow if push failed (e.g. "shallow update not allowed")
+            stderr = (push_result.stderr or '') + (push_result.stdout or '')
+            if 'shallow' in stderr.lower() or 'unshallow' in stderr.lower():
+                try:
+                    subprocess.run(['git', 'fetch', '--unshallow'],
+                                  cwd=git_path, capture_output=True, text=True, env=env, timeout=120)
+                    push_result = subprocess.run(['git', 'push', '-u', '--force-with-lease', 'origin', branch_name],
+                                                cwd=git_path, capture_output=True, text=True, env=env)
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+            if push_result.returncode != 0:
+                return jsonify({
+                    "error": "Failed to push",
+                    "stderr": push_result.stderr,
+                    "stdout": push_result.stdout,
+                    "branch": branch_name
+                }), 400
         
         return jsonify({
             "status": "ok",
@@ -2099,11 +2110,11 @@ if [ -n "$REPO_URL" ]; then
     
     cd "$WORK_DIR"
     
-    # Clone the repository (try with branch first, then without)
+    # Clone with --no-single-branch so new branches can be pushed and seen remotely
     echo "Attempting clone with branch $REPO_BRANCH..."
-    if git clone --depth 1 --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_NAME" 2>&1; then
+    if git clone --depth 1 --no-single-branch --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_NAME" 2>&1; then
         echo "Clone successful with branch $REPO_BRANCH"
-    elif git clone --depth 1 "$REPO_URL" "$REPO_NAME" 2>&1; then
+    elif git clone --depth 1 --no-single-branch "$REPO_URL" "$REPO_NAME" 2>&1; then
         echo "Clone successful without branch"
     else
         echo "ERROR: Failed to clone repository" >> /tmp/sandbox-debug.log
@@ -2115,6 +2126,24 @@ if [ -n "$REPO_URL" ]; then
         chown -R sandbox:sandbox "$WORK_DIR"
         echo "Repository cloned to: $WORK_DIR"
         echo "Clone successful: $WORK_DIR" >> /tmp/sandbox-debug.log
+        # Ensure we're on REPO_BRANCH (e.g. PR branch). If clone used default, fetch and checkout.
+        if [ -n "$REPO_BRANCH" ]; then
+            cd "$WORK_DIR"
+            current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+            if [ "$current_branch" != "$REPO_BRANCH" ]; then
+                echo "Checking out branch $REPO_BRANCH..."
+                # Remove untracked files (e.g. .rules) that would block checkout
+                git clean -fd 2>/dev/null || true
+                if git checkout "$REPO_BRANCH" 2>/dev/null; then
+                    echo "Checked out existing $REPO_BRANCH"
+                elif git fetch origin "$REPO_BRANCH" 2>/dev/null && git checkout "$REPO_BRANCH" 2>/dev/null; then
+                    echo "Fetched and checked out $REPO_BRANCH"
+                else
+                    echo "Warning: could not checkout $REPO_BRANCH, staying on $current_branch" >> /tmp/sandbox-debug.log
+                fi
+            fi
+            cd - >/dev/null
+        fi
     fi
 else
     echo "No REPO_URL provided, skipping clone" >> /tmp/sandbox-debug.log

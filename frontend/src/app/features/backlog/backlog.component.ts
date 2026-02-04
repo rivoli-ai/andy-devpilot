@@ -138,7 +138,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
     );
     if (allStories.length === 0) return 0;
     const totalProgress = allStories.reduce((sum, story) => 
-      sum + this.getStatusPercentage(story.status), 0
+      sum + this.getStatusPercentage(this.getEffectiveStoryStatus(story)), 0
     );
     return Math.round(totalProgress / allStories.length);
   }
@@ -198,8 +198,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
                 feature.title.toLowerCase().includes(query) ||
                 epic.title.toLowerCase().includes(query);
               
+              const effectiveStatus = this.getEffectiveStoryStatus(story);
               const matchesStatus = status === 'all' || 
-                this.normalizeStatus(story.status) === status.toLowerCase();
+                this.normalizeStatus(effectiveStatus) === status.toLowerCase();
               
               return matchesSearch && matchesStatus;
             });
@@ -243,8 +244,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
             feature.title.toLowerCase().includes(query) ||
             epic.title.toLowerCase().includes(query);
           
+          const effectiveStatus = this.getEffectiveStoryStatus(story);
           const matchesStatus = status === 'all' || 
-            this.normalizeStatus(story.status) === status.toLowerCase();
+            this.normalizeStatus(effectiveStatus) === status.toLowerCase();
 
           if (matchesSearch && matchesStatus) {
             stories.push({
@@ -342,14 +344,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const githubToken = this.aiConfigService.getGithubToken();
-    if (!githubToken) {
-      console.log('No GitHub token configured, skipping PR status sync');
-      return;
-    }
-
     console.log('Syncing PR statuses from GitHub...');
-    this.backlogService.syncPrStatuses(repositoryId, githubToken).subscribe({
+    this.backlogService.syncPrStatuses(repositoryId).subscribe({
       next: (response) => {
         if (response.updatedCount > 0) {
           console.log(`Updated ${response.updatedCount} story statuses from GitHub PR status`);
@@ -723,17 +719,38 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.error.set(null);
 
     const zedSettings = this.aiConfigService.getZedSettingsJson();
+    const defaultBranch = repo.defaultBranch || 'main';
+
+    const openSandboxWithBranch = (repoUrl: string, branch: string) => {
+      this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings, branch);
+    };
+
+    // If story already has a PR, clone the PR branch so we can continue work
+    const resolveBranch = (repoUrl: string) => {
+      if (story.prUrl && repo.provider === 'GitHub') {
+        console.log('[Sandbox] Fetching PR head branch for:', story.prUrl);
+        this.backlogService.getPrHeadBranch(story.prUrl).subscribe({
+          next: (res) => {
+            console.log('[Sandbox] Using PR branch:', res.branch);
+            openSandboxWithBranch(repoUrl, res.branch);
+          },
+          error: (err) => {
+            console.warn('[Sandbox] Failed to get PR branch, using default:', err);
+            openSandboxWithBranch(repoUrl, defaultBranch);
+          }
+        });
+        return;
+      }
+      openSandboxWithBranch(repoUrl, defaultBranch);
+    };
 
     // Fetch authenticated clone URL (with PAT embedded for private repos)
     this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-      next: (result) => {
-        this.createImplementationSandbox(repo, result.cloneUrl, story, featureTitle, epicTitle, aiConfig, zedSettings);
-      },
+      next: (result) => resolveBranch(result.cloneUrl),
       error: (err) => {
         console.error('Failed to get authenticated clone URL:', err);
-        // Fallback to regular clone URL
         const repoUrl = this.buildRepoCloneUrl(repo);
-        this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings);
+        resolveBranch(repoUrl);
       }
     });
   }
@@ -745,13 +762,14 @@ export class BacklogComponent implements OnInit, OnDestroy {
     featureTitle: string,
     epicTitle: string,
     aiConfig: any,
-    zedSettings: object
+    zedSettings: object,
+    branch: string
   ): void {
-    // Create sandbox
+    // Create sandbox (branch may be PR head branch when story already has a PR)
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
-      repo_branch: repo.defaultBranch || 'main',
+      repo_branch: branch,
       ai_config: {
         provider: aiConfig.provider,
         api_key: aiConfig.apiKey,
@@ -792,8 +810,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
             }
           );
           
-          // Send implementation prompt after Zed is ready
-          if (sandbox.bridge_port) {
+          // Only send implementation prompt for new stories (no existing PR)
+          // If PR exists, user is continuing work - let them interact with AI manually
+          if (sandbox.bridge_port && !story.prUrl) {
             const bridgePort = sandbox.bridge_port;
             setTimeout(() => {
               const prompt = this.buildImplementationPrompt(story, featureTitle, epicTitle);
@@ -827,6 +846,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
                 }
               });
             }, 20000); // 20s for Zed to start
+          } else if (story.prUrl) {
+            console.log('Story already has PR, skipping auto-prompt - user can interact manually');
           }
         }, VPS_CONFIG.sandboxReadyDelayMs);
       },
@@ -898,6 +919,27 @@ Start by exploring the codebase and then provide your implementation plan.`;
 
   hasOpenSandbox(storyId: string): boolean {
     return this.openSandboxStoryIds().includes(storyId);
+  }
+
+  /**
+   * Effective status for a user story (avoids ghost InProgress after refresh/close):
+   * - Done: keep stored Done (e.g. PR merged).
+   * - Has PR (open): PendingReview.
+   * - No PR, sandbox open: InProgress.
+   * - No PR, no sandbox: Backlog.
+   */
+  getEffectiveStoryStatus(story: UserStory): string {
+    const s = (story.status || '').toLowerCase().replace(/\s+/g, '');
+    if (s === 'done' || s === 'completed' || s === 'closed') {
+      return story.status;
+    }
+    if (story.prUrl) {
+      return 'PendingReview';
+    }
+    if (this.hasOpenSandbox(story.id)) {
+      return 'InProgress';
+    }
+    return 'Backlog';
   }
 
   focusSandbox(event: Event, storyId: string): void {
@@ -1200,7 +1242,7 @@ ${jsonFormatRequirement}`;
     const stories = epic.features.flatMap(f => f.userStories);
     if (stories.length === 0) return 0;
     const totalProgress = stories.reduce((sum, story) => 
-      sum + this.getStatusPercentage(story.status), 0
+      sum + this.getStatusPercentage(this.getEffectiveStoryStatus(story)), 0
     );
     return Math.round(totalProgress / stories.length);
   }
@@ -1208,13 +1250,13 @@ ${jsonFormatRequirement}`;
   getFeatureProgress(feature: Feature): number {
     if (feature.userStories.length === 0) return 0;
     const totalProgress = feature.userStories.reduce((sum, story) => 
-      sum + this.getStatusPercentage(story.status), 0
+      sum + this.getStatusPercentage(this.getEffectiveStoryStatus(story)), 0
     );
     return Math.round(totalProgress / feature.userStories.length);
   }
 
   getStoryProgress(story: UserStory): number {
-    return this.getStatusPercentage(story.status);
+    return this.getStatusPercentage(this.getEffectiveStoryStatus(story));
   }
 
   getEpicStoryPoints(epic: Epic): number {
