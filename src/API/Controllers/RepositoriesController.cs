@@ -239,10 +239,11 @@ public class RepositoriesController : ControllerBase
             var savedRepos = new List<object>();
             foreach (var adoRepo in reposList)
             {
-                // Check if repository already exists
-                var existingRepo = await _repositoryRepository.GetByFullNameAndProviderAsync(
+                // Check if repository already exists for THIS USER
+                var existingRepo = await _repositoryRepository.GetByFullNameProviderAndUserIdAsync(
                     $"{adoRepo.OrganizationName}/{adoRepo.ProjectName}/{adoRepo.Name}", 
-                    "AzureDevOps", 
+                    "AzureDevOps",
+                    userId,
                     cancellationToken);
 
                 if (existingRepo == null)
@@ -308,9 +309,10 @@ public class RepositoriesController : ControllerBase
 
         var linkedProviders = await _linkedProviderRepository.GetByUserIdAsync(userId, cancellationToken);
         
-        // Also check legacy field for GitHub
+        // Also check legacy/stored credentials (PAT in Settings)
         var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
         var hasLegacyGitHub = !string.IsNullOrWhiteSpace(user?.GitHubAccessToken);
+        var hasStoredAzurePat = !string.IsNullOrWhiteSpace(user?.AzureDevOpsAccessToken);
 
         var sources = new List<object>();
 
@@ -331,15 +333,16 @@ public class RepositoriesController : ControllerBase
             sources.Add(new { provider = "GitHub", isLinked = false, username = (string?)null });
         }
 
-        // Check Azure DevOps
+        // Check Azure DevOps (OAuth link OR stored PAT in Settings)
         var azureDevOpsProvider = linkedProviders.FirstOrDefault(p => p.Provider == ProviderTypes.AzureDevOps);
-        if (azureDevOpsProvider != null)
+        var hasAzureDevOps = azureDevOpsProvider != null || hasStoredAzurePat;
+        if (hasAzureDevOps)
         {
             sources.Add(new
             {
                 provider = "AzureDevOps",
                 isLinked = true,
-                username = azureDevOpsProvider.ProviderUsername
+                username = azureDevOpsProvider?.ProviderUsername ?? user?.AzureDevOpsOrganization ?? "PAT"
             });
         }
         else
