@@ -157,14 +157,19 @@ MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme
 StartupWMClass=firefox' > /usr/share/applications/firefox.desktop
 
 # Install Python packages for ACP agent and bridge API in a virtual environment
+# Use trusted-host to bypass SSL certificate issues
 RUN python3 -m venv /opt/devpilot-venv && \
-    /opt/devpilot-venv/bin/pip install --upgrade pip && \
+    /opt/devpilot-venv/bin/pip install --upgrade pip \
+        --trusted-host pypi.org \
+        --trusted-host files.pythonhosted.org && \
     /opt/devpilot-venv/bin/pip install \
-    agent-client-protocol \
-    openai \
-    flask \
-    flask-cors \
-    requests
+        --trusted-host pypi.org \
+        --trusted-host files.pythonhosted.org \
+        agent-client-protocol \
+        openai \
+        flask \
+        flask-cors \
+        requests
 
 # Add venv to PATH
 ENV PATH="/opt/devpilot-venv/bin:$PATH"
@@ -2669,8 +2674,13 @@ fi
 
 # Create virtual environment to avoid system package conflicts
 python3 -m venv $PROJECT_DIR/venv
-$PROJECT_DIR/venv/bin/pip install --upgrade pip
-$PROJECT_DIR/venv/bin/pip install flask flask-cors docker
+$PROJECT_DIR/venv/bin/pip install --upgrade pip \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org
+$PROJECT_DIR/venv/bin/pip install \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org \
+    flask flask-cors docker
 
 # ============================================================
 # Create management script (cross-platform)
