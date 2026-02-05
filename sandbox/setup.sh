@@ -112,6 +112,10 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:0
 ENV RESOLUTION=1920x1080x24
 
+# Clean up any broken/outdated third-party repositories that might cause apt errors
+RUN rm -f /etc/apt/sources.list.d/azlux.list 2>/dev/null || true && \
+    rm -f /etc/apt/sources.list.d/log2ram.list 2>/dev/null || true
+
 # Install desktop environment + nginx for iframe proxy + software rendering + xdotool for automation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb x11vnc novnc websockify nginx \
@@ -2664,6 +2668,11 @@ Environment=PYTHONUNBUFFERED=1
 [Install]
 WantedBy=multi-user.target
 SERVICE
+    
+    # Clean up broken/outdated third-party repositories
+    log_info "Cleaning up broken apt repositories..."
+    rm -f /etc/apt/sources.list.d/azlux.list 2>/dev/null || true
+    rm -f /etc/apt/sources.list.d/log2ram.list 2>/dev/null || true
     
     # Install Python dependencies
     log_info "Installing Python dependencies..."
