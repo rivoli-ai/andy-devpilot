@@ -130,12 +130,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
+# Uses retry and fallback to handle SSL/network issues
 RUN ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then \
-        curl -L "https://download.mozilla.org/?product=firefox-latest&os=linux64-aarch64&lang=en-US" -o /tmp/firefox.tar.xz; \
+        FF_URL="https://download.mozilla.org/?product=firefox-latest&os=linux64-aarch64&lang=en-US"; \
     else \
-        curl -L "https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US" -o /tmp/firefox.tar.xz; \
+        FF_URL="https://download.mozilla.org/?product=firefox-latest&os=linux64&lang=en-US"; \
     fi && \
+    (curl -fsSL --retry 3 --retry-delay 5 "$FF_URL" -o /tmp/firefox.tar.xz || \
+     curl -fsSL --retry 3 --retry-delay 5 -k "$FF_URL" -o /tmp/firefox.tar.xz || \
+     wget --no-check-certificate -q -O /tmp/firefox.tar.xz "$FF_URL") && \
     tar -xJf /tmp/firefox.tar.xz -C /opt/ && \
     ln -sf /opt/firefox/firefox /usr/local/bin/firefox && \
     rm /tmp/firefox.tar.xz
