@@ -58,11 +58,19 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Get all repositories for the current authenticated user
+    /// Get repositories for the current authenticated user.
+    /// Supports pagination and search via query params.
     /// </summary>
+    /// <param name="search">Optional search term (matches repository name, full name, or organization)</param>
+    /// <param name="page">Page number (1-based)</param>
+    /// <param name="pageSize">Items per page (1-100)</param>
     [HttpGet]
     [Authorize]
-    public async Task<IActionResult> GetRepositories(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetRepositories(
+        [FromQuery] string? search = null,
+        [FromQuery] int? page = null,
+        [FromQuery] int? pageSize = null,
+        CancellationToken cancellationToken = default)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
@@ -70,9 +78,19 @@ public class RepositoriesController : ControllerBase
             return Unauthorized("User ID not found in token");
         }
 
+        if (page.HasValue || pageSize.HasValue || !string.IsNullOrWhiteSpace(search))
+        {
+            var paginatedQuery = new GetRepositoriesPaginatedQuery(
+                userId,
+                search,
+                page ?? 1,
+                pageSize ?? 20);
+            var result = await _mediator.Send(paginatedQuery, cancellationToken);
+            return Ok(result);
+        }
+
         var query = new GetRepositoriesByUserIdQuery(userId);
         var repositories = await _mediator.Send(query, cancellationToken);
-
         return Ok(repositories);
     }
 
