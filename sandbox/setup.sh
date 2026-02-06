@@ -181,6 +181,29 @@ if [ "$DEPS_OK" = false ]; then
     exit 1
 fi
 
+# Check SSL/CA certificates
+echo ""
+log "=== SSL/CA CERTIFICATES CHECK ==="
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    log "CA bundle: /etc/ssl/certs/ca-certificates.crt ($(wc -l < /etc/ssl/certs/ca-certificates.crt) lines)"
+elif [ -d /etc/ssl/certs ]; then
+    log "CA certs dir: /etc/ssl/certs ($(ls /etc/ssl/certs | wc -l) files)"
+else
+    log "WARNING: No CA certificates found!"
+fi
+
+# Test SSL connectivity
+log ""
+log "Testing SSL connectivity to zed.dev..."
+if curl -sS --connect-timeout 5 -I https://zed.dev 2>&1 | head -5 | tee -a "$LOG_FILE"; then
+    log "SSL connection to zed.dev: OK"
+    SSL_OK=true
+else
+    log "SSL connection to zed.dev: FAILED"
+    log "Will try with --insecure flag"
+    SSL_OK=false
+fi
+
 # Create target directory
 echo ""
 log "=== CREATING DIRECTORIES ==="
@@ -205,17 +228,47 @@ log "=========================================="
 echo ""
 log "=== DOWNLOADING ZED INSTALLER ==="
 log "URL: https://zed.dev/install.sh"
-curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh
-CURL_EXIT=$?
-log "curl exit code: $CURL_EXIT"
 
-if [ ! -f /tmp/zed-install.sh ]; then
-    log "ERROR: Failed to download Zed install script (file not created)"
+DOWNLOAD_SUCCESS=false
+
+# Try secure download first
+if [ "$SSL_OK" = true ]; then
+    log "Attempting secure download..."
+    curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
+    CURL_EXIT=$?
+    log "curl exit code: $CURL_EXIT"
+    if [ -f /tmp/zed-install.sh ] && [ -s /tmp/zed-install.sh ]; then
+        DOWNLOAD_SUCCESS=true
+        log "Secure download successful"
+    fi
+fi
+
+# Fallback to insecure if secure failed
+if [ "$DOWNLOAD_SUCCESS" = false ]; then
+    log ""
+    log "Attempting download with --insecure flag (SSL verification disabled)..."
+    curl -fsSL --insecure https://zed.dev/install.sh -o /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
+    CURL_EXIT=$?
+    log "curl exit code: $CURL_EXIT"
+    if [ -f /tmp/zed-install.sh ] && [ -s /tmp/zed-install.sh ]; then
+        DOWNLOAD_SUCCESS=true
+        log "Insecure download successful"
+    fi
+fi
+
+if [ "$DOWNLOAD_SUCCESS" = false ]; then
+    log "ERROR: Failed to download Zed install script"
+    log ""
+    log "Attempting verbose curl for debugging..."
+    curl -v https://zed.dev/install.sh 2>&1 | head -50 | tee -a "$LOG_FILE"
+    log ""
     log "Creating placeholder..."
     cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
 #!/bin/bash
-echo "Zed installation failed: Could not download installer"
+echo "Zed installation failed: Could not download installer (SSL error?)"
 echo "Debug log: /tmp/zed-install-debug.log"
+echo ""
+echo "Try manually: curl -k https://zed.dev/install.sh | sh"
 PLACEHOLDER
     chmod +x /home/sandbox/.local/bin/zed
     exit 0
@@ -231,12 +284,23 @@ head -30 /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
 
 chmod +x /tmp/zed-install.sh
 
+# If SSL failed, patch the Zed install script to use --insecure
+if [ "$SSL_OK" = false ]; then
+    log ""
+    log "Patching Zed installer to use --insecure for curl..."
+    sed -i 's/curl /curl --insecure /g' /tmp/zed-install.sh
+    log "Patch applied"
+fi
+
 # Run Zed installer with full output
 echo ""
 log "=========================================="
 log "=== RUNNING ZED INSTALLER ==="
 log "=========================================="
 log "Command: /tmp/zed-install.sh"
+if [ "$SSL_OK" = false ]; then
+    log "NOTE: Running with SSL verification disabled (patched)"
+fi
 echo ""
 
 # Capture all output
