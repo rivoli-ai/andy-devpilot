@@ -113,85 +113,104 @@ cat > desktop/install-zed.sh << 'INSTALL_ZED_SCRIPT'
 
 LOG_FILE="/tmp/zed-install-debug.log"
 
+# Log to both stdout and file - everything visible during docker build
 log() {
-    echo "$1"
+    echo "[ZED-INSTALL] $1"
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
 }
 
-log "=========================================="
-log "=== Zed Installation Script ==="
-log "=========================================="
+log_cmd() {
+    # Run command and show output on both stdout and log file
+    "$@" 2>&1 | tee -a "$LOG_FILE"
+}
 
-# System info
-log ""
-log "=== SYSTEM INFO ==="
+echo ""
+echo "############################################"
+echo "#        ZED INSTALLATION SCRIPT          #"
+echo "############################################"
+echo ""
+
+log "=========================================="
+log "=== SYSTEM INFORMATION ==="
+log "=========================================="
 log "Architecture: $(uname -m)"
 log "Kernel: $(uname -r)"
 log "OS: $(uname -o 2>/dev/null || echo 'Unknown')"
 log "User: $(whoami)"
 log "Home: $HOME"
 log "PWD: $(pwd)"
-log ""
+log "PATH: $PATH"
 
-# Check if running in WSL
+# Check if running in WSL or Docker
+echo ""
+log "=== ENVIRONMENT DETECTION ==="
 if grep -qi microsoft /proc/version 2>/dev/null; then
     log "Environment: WSL detected"
-    log "WSL Version info:"
-    cat /proc/version >> "$LOG_FILE" 2>&1
+    log "WSL Version:"
+    cat /proc/version 2>&1 | tee -a "$LOG_FILE"
 elif [ -f /.dockerenv ]; then
     log "Environment: Docker container"
 else
     log "Environment: Native Linux or other"
 fi
-log ""
 
 # Check glibc version
+echo ""
 log "=== GLIBC VERSION ==="
 if command -v ldd &>/dev/null; then
-    ldd --version 2>&1 | head -1 | tee -a "$LOG_FILE"
+    log_cmd ldd --version 2>&1 | head -1
 else
-    log "ldd not found"
+    log "ldd not found - cannot check glibc"
 fi
-log ""
 
 # Check required dependencies
+echo ""
 log "=== DEPENDENCY CHECK ==="
+DEPS_OK=true
 for cmd in curl tar gzip; do
     if command -v $cmd &>/dev/null; then
-        log "$cmd: OK ($(which $cmd))"
+        log "  $cmd: OK ($(which $cmd))"
     else
-        log "$cmd: MISSING"
+        log "  $cmd: MISSING!"
+        DEPS_OK=false
     fi
 done
-log ""
+
+if [ "$DEPS_OK" = false ]; then
+    log "ERROR: Missing required dependencies"
+    exit 1
+fi
 
 # Create target directory
+echo ""
 log "=== CREATING DIRECTORIES ==="
 mkdir -p /home/sandbox/.local/bin
 log "Created /home/sandbox/.local/bin"
-ls -la /home/sandbox/.local/ >> "$LOG_FILE" 2>&1
-log ""
+log "Directory listing:"
+ls -la /home/sandbox/.local/ 2>&1 | tee -a "$LOG_FILE"
 
 ARCH=$(uname -m)
 
+echo ""
 log "=========================================="
 log "Architecture: $ARCH"
 if [ "$ARCH" != "x86_64" ]; then
-    log "NOTE: Running on non-x86_64 architecture"
-    log "Zed may or may not work depending on platform support"
+    log "NOTE: Running on $ARCH architecture"
+    log "Zed officially supports x86_64 Linux and ARM macOS"
+    log "Attempting installation anyway..."
 fi
-log "Proceeding with Zed installation..."
 log "=========================================="
-log ""
 
 # Download Zed install script
+echo ""
 log "=== DOWNLOADING ZED INSTALLER ==="
-curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
+log "URL: https://zed.dev/install.sh"
+curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh
 CURL_EXIT=$?
 log "curl exit code: $CURL_EXIT"
 
 if [ ! -f /tmp/zed-install.sh ]; then
-    log "ERROR: Failed to download Zed install script"
+    log "ERROR: Failed to download Zed install script (file not created)"
     log "Creating placeholder..."
     cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
 #!/bin/bash
@@ -202,84 +221,159 @@ PLACEHOLDER
     exit 0
 fi
 
-log "Downloaded install script:"
-ls -la /tmp/zed-install.sh >> "$LOG_FILE" 2>&1
-log ""
+log "Download successful. File size: $(wc -c < /tmp/zed-install.sh) bytes"
+ls -la /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
 
 # Show first few lines of install script for debugging
-log "=== ZED INSTALL SCRIPT (first 20 lines) ==="
-head -20 /tmp/zed-install.sh >> "$LOG_FILE" 2>&1
-log ""
+echo ""
+log "=== ZED INSTALL SCRIPT CONTENT (first 30 lines) ==="
+head -30 /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
 
 chmod +x /tmp/zed-install.sh
 
-# Run Zed installer
+# Run Zed installer with full output
+echo ""
+log "=========================================="
 log "=== RUNNING ZED INSTALLER ==="
+log "=========================================="
 log "Command: /tmp/zed-install.sh"
-log ""
+echo ""
 
+# Capture all output
 /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
 INSTALL_EXIT=${PIPESTATUS[0]}
 
-log ""
+echo ""
+log "=========================================="
 log "Zed installer exit code: $INSTALL_EXIT"
-log ""
+log "=========================================="
 
-# Check what was installed
-log "=== POST-INSTALL CHECK ==="
-log "Contents of /home/sandbox/.local/bin/:"
+# Extensive post-install check
+echo ""
+log "=== POST-INSTALL VERIFICATION ==="
+
+log ""
+log "--- Contents of /home/sandbox/.local/bin/ ---"
 ls -la /home/sandbox/.local/bin/ 2>&1 | tee -a "$LOG_FILE"
-log ""
 
-log "Contents of /home/sandbox/.local/ (all):"
-find /home/sandbox/.local/ -type f 2>/dev/null | head -50 >> "$LOG_FILE"
 log ""
+log "--- All files in /home/sandbox/.local/ ---"
+find /home/sandbox/.local/ -type f 2>&1 | tee -a "$LOG_FILE"
 
-# Check for zed binary in various locations
+log ""
+log "--- All directories in /home/sandbox/.local/ ---"
+find /home/sandbox/.local/ -type d 2>&1 | tee -a "$LOG_FILE"
+
+# Search for zed in many locations
+echo ""
 log "=== SEARCHING FOR ZED BINARY ==="
-for path in "/home/sandbox/.local/bin/zed" "/home/sandbox/.local/zed.app" "$HOME/.local/bin/zed" "/usr/local/bin/zed"; do
-    if [ -f "$path" ] || [ -d "$path" ]; then
-        log "Found: $path"
-        ls -la "$path" >> "$LOG_FILE" 2>&1
+SEARCH_PATHS=(
+    "/home/sandbox/.local/bin/zed"
+    "/home/sandbox/.local/zed.app"
+    "/home/sandbox/.local/zed"
+    "$HOME/.local/bin/zed"
+    "$HOME/.local/zed.app"
+    "/usr/local/bin/zed"
+    "/usr/bin/zed"
+)
+
+ZED_FOUND=""
+for path in "${SEARCH_PATHS[@]}"; do
+    if [ -f "$path" ]; then
+        log "FOUND FILE: $path"
+        ls -la "$path" 2>&1 | tee -a "$LOG_FILE"
+        file "$path" 2>&1 | tee -a "$LOG_FILE"
+        ZED_FOUND="$path"
+    elif [ -d "$path" ]; then
+        log "FOUND DIR: $path"
+        ls -la "$path" 2>&1 | tee -a "$LOG_FILE"
     else
         log "Not found: $path"
     fi
 done
-log ""
 
-# Verify installation
+# Also search with find
+log ""
+log "--- Searching entire /home/sandbox for 'zed' ---"
+find /home/sandbox -name "*zed*" -type f 2>&1 | tee -a "$LOG_FILE" || log "No files found"
+find /home/sandbox -name "*zed*" -type d 2>&1 | tee -a "$LOG_FILE" || log "No dirs found"
+
+# Check using which and command
+log ""
+log "--- which zed ---"
+which zed 2>&1 | tee -a "$LOG_FILE" || log "which: zed not found in PATH"
+
+log ""
+log "--- command -v zed ---"
+command -v zed 2>&1 | tee -a "$LOG_FILE" || log "command: zed not found"
+
+# Final verification
+echo ""
+log "=========================================="
 if [ -f /home/sandbox/.local/bin/zed ]; then
     log "=== ZED BINARY FOUND ==="
     log "Location: /home/sandbox/.local/bin/zed"
+    log ""
+    log "File type:"
     file /home/sandbox/.local/bin/zed 2>&1 | tee -a "$LOG_FILE"
+    log ""
+    log "File permissions:"
+    ls -la /home/sandbox/.local/bin/zed 2>&1 | tee -a "$LOG_FILE"
     log ""
     log "Testing zed --version:"
     /home/sandbox/.local/bin/zed --version 2>&1 | tee -a "$LOG_FILE" || log "Version check failed (may need display)"
     log ""
-    log "=== Zed installation SUCCESS ==="
+    log "############################################"
+    log "#      ZED INSTALLATION SUCCESS!          #"
+    log "############################################"
+elif [ -n "$ZED_FOUND" ]; then
+    log "=== ZED FOUND AT DIFFERENT LOCATION ==="
+    log "Found at: $ZED_FOUND"
+    log "Creating symlink to expected location..."
+    ln -sf "$ZED_FOUND" /home/sandbox/.local/bin/zed
+    log "Symlink created"
+    log "############################################"
+    log "#      ZED INSTALLATION SUCCESS!          #"
+    log "############################################"
 else
-    log "=== ZED BINARY NOT FOUND ==="
-    log "Installation may have failed or installed to different location"
+    log "############################################"
+    log "#      ZED BINARY NOT FOUND!              #"
+    log "############################################"
+    log ""
+    log "Installation may have failed silently."
+    log "Installer exit code was: $INSTALL_EXIT"
     log ""
     log "Creating placeholder script..."
     cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
 #!/bin/bash
+echo "============================================"
 echo "Zed installation failed or binary not found"
+echo "============================================"
+echo ""
 echo "Debug log: /tmp/zed-install-debug.log"
 echo ""
-echo "Try running manually: curl -fsSL https://zed.dev/install.sh | sh"
+echo "System info:"
+echo "  Architecture: $(uname -m)"
+echo "  Kernel: $(uname -r)"
+echo ""
+echo "To retry manually:"
+echo "  curl -fsSL https://zed.dev/install.sh | sh"
+echo ""
 PLACEHOLDER
     chmod +x /home/sandbox/.local/bin/zed
-    log "Placeholder created"
+    log "Placeholder created at /home/sandbox/.local/bin/zed"
 fi
+log "=========================================="
 
 rm -f /tmp/zed-install.sh 2>/dev/null || true
 
-log ""
-log "=========================================="
-log "=== Zed setup script complete ==="
-log "=========================================="
-log "Full debug log: $LOG_FILE"
+echo ""
+log "Full debug log saved to: $LOG_FILE"
+echo ""
+echo "############################################"
+echo "#     ZED SETUP SCRIPT COMPLETE           #"
+echo "############################################"
+echo ""
 INSTALL_ZED_SCRIPT
 
 cat > desktop/Dockerfile << 'DESKTOP_DOCKERFILE'
