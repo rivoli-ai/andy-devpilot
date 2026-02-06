@@ -265,11 +265,22 @@ export class BacklogService {
   /**
    * Sync backlog items imported from Azure DevOps back to Azure DevOps
    * Updates title, description, status, story points, acceptance criteria
+   * When epicIds, featureIds, storyIds are provided, only those items are synced.
    */
-  syncToAzureDevOps(repositoryId: string): Observable<SyncToAzureDevOpsResponse> {
+  syncToAzureDevOps(
+    repositoryId: string,
+    options?: { epicIds?: string[]; featureIds?: string[]; storyIds?: string[] }
+  ): Observable<SyncToAzureDevOpsResponse> {
+    const body = options
+      ? {
+          epicIds: options.epicIds ?? [],
+          featureIds: options.featureIds ?? [],
+          storyIds: options.storyIds ?? []
+        }
+      : {};
     return this.apiService.post<SyncToAzureDevOpsResponse>(
       `/backlog/repository/${repositoryId}/sync-to-azure-devops`,
-      {}
+      body
     ).pipe(
       tap(response => {
         if (response.success && response.syncedCount > 0) {

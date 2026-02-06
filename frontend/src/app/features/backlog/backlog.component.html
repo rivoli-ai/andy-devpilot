@@ -130,8 +130,8 @@
           <button 
             class="action-btn secondary"
             (click)="syncToAzureDevOps()"
-            [disabled]="syncToAzureDevOpsLoading()"
-            title="Push updates back to Azure DevOps"
+            [disabled]="syncToAzureDevOpsLoading() || !hasSyncSelection()"
+            title="Push selected items to Azure DevOps"
           >
             @if (syncToAzureDevOpsLoading()) {
               <span class="spinner-small"></span>
@@ -164,6 +164,18 @@
       </button>
     </div>
   </div>
+
+  <!-- Sync to Azure selection bar -->
+  @if (repository()?.provider === 'AzureDevOps' && hasAzureDevOpsImportedItems() && !loading() && epics().length > 0) {
+    <div class="sync-to-azure-bar">
+      <span class="sync-bar-label">Sync to Azure DevOps:</span>
+      <div class="sync-bar-actions">
+        <button type="button" class="sync-link-btn" (click)="selectAllForSyncToAzure()">Select All</button>
+        <button type="button" class="sync-link-btn" (click)="deselectAllForSyncToAzure()">Deselect All</button>
+        <span class="sync-selection-count">{{ selectedSyncToAzureEpics().size + selectedSyncToAzureFeatures().size + selectedSyncToAzureStories().size }} selected</span>
+      </div>
+    </div>
+  }
 
   <!-- Sync to Azure DevOps status banner -->
   @if (syncToAzureDevOpsSuccess() || syncToAzureDevOpsError()) {
@@ -470,9 +482,12 @@
       </div>
     } @else if (viewMode() === 'tree') {
       <!-- Tree View -->
-      <div class="work-items-tree">
+      <div class="work-items-tree" [class.has-sync-column]="hasAzureDevOpsImportedItems()">
         <!-- Column Headers -->
         <div class="tree-header">
+          @if (hasAzureDevOpsImportedItems()) {
+            <div class="col-sync" title="Sync to Azure DevOps">Sync</div>
+          }
           <div class="col-title">Work Item</div>
           <div class="col-status">Status</div>
           <div class="col-points">Points</div>
@@ -489,6 +504,16 @@
               [class.selected]="isSelected(epic.id)"
               (click)="selectItem(epic.id)"
             >
+              @if (hasAzureDevOpsImportedItems()) {
+                <div class="col-sync">
+                  @if (epic.source === 'AzureDevOps' && epic.azureDevOpsWorkItemId) {
+                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                      <input type="checkbox" [checked]="isEpicSelectedForSync(epic.id)" (change)="toggleEpicForSync(epic.id, $event)" />
+                      <span class="checkmark"></span>
+                    </label>
+                  }
+                </div>
+              }
               <div class="row-content">
                 <button 
                   class="expand-btn"
@@ -504,7 +529,13 @@
                 <span class="work-item-icon epic">E</span>
                 <span class="work-item-id">E-{{ epic.id.substring(0, 4).toUpperCase() }}</span>
                 <span class="work-item-title">{{ epic.title }}</span>
-                @if (epic.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                @if (epic.source === 'AzureDevOps') {
+                  @if (epic.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(epic.azureDevOpsWorkItemId); as url) {
+                    <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
+                  } @else {
+                    <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
+                  }
+                }
                 @if (epic.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                 <span class="children-count" *ngIf="epic.features.length > 0">
                   {{ epic.features.length }} features
@@ -598,6 +629,16 @@
                     [class.selected]="isSelected(feature.id)"
                     (click)="selectItem(feature.id)"
                   >
+                    @if (hasAzureDevOpsImportedItems()) {
+                      <div class="col-sync">
+                        @if (feature.source === 'AzureDevOps' && feature.azureDevOpsWorkItemId) {
+                          <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                            <input type="checkbox" [checked]="isFeatureSelectedForSync(feature.id)" (change)="toggleFeatureForSync(feature.id, $event)" />
+                            <span class="checkmark"></span>
+                          </label>
+                        }
+                      </div>
+                    }
                     <div class="row-content">
                       <button 
                         class="expand-btn"
@@ -613,7 +654,13 @@
                       <span class="work-item-icon feature">F</span>
                       <span class="work-item-id">F-{{ feature.id.substring(0, 4).toUpperCase() }}</span>
                       <span class="work-item-title">{{ feature.title }}</span>
-                      @if (feature.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                      @if (feature.source === 'AzureDevOps') {
+                      @if (feature.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(feature.azureDevOpsWorkItemId); as url) {
+                        <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
+                      } @else {
+                        <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
+                      }
+                    }
                       @if (feature.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                       <span class="children-count" *ngIf="feature.userStories.length > 0">
                         {{ feature.userStories.length }} stories
@@ -706,6 +753,16 @@
                         [class.creating]="isCreatingSandbox(story.id)"
                         (click)="onUserStoryClick(story.id)"
                       >
+                        @if (hasAzureDevOpsImportedItems()) {
+                          <div class="col-sync">
+                            @if (story.source === 'AzureDevOps' && story.azureDevOpsWorkItemId) {
+                              <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                                <input type="checkbox" [checked]="isStorySelectedForSync(story.id)" (change)="toggleStoryForSync(story.id, $event)" />
+                                <span class="checkmark"></span>
+                              </label>
+                            }
+                          </div>
+                        }
                         <div class="row-content">
                           <span class="expand-btn placeholder"></span>
                           <span class="work-item-icon story">S</span>
@@ -740,7 +797,13 @@
                             </button>
                           }
                           <span class="work-item-title">{{ story.title }}</span>
-                          @if (story.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                          @if (story.source === 'AzureDevOps') {
+                            @if (story.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(story.azureDevOpsWorkItemId); as url) {
+                              <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
+                            } @else {
+                              <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
+                            }
+                          }
                           @if (story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                           @if (hasStoryWarning(story)) {
                             <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(story)" [title]="getStoryWarningMessage(story)" (click)="$event.stopPropagation()">
@@ -897,6 +960,16 @@
                 [class.creating]="isCreatingSandbox(item.story.id)"
                 (click)="onUserStoryClick(item.story.id)"
               >
+                @if (hasAzureDevOpsImportedItems()) {
+                  <div class="col-sync">
+                    @if (item.story.source === 'AzureDevOps' && item.story.azureDevOpsWorkItemId) {
+                      <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                        <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
+                        <span class="checkmark"></span>
+                      </label>
+                    }
+                  </div>
+                }
                 <div class="row-content">
                   <span class="expand-btn placeholder"></span>
                   <span class="work-item-icon story">S</span>
@@ -931,7 +1004,13 @@
                     </button>
                   }
                   <span class="work-item-title">{{ item.story.title }}</span>
-                  @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                  @if (item.story.source === 'AzureDevOps') {
+                  @if (item.story.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(item.story.azureDevOpsWorkItemId); as url) {
+                    <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
+                  } @else {
+                    <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
+                  }
+                }
                   @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                   @if (hasStoryWarning(item.story)) {
                     <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
@@ -1074,9 +1153,12 @@
       </div>
     } @else {
       <!-- Flat View - All User Stories -->
-      <div class="flat-view">
+      <div class="flat-view" [class.has-sync-column]="hasAzureDevOpsImportedItems()">
         <!-- Column Headers -->
         <div class="flat-header">
+          @if (hasAzureDevOpsImportedItems()) {
+            <div class="col-sync" title="Sync to Azure DevOps">Sync</div>
+          }
           <div class="col-title">User Story</div>
           <div class="col-parent">Feature / Epic</div>
           <div class="col-status">Status</div>
@@ -1096,6 +1178,16 @@
               [class.creating]="isCreatingSandbox(item.story.id)"
               (click)="onUserStoryClick(item.story.id)"
             >
+              @if (hasAzureDevOpsImportedItems()) {
+                <div class="col-sync">
+                  @if (item.story.source === 'AzureDevOps' && item.story.azureDevOpsWorkItemId) {
+                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                      <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
+                      <span class="checkmark"></span>
+                    </label>
+                  }
+                </div>
+              }
               <div class="row-content">
                 <span class="work-item-icon story">S</span>
                 <span class="work-item-id">S-{{ item.story.id.substring(0, 4).toUpperCase() }}</span>
@@ -1129,7 +1221,13 @@
                   </button>
                 }
                 <span class="work-item-title">{{ item.story.title }}</span>
-                @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                @if (item.story.source === 'AzureDevOps') {
+                  @if (item.story.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(item.story.azureDevOpsWorkItemId); as url) {
+                    <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
+                  } @else {
+                    <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
+                  }
+                }
                 @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                 @if (hasStoryWarning(item.story)) {
                   <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
@@ -1475,16 +1573,73 @@
           } @else {
             <!-- Work Items Selection -->
             <div class="ado-work-items">
+              <!-- Filters -->
+              <div class="ado-filters-bar">
+                <div class="ado-filter-status">
+                  <span class="ado-filter-label">Status</span>
+                  <div class="ado-segmented-toggle">
+                    <button 
+                      type="button" 
+                      class="ado-toggle-option" 
+                      [class.active]="!adoShowAllStatuses()"
+                      (click)="adoShowAllStatuses.set(false)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                      </svg>
+                      Active only
+                    </button>
+                    <button 
+                      type="button" 
+                      class="ado-toggle-option" 
+                      [class.active]="adoShowAllStatuses()"
+                      (click)="adoShowAllStatuses.set(true)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="16" x2="12" y2="12"/>
+                        <line x1="12" y1="8" x2="12.01" y2="8"/>
+                      </svg>
+                      All
+                    </button>
+                  </div>
+                </div>
+                <div class="ado-filter-search-wrap">
+                  <span class="ado-filter-label">Filter</span>
+                  <div class="ado-filter-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                      <circle cx="11" cy="11" r="8"/>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input 
+                      type="text" 
+                      placeholder="Search by name..." 
+                      [ngModel]="adoNameFilter()" 
+                      (ngModelChange)="adoNameFilter.set($event)" 
+                      name="adoNameFilter"
+                    />
+                    @if (adoNameFilter()) {
+                      <button type="button" class="ado-filter-clear" (click)="adoNameFilter.set('')" title="Clear">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                          <line x1="18" y1="6" x2="6" y2="18"/>
+                          <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    }
+                  </div>
+                </div>
+              </div>
               <div class="ado-work-items-header">
                 <div class="ado-work-items-stats">
-                  @if (azureDevOpsWorkItems()!.epics.length > 0) {
-                    <span class="ado-stat epic">{{ azureDevOpsWorkItems()!.epics.length }} Epics</span>
+                  @if (getFilteredAzureDevOpsEpics().length > 0) {
+                    <span class="ado-stat epic">{{ getFilteredAzureDevOpsEpics().length }} Epics</span>
                   }
-                  @if (azureDevOpsWorkItems()!.features.length > 0) {
-                    <span class="ado-stat feature">{{ azureDevOpsWorkItems()!.features.length }} Features</span>
+                  @if (getFilteredAzureDevOpsFeaturesCount() > 0) {
+                    <span class="ado-stat feature">{{ getFilteredAzureDevOpsFeaturesCount() }} Features</span>
                   }
-                  @if (azureDevOpsWorkItems()!.userStories.length > 0) {
-                    <span class="ado-stat story">{{ azureDevOpsWorkItems()!.userStories.length }} User Stories</span>
+                  @if (getFilteredAzureDevOpsStoriesCount() > 0) {
+                    <span class="ado-stat story">{{ getFilteredAzureDevOpsStoriesCount() }} User Stories</span>
                   }
                 </div>
                 <div class="ado-selection-actions">
@@ -1494,12 +1649,12 @@
               </div>
 
               <!-- Unified Tree View -->
-              @if (azureDevOpsWorkItems()!.epics.length > 0 || 
+              @if (getFilteredAzureDevOpsEpics().length > 0 || 
                    getAzureDevOpsOrphanFeatures().length > 0 || 
                    getAzureDevOpsOrphanStories().length > 0) {
                 <div class="ado-tree">
                   <!-- Epics -->
-                  @for (epic of azureDevOpsWorkItems()!.epics; track epic.id) {
+                  @for (epic of getFilteredAzureDevOpsEpics(); track epic.id) {
                     <div class="ado-tree-item epic">
                       <div class="ado-tree-row" [class.selected]="getAzureDevOpsEpicCheckboxState(epic.id) !== 'unchecked'">
                         <label class="ado-checkbox" [class.indeterminate]="getAzureDevOpsEpicCheckboxState(epic.id) === 'indeterminate'">
