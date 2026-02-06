@@ -4,6 +4,15 @@ import { catchError } from 'rxjs/operators';
 import { ApiService } from './api.service';
 import { Repository } from '../../shared/models/repository.model';
 
+export interface PagedRepositoriesResult {
+  items: Repository[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore: boolean;
+}
+
 export interface SyncSource {
   provider: string;
   isLinked: boolean;
@@ -117,12 +126,28 @@ export class RepositoryService {
   constructor(private apiService: ApiService) {}
 
   /**
-   * Fetch all repositories for the current user
+   * Fetch all repositories for the current user (no pagination)
    */
   getRepositories(): Observable<Repository[]> {
     return this.apiService.get<Repository[]>('/repositories').pipe(
       tap(repositories => this.repositoriesSignal.set(repositories))
     );
+  }
+
+  /**
+   * Fetch repositories with pagination and search
+   */
+  getRepositoriesPaginated(params: {
+    search?: string;
+    page?: number;
+    pageSize?: number;
+  } = {}): Observable<PagedRepositoriesResult> {
+    const qs = new URLSearchParams();
+    if (params.search?.trim()) qs.set('search', params.search.trim());
+    if (params.page != null) qs.set('page', String(params.page));
+    if (params.pageSize != null) qs.set('pageSize', String(params.pageSize));
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return this.apiService.get<PagedRepositoriesResult>(`/repositories${query}`);
   }
 
   /**

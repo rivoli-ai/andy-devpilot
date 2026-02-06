@@ -1,3 +1,21 @@
+:host {
+  display: block;
+  /* Use viewport-based height: 100vh minus the fixed header and main-content padding */
+  height: calc(100vh - var(--header-height) - var(--space-8) * 2);
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* Sticky header: stays at top when scrolling */
+.repositories-sticky-header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface-ground, #0f0f1a);
+  flex-shrink: 0;
+  padding-bottom: var(--space-4);
+}
+
 .repositories-container {
   max-width: var(--content-max-width);
   margin: 0 auto;
@@ -5,15 +23,22 @@
   animation: slideUp var(--duration-slow) var(--ease-out);
   width: 100%;
   box-sizing: border-box;
+  /* Contained layout: header/search/filters fixed, only cards scroll */
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
-/* Page Header */
+/* Page Header - fixed, no scroll */
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   margin-bottom: var(--space-6);
   gap: var(--space-4);
+  flex-shrink: 0;
 }
 
 .header-content {
@@ -346,6 +371,7 @@
 .sync-section {
   margin-bottom: var(--space-6);
   overflow: visible !important;
+  flex-shrink: 0;
 }
 
 .sync-section ::ng-deep .card {
@@ -428,6 +454,137 @@
   font-size: var(--text-base);
   color: var(--text-secondary);
   margin: 0;
+}
+
+/* Search Section - fixed, no scroll */
+.search-section {
+  margin-bottom: var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.search-input-wrapper {
+  flex: 1;
+  min-width: 200px;
+  max-width: 400px;
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.search-input-wrapper .search-icon {
+  position: absolute;
+  left: 12px;
+  width: 18px;
+  height: 18px;
+  color: var(--text-tertiary);
+  pointer-events: none;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 36px 10px 42px;
+  background: var(--surface-elevated, #1e1e2e);
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  transition: border-color 0.2s ease;
+}
+
+.search-input:focus {
+  outline: none;
+  border-color: var(--primary, #6366f1);
+}
+
+.search-input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.search-input-wrapper .search-clear {
+  position: absolute;
+  right: 10px;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.search-input-wrapper .search-clear:hover {
+  color: var(--text-secondary);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.05));
+}
+
+.search-result-count {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* Scrollable content area - Only this area scrolls; header/sync/search/filters stay fixed */
+.repositories-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding-right: var(--space-2);
+}
+
+.project-section {
+  margin-bottom: var(--space-8);
+}
+
+.project-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
+}
+
+.project-section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.project-section-count {
+  font-size: 0.8125rem;
+  color: var(--text-tertiary);
+  background: var(--surface-elevated, rgba(255, 255, 255, 0.05));
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
+.loading-more,
+.load-more-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.load-more-trigger {
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.load-more-trigger:hover {
+  color: var(--primary, #6366f1);
 }
 
 /* Repository Grid */
@@ -1343,6 +1500,7 @@
   margin-bottom: var(--space-6);
   padding: 4px;
   background: var(--surface-secondary, rgba(255, 255, 255, 0.03));
+  flex-shrink: 0;
   border-radius: 12px;
   border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
 }

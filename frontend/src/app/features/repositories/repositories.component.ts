@@ -1,8 +1,10 @@
-import { Component, OnInit, AfterViewInit, signal, computed, HostListener, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, AfterViewInit, signal, computed, HostListener, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { Subject } from 'rxjs';
+import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
 import { Router, RouterLink } from '@angular/router';
-import { RepositoryService, SyncSource } from '../../core/services/repository.service';
+import { RepositoryService, SyncSource, PagedRepositoriesResult } from '../../core/services/repository.service';
 import { AnalysisService } from '../../core/services/analysis.service';
 import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
@@ -24,9 +26,17 @@ import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
   templateUrl: './repositories.component.html',
   styleUrl: './repositories.component.css'
 })
-export class RepositoriesComponent implements OnInit, AfterViewInit {
+export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
+  private readonly destroy$ = new Subject<void>();
+  private readonly searchSubject = new Subject<string>();
   repositories = signal<Repository[]>([]);
   loading = signal<boolean>(false);
+  loadingMore = signal<boolean>(false);
+  searchQuery = signal<string>('');
+  page = signal<number>(1);
+  pageSize = 100;
+  hasMore = signal<boolean>(true);
+  totalCount = signal<number>(0);
   syncing = signal<boolean>(false);
   syncingProvider = signal<string | null>(null);
   syncSources = signal<SyncSource[]>([]);
@@ -48,12 +58,26 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
   // Computed: check if any provider is linked
   hasLinkedProvider = computed(() => this.syncSources().some(s => s.isLinked));
   
-  // Computed: filtered repositories based on active tab
+  // Computed: filtered repositories based on active tab (client-side filter for provider tab)
   filteredRepositories = computed(() => {
     const repos = this.repositories();
     const tab = this.activeProviderTab();
     if (tab === 'all') return repos;
     return repos.filter(r => r.provider === tab);
+  });
+
+  // Computed: group repositories by project (GitHub: org, Azure DevOps: org/project)
+  repositoriesByProject = computed(() => {
+    const repos = this.filteredRepositories();
+    const groups = new Map<string, Repository[]>();
+    for (const repo of repos) {
+      const projectKey = this.getProjectKey(repo);
+      if (!groups.has(projectKey)) groups.set(projectKey, []);
+      groups.get(projectKey)!.push(repo);
+    }
+    return Array.from(groups.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([project, items]) => ({ project, items }));
   });
   
   // Computed: repository counts per provider
@@ -207,7 +231,19 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
       }
     ];
     
+    // Debounced search
+    this.searchSubject.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      takeUntil(this.destroy$)
+    ).subscribe(() => this.loadRepositories(true));
+
     this.loadRepositories();
+  }
+
+  ngOnDestroy(): void {
+    this.destroy$.next();
+    this.destroy$.complete();
   }
 
   private renderActionsCell(row: Repository): string {
@@ -238,20 +274,80 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
     `;
   }
 
-  loadRepositories(): void {
-    this.loading.set(true);
+  /** Derive project key for grouping: GitHub = org, Azure DevOps = org/project */
+  getProjectKey(repo: Repository): string {
+    if (repo.provider === 'AzureDevOps') {
+      const parts = repo.fullName.split('/');
+      return parts.length >= 2 ? parts.slice(0, 2).join('/') : repo.organizationName;
+    }
+    return repo.organizationName || repo.fullName.split('/')[0] || 'Other';
+  }
+
+  /** Format project key for display: friendly name without raw org/project */
+  getProjectDisplayName(projectKey: string): string {
+    const parts = projectKey.split('/');
+    const last = parts[parts.length - 1] || projectKey;
+    return last
+      .replace(/[-_]/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase())
+      .trim() || projectKey;
+  }
+
+  loadRepositories(reset = true): void {
+    if (reset) {
+      this.page.set(1);
+      this.hasMore.set(true);
+      this.repositories.set([]);
+      this.loading.set(true);
+    } else {
+      this.loadingMore.set(true);
+    }
     this.error.set(null);
 
-    this.repositoryService.getRepositories().subscribe({
-      next: (repos) => {
-        this.repositories.set(repos);
+    const search = this.searchQuery().trim() || undefined;
+    const page = this.page();
+
+    this.repositoryService.getRepositoriesPaginated({
+      search,
+      page,
+      pageSize: this.pageSize
+    }).subscribe({
+      next: (result: PagedRepositoriesResult) => {
+        this.hasMore.set(result.hasMore);
+        this.totalCount.set(result.totalCount);
+        if (reset) {
+          this.repositories.set(result.items);
+        } else {
+          this.repositories.update(repos => [...repos, ...result.items]);
+        }
         this.loading.set(false);
+        this.loadingMore.set(false);
       },
       error: (err) => {
         this.error.set(err.message || 'Failed to load repositories');
         this.loading.set(false);
+        this.loadingMore.set(false);
       }
     });
+  }
+
+  onSearchInput(value: string): void {
+    this.searchQuery.set(value);
+    this.searchSubject.next(value.trim());
+  }
+
+  loadMore(): void {
+    if (!this.hasMore() || this.loadingMore() || this.loading()) return;
+    this.page.update(p => p + 1);
+    this.loadRepositories(false);
+  }
+
+  onRepositoriesScroll(event: Event): void {
+    const el = event.target as HTMLElement;
+    const threshold = 100;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < threshold) {
+      this.loadMore();
+    }
   }
 
   loadSyncSources(): void {
@@ -289,8 +385,8 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
     this.closeSyncMenu();
 
     this.repositoryService.syncFromGitHub().subscribe({
-      next: (repos) => {
-        this.repositories.set(repos);
+      next: () => {
+        this.loadRepositories(true);
         this.syncing.set(false);
         this.syncingProvider.set(null);
         this.successMessage.set('Repositories synced from GitHub');
@@ -328,7 +424,7 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
         
         const repos = Array.isArray(response) ? response : response?.repositories || [];
         if (repos.length > 0) {
-          this.loadRepositories(); // Reload all repos
+          this.loadRepositories(true);
           this.successMessage.set(`Synced ${repos.length} repositories from Azure DevOps`);
           setTimeout(() => this.successMessage.set(null), 3000);
         } else if (!organizationName) {
@@ -382,7 +478,7 @@ export class RepositoriesComponent implements OnInit, AfterViewInit {
 
     this.repositoryService.syncFromAllProviders().subscribe({
       next: () => {
-        this.loadRepositories(); // Reload to get all repos
+        this.loadRepositories(true);
         this.syncing.set(false);
         this.syncingProvider.set(null);
         this.successMessage.set('Repositories synced from all providers');
