@@ -250,12 +250,12 @@ export interface EditItemData {
       flex-shrink: 0;
     }
     .type-badge.epic {
-      background: rgba(139, 92, 246, 0.2);
-      color: #a78bfa;
-    }
-    .type-badge.feature {
       background: rgba(245, 158, 11, 0.2);
       color: #fbbf24;
+    }
+    .type-badge.feature {
+      background: rgba(139, 92, 246, 0.2);
+      color: #a78bfa;
     }
     .type-badge.story {
       background: rgba(59, 130, 246, 0.2);

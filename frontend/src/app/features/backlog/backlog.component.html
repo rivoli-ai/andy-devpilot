@@ -494,7 +494,7 @@
           <div class="col-progress">Progress</div>
         </div>
 
-        <!-- Epics (excludes standalone - those render below without tree) -->
+        <!-- Epics (Standalone items render below without epic row) -->
         @for (epic of filteredEpicsForTree(); track epic.id) {
           <div class="tree-group">
             <!-- Epic Row -->
@@ -950,203 +950,272 @@
           </div>
         }
 
-        <!-- Standalone stories (no epic/feature parent) - flat list without tree -->
-        @if (standaloneStoriesForTree().length > 0) {
-          <div class="tree-group standalone-stories">
-            @for (item of standaloneStoriesForTree(); track item.story.id) {
-              <div 
-                class="tree-row story-row standalone nested-2"
-                [class.selected]="isSelected(item.story.id)"
-                [class.creating]="isCreatingSandbox(item.story.id)"
-                (click)="onUserStoryClick(item.story.id)"
-              >
-                @if (hasAzureDevOpsImportedItems()) {
-                  <div class="col-sync">
-                    @if (item.story.source === 'AzureDevOps' && item.story.azureDevOpsWorkItemId) {
-                      <label class="sync-checkbox" (click)="$event.stopPropagation()">
-                        <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
-                        <span class="checkmark"></span>
-                      </label>
-                    }
-                  </div>
-                }
-                <div class="row-content">
-                  <span class="expand-btn placeholder"></span>
-                  <span class="work-item-icon story">S</span>
-                  <span class="work-item-id">S-{{ item.story.id.substring(0, 4).toUpperCase() }}</span>
-                  @if (hasOpenSandbox(item.story.id)) {
-                    <button 
-                      class="implement-btn sandbox-active" 
-                      title="View open sandbox"
-                      (click)="focusSandbox($event, item.story.id)"
-                    >
-                      <span class="sandbox-pulse"></span>
-                      <svg viewBox="0 0 24 24" class="monitor-icon">
-                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                        <line x1="8" y1="21" x2="16" y2="21"/>
-                        <line x1="12" y1="17" x2="12" y2="21"/>
-                      </svg>
-                    </button>
-                  } @else {
-                    <button 
-                      class="implement-btn" 
-                      title="Implement this story"
-                      [disabled]="isCreatingSandbox(item.story.id)"
-                      (click)="onImplementClick($event, item.story, 'Standalone', 'Standalone')"
-                    >
-                      @if (isCreatingSandbox(item.story.id)) {
-                        <span class="loading-spinner-small"></span>
-                      } @else {
-                        <svg viewBox="0 0 24 24">
-                          <polygon points="5 3 19 12 5 21 5 3"/>
-                        </svg>
-                      }
-                    </button>
+        <!-- Standalone features (no epic) - Feature → Stories only -->
+        @for (feature of standaloneFeaturesForTree(); track feature.id) {
+          <div class="tree-group nested-0">
+            <div 
+              class="tree-row feature-row"
+              [class.expanded]="isExpanded(feature.id)"
+              [class.selected]="isSelected(feature.id)"
+              (click)="selectItem(feature.id)"
+            >
+              @if (hasAzureDevOpsImportedItems()) {
+                <div class="col-sync">
+                  @if (feature.source === 'AzureDevOps' && feature.azureDevOpsWorkItemId) {
+                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                      <input type="checkbox" [checked]="isFeatureSelectedForSync(feature.id)" (change)="toggleFeatureForSync(feature.id, $event)" />
+                      <span class="checkmark"></span>
+                    </label>
                   }
-                  <span class="work-item-title">{{ item.story.title }}</span>
-                  @if (item.story.source === 'AzureDevOps') {
+                </div>
+              }
+              <div class="row-content">
+                <button 
+                  class="expand-btn"
+                  (click)="toggleExpand(feature.id); $event.stopPropagation()"
+                  [class.has-children]="feature.userStories.length > 0"
+                >
+                  @if (feature.userStories.length > 0) {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                  }
+                </button>
+                <span class="work-item-icon feature">F</span>
+                <span class="work-item-id">F-{{ feature.id.substring(0, 4).toUpperCase() }}</span>
+                <span class="work-item-title">{{ feature.title }}</span>
+                @if (feature.source === 'AzureDevOps') {
+                  @if (feature.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(feature.azureDevOpsWorkItemId); as url) {
+                    <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
+                  } @else {
+                    <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
+                  }
+                }
+                @if (feature.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                <span class="children-count" *ngIf="feature.userStories.length > 0">{{ feature.userStories.length }} stories</span>
+              </div>
+              <div class="row-status">
+                <span class="status-badge" [class]="getStatusClass(feature.status)">
+                  <span class="status-icon">{{ getStatusIcon(feature.status) }}</span>
+                  {{ feature.status }}
+                </span>
+              </div>
+              <div class="row-points">
+                <span class="points-value">{{ getFeatureStoryPoints(feature) }}</span>
+              </div>
+              <div class="row-progress">
+                <div class="progress-bar">
+                  <div class="progress-fill" [style.width.%]="getFeatureProgress(feature)"></div>
+                </div>
+                <span class="progress-text">{{ getFeatureProgress(feature) }}%</span>
+              </div>
+            </div>
+            @if (isSelected(feature.id)) {
+              <div class="inline-details feature-details">
+                <div class="inline-details-content">
+                  <div class="detail-grid">
+                    <div class="detail-main">
+                      <h4 class="detail-label">Description</h4>
+                      <p class="detail-text">{{ feature.description || 'No description provided' }}</p>
+                    </div>
+                    <div class="detail-sidebar">
+                      <div class="detail-meta-item"><span class="meta-label">User Stories</span><span class="meta-value">{{ feature.userStories.length }}</span></div>
+                      <div class="detail-meta-item"><span class="meta-label">Total Points</span><span class="meta-value">{{ getFeatureStoryPoints(feature) }}</span></div>
+                      <div class="detail-meta-item"><span class="meta-label">Progress</span><span class="meta-value">{{ getFeatureProgress(feature) }}%</span></div>
+                      @if (feature.source && feature.source !== 'Manual') {
+                        <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (feature.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (feature.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }</span></div>
+                      }
+                      <div class="detail-actions">
+                        <button class="add-item-btn" (click)="openAddStory(feature.id); $event.stopPropagation()" title="Add User Story"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Story</button>
+                        <button class="edit-item-btn" (click)="openEditFeature(feature); $event.stopPropagation()" title="Edit Feature"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit</button>
+                        @if (standaloneEpic(); as epicRef) {
+                          <button class="delete-item-btn" (click)="onDeleteFeature(feature.id, epicRef.id, $event)" title="Delete Feature"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete</button>
+                        }
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            }
+            @if (isExpanded(feature.id)) {
+              @for (story of feature.userStories; track story.id) {
+                <div class="tree-group nested-1">
+                  <div 
+                    class="tree-row story-row nested-2"
+                    [class.selected]="isSelected(story.id)"
+                    [class.creating]="isCreatingSandbox(story.id)"
+                    (click)="onUserStoryClick(story.id)"
+                  >
+                    @if (hasAzureDevOpsImportedItems()) {
+                      <div class="col-sync">
+                        @if (story.source === 'AzureDevOps' && story.azureDevOpsWorkItemId) {
+                          <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                            <input type="checkbox" [checked]="isStorySelectedForSync(story.id)" (change)="toggleStoryForSync(story.id, $event)" />
+                            <span class="checkmark"></span>
+                          </label>
+                        }
+                      </div>
+                    }
+                    <div class="row-content">
+                      <span class="expand-btn placeholder"></span>
+                      <span class="work-item-icon story">S</span>
+                      <span class="work-item-id">S-{{ story.id.substring(0, 4).toUpperCase() }}</span>
+                      @if (hasOpenSandbox(story.id)) {
+                        <button class="implement-btn sandbox-active" title="View open sandbox" (click)="focusSandbox($event, story.id)">
+                          <span class="sandbox-pulse"></span>
+                          <svg viewBox="0 0 24 24" class="monitor-icon"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                        </button>
+                      } @else {
+                        <button class="implement-btn" title="Implement this story" [disabled]="isCreatingSandbox(story.id)" (click)="onImplementClick($event, story, feature.title, '')">
+                          @if (isCreatingSandbox(story.id)) { <span class="loading-spinner-small"></span> } @else { <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg> }
+                        </button>
+                      }
+                      <span class="work-item-title">{{ story.title }}</span>
+                      @if (story.source === 'AzureDevOps') {
+                        @if (story.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(story.azureDevOpsWorkItemId); as url) {
+                          <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
+                        } @else {
+                          <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
+                        }
+                      }
+                      @if (story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                      @if (hasStoryWarning(story)) {
+                        <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(story)" [title]="getStoryWarningMessage(story)" (click)="$event.stopPropagation()">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                        </span>
+                      }
+                    </div>
+                    <div class="row-status">
+                      <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(story))"><span class="status-icon">{{ getStatusIcon(getEffectiveStoryStatus(story)) }}</span> {{ getEffectiveStoryStatus(story) }}</span>
+                      @if (story.prUrl) { <a [href]="story.prUrl" target="_blank" rel="noopener" class="pr-badge" title="View Pull Request" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></a> }
+                    </div>
+                    <div class="row-points"><span class="points-value" [class.has-points]="story.storyPoints">{{ story.storyPoints || '-' }}</span></div>
+                    <div class="row-progress"><span class="progress-text">{{ getStoryProgress(story) }}%</span></div>
+                  </div>
+                  @if (isSelected(story.id)) {
+                    <div class="inline-details story-details nested-2">
+                      <div class="inline-details-content">
+                        <div class="detail-grid">
+                          <div class="detail-main">
+                            <h4 class="detail-label">Description</h4>
+                            <p class="detail-text">{{ story.description || 'No description provided' }}</p>
+                            @if (story.acceptanceCriteria) { <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4><p class="detail-text acceptance-criteria">{{ story.acceptanceCriteria }}</p> }
+                          </div>
+                          <div class="detail-sidebar">
+                            <div class="detail-meta-item"><span class="meta-label">Story Points</span><span class="meta-value">{{ story.storyPoints || '-' }}</span></div>
+                            <div class="detail-meta-item"><span class="meta-label">Priority</span><span class="meta-value">{{ story.priority || 'Normal' }}</span></div>
+                            <div class="detail-meta-item"><span class="meta-label">Status</span><span class="meta-value">{{ getEffectiveStoryStatus(story) }}</span></div>
+                            @if (story.source && story.source !== 'Manual') {
+                              <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }</span></div>
+                            }
+                            @if (story.prUrl) { <div class="detail-meta-item pr-link-item"><span class="meta-label">Pull Request</span><a [href]="story.prUrl" target="_blank" rel="noopener" class="pr-link-badge"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>View PR</a></div> }
+                            <div class="detail-actions">
+                              @if (hasOpenSandbox(story.id)) {
+                                <button class="implement-action-btn sandbox-active" (click)="focusSandbox($event, story.id)"><span class="sandbox-pulse"></span><svg viewBox="0 0 24 24" class="monitor-icon"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>View Sandbox</button>
+                              } @else {
+                                <button class="implement-action-btn" [disabled]="isCreatingSandbox(story.id)" (click)="onImplementClick($event, story, feature.title, '')">@if (isCreatingSandbox(story.id)) { <span class="loading-spinner-small"></span>Creating sandbox... } @else { <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>Implement Story }</button>
+                              }
+                              <button class="edit-item-btn" (click)="openEditStory(story); $event.stopPropagation()" title="Edit Story"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit</button>
+                              @if (standaloneEpic(); as epicRef) {
+                                <button class="delete-item-btn" (click)="onDeleteStory(story.id, feature.id, $event)" title="Delete Story"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete</button>
+                              }
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  }
+                </div>
+              }
+            }
+          </div>
+        }
+
+        <!-- Standalone stories (no feature) - story rows only -->
+        @for (item of standaloneStoriesForTree(); track item.story.id) {
+          <div class="tree-group nested-0">
+            <div 
+              class="tree-row story-row nested-2"
+              [class.selected]="isSelected(item.story.id)"
+              [class.creating]="isCreatingSandbox(item.story.id)"
+              (click)="onUserStoryClick(item.story.id)"
+            >
+              @if (hasAzureDevOpsImportedItems()) {
+                <div class="col-sync">
+                  @if (item.story.source === 'AzureDevOps' && item.story.azureDevOpsWorkItemId) {
+                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                      <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
+                      <span class="checkmark"></span>
+                    </label>
+                  }
+                </div>
+              }
+              <div class="row-content">
+                <span class="expand-btn placeholder"></span>
+                <span class="work-item-icon story">S</span>
+                <span class="work-item-id">S-{{ item.story.id.substring(0, 4).toUpperCase() }}</span>
+                @if (hasOpenSandbox(item.story.id)) {
+                  <button class="implement-btn sandbox-active" title="View open sandbox" (click)="focusSandbox($event, item.story.id)">
+                    <span class="sandbox-pulse"></span>
+                    <svg viewBox="0 0 24 24" class="monitor-icon"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  </button>
+                } @else {
+                  <button class="implement-btn" title="Implement this story" [disabled]="isCreatingSandbox(item.story.id)" (click)="onImplementClick($event, item.story, '', '')">
+                    @if (isCreatingSandbox(item.story.id)) { <span class="loading-spinner-small"></span> } @else { <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg> }
+                  </button>
+                }
+                <span class="work-item-title">{{ item.story.title }}</span>
+                @if (item.story.source === 'AzureDevOps') {
                   @if (item.story.azureDevOpsWorkItemId && getAzureDevOpsWorkItemUrl(item.story.azureDevOpsWorkItemId); as url) {
                     <a [href]="url" target="_blank" rel="noopener" class="source-badge ado" title="Open in Azure DevOps" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></a>
                   } @else {
                     <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                   }
                 }
-                  @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
-                  @if (hasStoryWarning(item.story)) {
-                    <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
-                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-                        <line x1="12" y1="9" x2="12" y2="13"/>
-                        <line x1="12" y1="17" x2="12.01" y2="17"/>
-                      </svg>
-                    </span>
-                  }
-                </div>
-                <div class="row-status">
-                  <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(item.story))">
-                    <span class="status-icon">{{ getStatusIcon(getEffectiveStoryStatus(item.story)) }}</span>
-                    {{ getEffectiveStoryStatus(item.story) }}
+                @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                @if (hasStoryWarning(item.story)) {
+                  <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
                   </span>
-                  @if (item.story.prUrl) {
-                    <a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-badge" title="View Pull Request" (click)="$event.stopPropagation()">
-                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
-                        <circle cx="18" cy="18" r="3"/>
-                        <circle cx="6" cy="6" r="3"/>
-                        <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
-                        <line x1="6" y1="9" x2="6" y2="21"/>
-                      </svg>
-                    </a>
-                  }
-                </div>
-                <div class="row-points">
-                  <span class="points-value" [class.has-points]="item.story.storyPoints">
-                    {{ item.story.storyPoints || '-' }}
-                  </span>
-                </div>
-                <div class="row-progress">
-                  <span class="progress-text">{{ getStoryProgress(item.story) }}%</span>
-                </div>
+                }
               </div>
-
-              @if (isSelected(item.story.id)) {
-                <div class="inline-details story-details standalone nested-2">
-                  <div class="inline-details-content">
-                    <div class="detail-grid">
-                      <div class="detail-main">
-                        <h4 class="detail-label">Description</h4>
-                        <p class="detail-text">{{ item.story.description || 'No description provided' }}</p>
-                        @if (item.story.acceptanceCriteria) {
-                          <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
-                          <p class="detail-text acceptance-criteria">{{ item.story.acceptanceCriteria }}</p>
+              <div class="row-status">
+                <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(item.story))"><span class="status-icon">{{ getStatusIcon(getEffectiveStoryStatus(item.story)) }}</span> {{ getEffectiveStoryStatus(item.story) }}</span>
+                @if (item.story.prUrl) { <a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-badge" title="View Pull Request" (click)="$event.stopPropagation()"><svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg></a> }
+              </div>
+              <div class="row-points"><span class="points-value" [class.has-points]="item.story.storyPoints">{{ item.story.storyPoints || '-' }}</span></div>
+              <div class="row-progress"><span class="progress-text">{{ getStoryProgress(item.story) }}%</span></div>
+            </div>
+            @if (isSelected(item.story.id)) {
+              <div class="inline-details story-details nested-2">
+                <div class="inline-details-content">
+                  <div class="detail-grid">
+                    <div class="detail-main">
+                      <h4 class="detail-label">Description</h4>
+                      <p class="detail-text">{{ item.story.description || 'No description provided' }}</p>
+                      @if (item.story.acceptanceCriteria) { <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4><p class="detail-text acceptance-criteria">{{ item.story.acceptanceCriteria }}</p> }
+                    </div>
+                    <div class="detail-sidebar">
+                      <div class="detail-meta-item"><span class="meta-label">Story Points</span><span class="meta-value">{{ item.story.storyPoints || '-' }}</span></div>
+                      <div class="detail-meta-item"><span class="meta-label">Priority</span><span class="meta-value">{{ item.story.priority || 'Normal' }}</span></div>
+                      <div class="detail-meta-item"><span class="meta-label">Status</span><span class="meta-value">{{ getEffectiveStoryStatus(item.story) }}</span></div>
+                      @if (item.story.source && item.story.source !== 'Manual') {
+                        <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (item.story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (item.story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }</span></div>
+                      }
+                      @if (item.story.prUrl) { <div class="detail-meta-item pr-link-item"><span class="meta-label">Pull Request</span><a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-link-badge"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>View PR</a></div> }
+                      <div class="detail-actions">
+                        @if (hasOpenSandbox(item.story.id)) {
+                          <button class="implement-action-btn sandbox-active" (click)="focusSandbox($event, item.story.id)"><span class="sandbox-pulse"></span><svg viewBox="0 0 24 24" class="monitor-icon"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>View Sandbox</button>
+                        } @else {
+                          <button class="implement-action-btn" [disabled]="isCreatingSandbox(item.story.id)" (click)="onImplementClick($event, item.story, '', '')">@if (isCreatingSandbox(item.story.id)) { <span class="loading-spinner-small"></span>Creating sandbox... } @else { <svg viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/></svg>Implement Story }</button>
                         }
-                      </div>
-                      <div class="detail-sidebar">
-                        <div class="detail-meta-item">
-                          <span class="meta-label">Story Points</span>
-                          <span class="meta-value">{{ item.story.storyPoints || '-' }}</span>
-                        </div>
-                        <div class="detail-meta-item">
-                          <span class="meta-label">Priority</span>
-                          <span class="meta-value">{{ item.story.priority || 'Normal' }}</span>
-                        </div>
-                        <div class="detail-meta-item">
-                          <span class="meta-label">Status</span>
-                          <span class="meta-value">{{ getEffectiveStoryStatus(item.story) }}</span>
-                        </div>
-                        @if (item.story.source && item.story.source !== 'Manual') {
-                          <div class="detail-meta-item">
-                            <span class="meta-label">Source</span>
-                            <span class="meta-value">
-                              @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
-                              @if (item.story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
-                            </span>
-                          </div>
-                        }
-                        @if (item.story.prUrl) {
-                          <div class="detail-meta-item pr-link-item">
-                            <span class="meta-label">Pull Request</span>
-                            <a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-link-badge">
-                              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                                <circle cx="18" cy="18" r="3"/>
-                                <circle cx="6" cy="6" r="3"/>
-                                <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
-                                <line x1="6" y1="9" x2="6" y2="21"/>
-                              </svg>
-                              View PR
-                            </a>
-                          </div>
-                        }
-                        <div class="detail-actions">
-                          @if (hasOpenSandbox(item.story.id)) {
-                            <button 
-                              class="implement-action-btn sandbox-active"
-                              (click)="focusSandbox($event, item.story.id)"
-                            >
-                              <span class="sandbox-pulse"></span>
-                              <svg viewBox="0 0 24 24" class="monitor-icon">
-                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                                <line x1="8" y1="21" x2="16" y2="21"/>
-                                <line x1="12" y1="17" x2="12" y2="21"/>
-                              </svg>
-                              View Sandbox
-                            </button>
-                          } @else {
-                            <button 
-                              class="implement-action-btn"
-                              [disabled]="isCreatingSandbox(item.story.id)"
-                              (click)="onImplementClick($event, item.story, 'Standalone', 'Standalone')"
-                            >
-                              @if (isCreatingSandbox(item.story.id)) {
-                                <span class="loading-spinner-small"></span>
-                                Creating sandbox...
-                              } @else {
-                                <svg viewBox="0 0 24 24">
-                                  <polygon points="5 3 19 12 5 21 5 3"/>
-                                </svg>
-                                Implement Story
-                              }
-                            </button>
-                          }
-                          <button class="edit-item-btn" (click)="openEditStory(item.story); $event.stopPropagation()" title="Edit Story">
-                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
-                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-                            </svg>
-                            Edit
-                          </button>
-                          <button class="delete-item-btn" (click)="onDeleteStory(item.story.id, item.feature.id, $event)" title="Delete Story">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                              <polyline points="3 6 5 6 21 6"/>
-                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
-                            </svg>
-                            Delete
-                          </button>
-                        </div>
+                        <button class="edit-item-btn" (click)="openEditStory(item.story); $event.stopPropagation()" title="Edit Story"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>Edit</button>
+                        <button class="delete-item-btn" (click)="onDeleteStory(item.story.id, item.feature.id, $event)" title="Delete Story"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>Delete</button>
                       </div>
                     </div>
                   </div>
                 </div>
-              }
+              </div>
             }
           </div>
         }
@@ -1209,7 +1278,7 @@
                     class="implement-btn" 
                     title="Implement this story"
                     [disabled]="isCreatingSandbox(item.story.id)"
-                    (click)="onImplementClick($event, item.story, isStandaloneStory(item) ? 'Standalone' : item.featureTitle, isStandaloneStory(item) ? 'Standalone' : item.epicTitle)"
+                    (click)="onImplementClick($event, item.story, item.featureTitle, getDisplayEpicTitle(item.epicTitle))"
                   >
                     @if (isCreatingSandbox(item.story.id)) {
                       <span class="loading-spinner-small"></span>
@@ -1352,7 +1421,7 @@
                           <button 
                             class="implement-action-btn"
                             [disabled]="isCreatingSandbox(item.story.id)"
-                            (click)="onImplementClick($event, item.story, isStandaloneStory(item) ? 'Standalone' : item.featureTitle, isStandaloneStory(item) ? 'Standalone' : item.epicTitle)"
+                            (click)="onImplementClick($event, item.story, item.featureTitle, getDisplayEpicTitle(item.epicTitle))"
                           >
                             @if (isCreatingSandbox(item.story.id)) {
                               <span class="loading-spinner-small"></span>

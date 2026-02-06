@@ -257,33 +257,50 @@ export class BacklogComponent implements OnInit, OnDestroy {
       .filter((e): e is Epic => e !== null);
   });
 
-  // Epics for tree view (excludes standalone epic - those render separately without tree)
+  // Epics for tree view (excludes Standalone - standalone items render separately without epic)
   filteredEpicsForTree = computed(() =>
     this.filteredEpics().filter(e => e.title !== STANDALONE_EPIC_TITLE)
   );
 
-  // Standalone stories (no epic/feature parent) - rendered without tree structure
+  // Standalone epic (used for deleteFeature parent - never displayed)
+  standaloneEpic = computed(() =>
+    this.epics().find(e => e.title === STANDALONE_EPIC_TITLE)
+  );
+
+  // Features without epic - display as Feature → Stories (no epic row)
+  standaloneFeaturesForTree = computed(() => {
+    const epic = this.standaloneEpic();
+    if (!epic) return [];
+    return epic.features.filter(f => f.title !== 'User Stories');
+  });
+
+  // User stories without feature - display as flat story rows only
   standaloneStoriesForTree = computed(() => {
-    const standaloneEpic = this.epics().find(e => e.title === STANDALONE_EPIC_TITLE);
-    if (!standaloneEpic) return [];
+    const epic = this.standaloneEpic();
+    if (!epic) return [];
+    const userStoriesFeature = epic.features.find(f => f.title === 'User Stories');
+    if (!userStoriesFeature) return [];
     const query = this.searchQuery().toLowerCase();
     const status = this.statusFilter();
-    const stories: Array<{ story: UserStory; feature: Feature; epic: Epic }> = [];
-    for (const feature of standaloneEpic.features) {
-      for (const story of feature.userStories) {
-        const matchesSearch = !query ||
-          story.title.toLowerCase().includes(query) ||
-          story.description?.toLowerCase().includes(query);
-        const effectiveStatus = this.getEffectiveStoryStatus(story);
-        const matchesStatus = status === 'all' ||
-          this.normalizeStatus(effectiveStatus) === status.toLowerCase();
-        if (matchesSearch && matchesStatus) {
-          stories.push({ story, feature, epic: standaloneEpic });
-        }
+    const items: Array<{ story: UserStory; feature: Feature; epic: Epic }> = [];
+    for (const story of userStoriesFeature.userStories) {
+      const matchesSearch = !query ||
+        story.title.toLowerCase().includes(query) ||
+        story.description?.toLowerCase().includes(query);
+      const effectiveStatus = this.getEffectiveStoryStatus(story);
+      const matchesStatus = status === 'all' ||
+        this.normalizeStatus(effectiveStatus) === status.toLowerCase();
+      if (matchesSearch && matchesStatus) {
+        items.push({ story, feature: userStoriesFeature, epic });
       }
     }
-    return stories;
+    return items;
   });
+
+  /** Display epic title from string (for flat view) */
+  getDisplayEpicTitle(epicTitle: string): string {
+    return epicTitle === STANDALONE_EPIC_TITLE ? 'Standalone' : epicTitle;
+  }
 
   // Flat list of all user stories with parent info
   flatStories = computed(() => {
@@ -376,9 +393,14 @@ export class BacklogComponent implements OnInit, OnDestroy {
       next: (epics) => {
         this.epics.set(epics);
         this.initSyncSelection();
-        // Auto-expand first epic
+        // Auto-expand first epic and standalone features (so content is visible)
         if (epics.length > 0) {
-          this.expandedItems.update(state => ({ ...state, [epics[0].id]: true }));
+          const updates: Record<string, boolean> = { [epics[0].id]: true };
+          const standalone = epics.find(e => e.title === STANDALONE_EPIC_TITLE);
+          if (standalone) {
+            for (const f of standalone.features) updates[f.id] = true;
+          }
+          this.expandedItems.update(state => ({ ...state, ...updates }));
         }
         this.loading.set(false);
 
@@ -1385,8 +1407,8 @@ ${jsonFormatRequirement}`;
 
   getWorkItemColor(type: WorkItemType): string {
     switch (type) {
-      case 'epic': return '#8b5cf6'; // Purple
-      case 'feature': return '#f59e0b'; // Amber
+      case 'epic': return '#f59e0b'; // Amber
+      case 'feature': return '#8b5cf6'; // Purple
       case 'story': return '#3b82f6'; // Blue
     }
   }
