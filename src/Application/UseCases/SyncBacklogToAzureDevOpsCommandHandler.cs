@@ -6,7 +6,12 @@ using DevPilot.Domain.Interfaces;
 using MediatR;
 using Microsoft.Extensions.Logging;
 
-public record SyncBacklogToAzureDevOpsCommand(Guid RepositoryId, Guid UserId) : IRequest<SyncBacklogToAzureDevOpsResult>;
+public record SyncBacklogToAzureDevOpsCommand(
+    Guid RepositoryId,
+    Guid UserId,
+    IReadOnlyList<Guid> EpicIds,
+    IReadOnlyList<Guid> FeatureIds,
+    IReadOnlyList<Guid> StoryIds) : IRequest<SyncBacklogToAzureDevOpsResult>;
 
 public class SyncBacklogToAzureDevOpsResult
 {
@@ -103,8 +108,15 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
         var epics = await _epicRepository.GetByRepositoryIdAsync(command.RepositoryId, cancellationToken);
         var itemsToSync = new List<(int AdoId, string Title, string? Description, string Status, int? StoryPoints, string? AcceptanceCriteria)>();
 
+        var epicIdsSet = command.EpicIds.Count > 0 ? new HashSet<Guid>(command.EpicIds) : null;
+        var featureIdsSet = command.FeatureIds.Count > 0 ? new HashSet<Guid>(command.FeatureIds) : null;
+        var storyIdsSet = command.StoryIds.Count > 0 ? new HashSet<Guid>(command.StoryIds) : null;
+        var filterBySelection = epicIdsSet != null || featureIdsSet != null || storyIdsSet != null;
+
         foreach (var epic in epics.Where(e => e.Source == "AzureDevOps" && e.AzureDevOpsWorkItemId.HasValue))
         {
+            if (filterBySelection && (epicIdsSet == null || !epicIdsSet.Contains(epic.Id)))
+                continue;
             itemsToSync.Add((epic.AzureDevOpsWorkItemId!.Value, epic.Title, epic.Description, epic.Status, null, null));
         }
 
@@ -112,6 +124,8 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
         {
             foreach (var feature in epic.Features.Where(f => f.Source == "AzureDevOps" && f.AzureDevOpsWorkItemId.HasValue))
             {
+                if (filterBySelection && (featureIdsSet == null || !featureIdsSet.Contains(feature.Id)))
+                    continue;
                 itemsToSync.Add((feature.AzureDevOpsWorkItemId!.Value, feature.Title, feature.Description, feature.Status, null, null));
             }
 
@@ -119,6 +133,8 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
             {
                 foreach (var story in feature.UserStories.Where(s => s.Source == "AzureDevOps" && s.AzureDevOpsWorkItemId.HasValue))
                 {
+                    if (filterBySelection && (storyIdsSet == null || !storyIdsSet.Contains(story.Id)))
+                        continue;
                     itemsToSync.Add((story.AzureDevOpsWorkItemId!.Value, story.Title, story.Description, story.Status, story.StoryPoints, story.AcceptanceCriteria));
                 }
             }

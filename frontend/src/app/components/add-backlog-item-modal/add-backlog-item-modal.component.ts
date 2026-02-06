@@ -619,6 +619,130 @@ export interface EditItemData {
     .btn-secondary:hover {
       background: var(--surface-hover, rgba(255,255,255,0.06));
     }
+
+    /* Light mode */
+    :host-context([data-theme="light"]) .modal-backdrop {
+      background: rgba(0, 0, 0, 0.4);
+    }
+    :host-context([data-theme="light"]) .modal-box {
+      background: #ffffff;
+      box-shadow: 0 24px 48px rgba(0, 0, 0, 0.12);
+    }
+    :host-context([data-theme="light"]) .modal-header {
+      border-bottom-color: #e5e7eb;
+    }
+    :host-context([data-theme="light"]) .modal-header h3 {
+      color: #111827;
+    }
+    :host-context([data-theme="light"]) .close-btn {
+      color: #6b7280;
+    }
+    :host-context([data-theme="light"]) .close-btn:hover {
+      background: #f3f4f6;
+      color: #111827;
+    }
+    :host-context([data-theme="light"]) .section-title {
+      color: #6b7280;
+    }
+    :host-context([data-theme="light"]) .field-hint {
+      color: #6b7280;
+    }
+    :host-context([data-theme="light"]) .form-group label {
+      color: #374151;
+    }
+    :host-context([data-theme="light"]) .form-group input,
+    :host-context([data-theme="light"]) .form-group textarea,
+    :host-context([data-theme="light"]) .form-group select {
+      background: #ffffff;
+      border-color: #d1d5db;
+      color: #111827;
+    }
+    :host-context([data-theme="light"]) .form-group input::placeholder,
+    :host-context([data-theme="light"]) .form-group textarea::placeholder {
+      color: #9ca3af;
+    }
+    :host-context([data-theme="light"]) .form-section-sidebar {
+      background: #f9fafb;
+    }
+    :host-context([data-theme="light"]) .story-point-btn {
+      background: #ffffff;
+      border-color: #d1d5db;
+      color: #4b5563;
+    }
+    :host-context([data-theme="light"]) .story-point-btn:hover {
+      border-color: rgba(59, 130, 246, 0.5);
+      color: #2563eb;
+    }
+    :host-context([data-theme="light"]) .story-point-btn.selected {
+      border-color: #3b82f6;
+      background: rgba(59, 130, 246, 0.1);
+      color: #2563eb;
+    }
+    :host-context([data-theme="light"]) .story-point-clear {
+      color: #6b7280;
+    }
+    :host-context([data-theme="light"]) .story-point-clear:hover,
+    :host-context([data-theme="light"]) .story-point-clear.active {
+      color: #374151;
+    }
+    :host-context([data-theme="light"]) .ai-suggest-btn {
+      background: rgba(139, 92, 246, 0.08);
+      border-color: rgba(139, 92, 246, 0.3);
+      color: #6d28d9;
+    }
+    :host-context([data-theme="light"]) .ai-suggest-btn:hover:not(:disabled) {
+      background: rgba(139, 92, 246, 0.15);
+      border-color: rgba(139, 92, 246, 0.5);
+      color: #5b21b6;
+    }
+    :host-context([data-theme="light"]) .ac-rendered {
+      background: #ffffff;
+      border-color: #d1d5db;
+    }
+    :host-context([data-theme="light"]) .ac-card {
+      background: #f9fafb;
+    }
+    :host-context([data-theme="light"]) .ac-part {
+      color: #111827;
+    }
+    :host-context([data-theme="light"]) .ac-plain {
+      color: #4b5563;
+    }
+    :host-context([data-theme="light"]) .ac-keyword.given {
+      background: rgba(59, 130, 246, 0.15);
+      color: #2563eb;
+    }
+    :host-context([data-theme="light"]) .ac-keyword.when {
+      background: rgba(245, 158, 11, 0.15);
+      color: #b45309;
+    }
+    :host-context([data-theme="light"]) .ac-keyword.then {
+      background: rgba(34, 197, 94, 0.15);
+      color: #16a34a;
+    }
+    :host-context([data-theme="light"]) .ac-toggle-btn {
+      color: #6b7280;
+    }
+    :host-context([data-theme="light"]) .ac-toggle-btn:hover {
+      color: #374151;
+      background: #f3f4f6;
+    }
+    :host-context([data-theme="light"]) .form-warning {
+      background: rgba(245, 158, 11, 0.1);
+      border-color: rgba(245, 158, 11, 0.3);
+      color: #b45309;
+    }
+    :host-context([data-theme="light"]) .modal-actions {
+      background: #ffffff;
+      border-top-color: #e5e7eb;
+    }
+    :host-context([data-theme="light"]) .btn-secondary {
+      color: #4b5563;
+      border-color: #d1d5db;
+    }
+    :host-context([data-theme="light"]) .btn-secondary:hover {
+      background: #f3f4f6;
+    }
   `]
 })
 export class AddBacklogItemModalComponent implements OnInit {
