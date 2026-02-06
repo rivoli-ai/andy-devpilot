@@ -210,14 +210,55 @@ RUN echo 'server { \
 USER sandbox
 WORKDIR /home/sandbox
 
-# Install Zed IDE
-RUN curl -fsSL https://zed.dev/install.sh | sh || true
+# Install Zed IDE with architecture check and proper error handling
+RUN set -e && \
+    ARCH=\$(uname -m) && \
+    echo "=== Zed Installation ===" && \
+    echo "Architecture: \$ARCH" && \
+    if [ "\$ARCH" != "x86_64" ]; then \
+        echo "WARNING: Zed only supports x86_64 (amd64) architecture." && \
+        echo "Current architecture: \$ARCH" && \
+        echo "Zed will NOT be installed. Consider using VS Code or another editor." && \
+        mkdir -p /home/sandbox/.local/bin && \
+        echo '#!/bin/bash' > /home/sandbox/.local/bin/zed && \
+        echo 'echo "Zed is not available on this architecture (\$ARCH). Please use VS Code or another editor."' >> /home/sandbox/.local/bin/zed && \
+        chmod +x /home/sandbox/.local/bin/zed; \
+    else \
+        echo "Installing Zed for x86_64..." && \
+        curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh && \
+        chmod +x /tmp/zed-install.sh && \
+        /tmp/zed-install.sh 2>&1 | tee /tmp/zed-install.log || { \
+            echo "=== Zed Installation FAILED ===" && \
+            echo "Check /tmp/zed-install.log for details" && \
+            cat /tmp/zed-install.log && \
+            echo "Creating placeholder script..." && \
+            mkdir -p /home/sandbox/.local/bin && \
+            echo '#!/bin/bash' > /home/sandbox/.local/bin/zed && \
+            echo 'echo "Zed installation failed. Check /tmp/zed-install.log for details."' >> /home/sandbox/.local/bin/zed && \
+            chmod +x /home/sandbox/.local/bin/zed; \
+        } && \
+        rm -f /tmp/zed-install.sh && \
+        if [ -f /home/sandbox/.local/bin/zed ]; then \
+            echo "=== Zed installed successfully ===" && \
+            /home/sandbox/.local/bin/zed --version 2>/dev/null || echo "Zed binary exists but version check failed"; \
+        else \
+            echo "=== Zed binary not found after installation ===" && \
+            ls -la /home/sandbox/.local/bin/ 2>/dev/null || true; \
+        fi; \
+    fi
 ENV PATH="/home/sandbox/.local/bin:${PATH}"
 
-# Desktop shortcut
+# Desktop shortcut (only creates functional shortcut if Zed was installed)
 RUN mkdir -p Desktop && \
-    echo -e '[Desktop Entry]\nType=Application\nName=Zed\nExec=/home/sandbox/.local/bin/zed\nTerminal=false' \
-    > Desktop/zed.desktop && chmod +x Desktop/zed.desktop
+    if [ -x /home/sandbox/.local/bin/zed ] && /home/sandbox/.local/bin/zed --version >/dev/null 2>&1; then \
+        echo -e '[Desktop Entry]\nType=Application\nName=Zed\nExec=/home/sandbox/.local/bin/zed\nIcon=accessories-text-editor\nTerminal=false\nCategories=Development;IDE;' \
+        > Desktop/zed.desktop && chmod +x Desktop/zed.desktop && \
+        echo "Zed desktop shortcut created"; \
+    else \
+        echo "Zed not available - creating info shortcut" && \
+        echo -e '[Desktop Entry]\nType=Application\nName=Zed (Not Available)\nExec=xmessage "Zed is not available on this system. Architecture: $(uname -m)"\nTerminal=false' \
+        > Desktop/zed.desktop && chmod +x Desktop/zed.desktop; \
+    fi
 
 USER root
 
@@ -2749,8 +2790,28 @@ case "\${1:-help}" in
         fi
         ;;
     rebuild)
+        echo "Rebuilding desktop image (using cache)..."
         docker build -t devpilot-desktop ./desktop
         echo "Desktop image rebuilt"
+        ;;
+    force-rebuild)
+        echo "Force rebuilding desktop image (no cache)..."
+        echo "Stopping all sandbox containers..."
+        docker ps -aq --filter "name=sandbox-" | xargs docker rm -f 2>/dev/null || true
+        echo "Removing old desktop image..."
+        docker rmi devpilot-desktop 2>/dev/null || true
+        echo "Pruning Docker build cache..."
+        docker builder prune -f 2>/dev/null || true
+        echo "Building fresh image..."
+        docker build --no-cache --pull -t devpilot-desktop ./desktop
+        echo "Desktop image force rebuilt (no cache)"
+        ;;
+    clean-cache)
+        echo "Cleaning Docker build cache..."
+        docker builder prune -af
+        echo "Removing dangling images..."
+        docker image prune -f
+        echo "Cache cleaned"
         ;;
     cleanup)
         docker ps -aq --filter "name=sandbox-" | xargs docker rm -f 2>/dev/null || true
@@ -2759,16 +2820,18 @@ case "\${1:-help}" in
     *)
         echo "DevPilot Sandbox Manager"
         echo ""
-        echo "Usage: $0 [command]"
+        echo "Usage: \$0 [command]"
         echo ""
         echo "Commands:"
-        echo "  start    - Start the manager"
-        echo "  stop     - Stop the manager"
-        echo "  restart  - Restart the manager"
-        echo "  status   - Show status"
-        echo "  logs     - View logs"
-        echo "  rebuild  - Rebuild desktop image"
-        echo "  cleanup  - Remove all sandbox containers"
+        echo "  start         - Start the manager"
+        echo "  stop          - Stop the manager"
+        echo "  restart       - Restart the manager"
+        echo "  status        - Show status"
+        echo "  logs          - View logs"
+        echo "  rebuild       - Rebuild desktop image (uses cache)"
+        echo "  force-rebuild - Rebuild desktop image (no cache, clean build)"
+        echo "  clean-cache   - Clean Docker build cache"
+        echo "  cleanup       - Remove all sandbox containers"
         ;;
 esac
 RUNSH
