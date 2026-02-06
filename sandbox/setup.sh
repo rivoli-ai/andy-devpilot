@@ -384,11 +384,14 @@ RUN echo 'server { \
     ln -sf /etc/nginx/sites-available/novnc /etc/nginx/sites-enabled/novnc && \
     rm -f /etc/nginx/sites-enabled/default
 
+# Copy Zed install script before switching user (for non-BuildKit compatibility)
+COPY install-zed.sh /home/sandbox/install-zed.sh
+RUN chmod 755 /home/sandbox/install-zed.sh && chown sandbox:sandbox /home/sandbox/install-zed.sh
+
 USER sandbox
 WORKDIR /home/sandbox
 
 # Install Zed IDE with architecture check and proper error handling
-COPY --chmod=755 --chown=sandbox:sandbox install-zed.sh /home/sandbox/install-zed.sh
 RUN /home/sandbox/install-zed.sh; rm -f /home/sandbox/install-zed.sh
 ENV PATH="/home/sandbox/.local/bin:${PATH}"
 
