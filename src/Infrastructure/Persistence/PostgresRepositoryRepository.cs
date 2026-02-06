@@ -46,6 +46,13 @@ public class PostgresRepositoryRepository : IRepositoryRepository
             .FirstOrDefaultAsync(r => r.FullName == fullName && r.Provider == provider, cancellationToken);
     }
 
+    public async Task<Repository?> GetByFullNameProviderAndUserIdAsync(string fullName, string provider, Guid userId, CancellationToken cancellationToken = default)
+    {
+        return await _context.Repositories
+            .AsNoTracking()
+            .FirstOrDefaultAsync(r => r.FullName == fullName && r.Provider == provider && r.UserId == userId, cancellationToken);
+    }
+
     public async Task<Repository> AddAsync(Repository repository, CancellationToken cancellationToken = default)
     {
         _context.Repositories.Add(repository);

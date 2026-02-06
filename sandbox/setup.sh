@@ -105,6 +105,129 @@ cd $PROJECT_DIR
 # ============================================================
 log_info "Creating desktop image..."
 mkdir -p desktop
+
+# Create Zed installation script - download directly like Firefox (no install script)
+cat > desktop/install-zed.sh << 'INSTALL_ZED_SCRIPT'
+#!/bin/bash
+# Direct download approach - same as Firefox installation
+
+echo ""
+echo "############################################"
+echo "#     ZED DIRECT INSTALLATION             #"
+echo "############################################"
+echo ""
+
+ARCH=$(uname -m)
+echo "[ZED] Architecture: $ARCH"
+echo "[ZED] User: $(whoami)"
+echo "[ZED] Home: $HOME"
+
+# Create directories
+mkdir -p /home/sandbox/.local/bin
+mkdir -p /home/sandbox/.local/zed.app
+
+# Determine download URL based on architecture
+if [ "$ARCH" = "x86_64" ]; then
+    ZED_URL="https://zed.dev/api/releases/stable/latest/zed-linux-x86_64.tar.gz"
+    echo "[ZED] Using x86_64 download URL"
+elif [ "$ARCH" = "aarch64" ]; then
+    ZED_URL="https://zed.dev/api/releases/stable/latest/zed-linux-aarch64.tar.gz"
+    echo "[ZED] Using aarch64 download URL"
+else
+    echo "[ZED] ERROR: Unsupported architecture: $ARCH"
+    echo "[ZED] Creating placeholder..."
+    cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
+#!/bin/bash
+echo "Zed is not available for architecture: $(uname -m)"
+PLACEHOLDER
+    chmod +x /home/sandbox/.local/bin/zed
+    exit 0
+fi
+
+echo "[ZED] Download URL: $ZED_URL"
+echo ""
+
+# Download Zed tarball - same pattern as Firefox
+echo "[ZED] Downloading Zed (Firefox-style fallback: curl || curl -k || wget)..."
+(curl -fsSL --retry 3 --retry-delay 5 "$ZED_URL" -o /tmp/zed.tar.gz || \
+ curl -fsSL --retry 3 --retry-delay 5 -k "$ZED_URL" -o /tmp/zed.tar.gz || \
+ wget --no-check-certificate -q -O /tmp/zed.tar.gz "$ZED_URL")
+
+# Check if download succeeded
+if [ ! -f /tmp/zed.tar.gz ] || [ ! -s /tmp/zed.tar.gz ]; then
+    echo "[ZED] ERROR: Download failed!"
+    echo "[ZED] Creating placeholder..."
+    cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
+#!/bin/bash
+echo "Zed download failed (SSL/network issue)"
+echo "Try manually: curl -k https://zed.dev/api/releases/stable/latest/zed-linux-x86_64.tar.gz -o zed.tar.gz"
+PLACEHOLDER
+    chmod +x /home/sandbox/.local/bin/zed
+    exit 0
+fi
+
+echo "[ZED] Download successful: $(ls -lh /tmp/zed.tar.gz | awk '{print $5}')"
+echo ""
+
+# Extract Zed
+echo "[ZED] Extracting to /home/sandbox/.local/zed.app/..."
+tar -xzf /tmp/zed.tar.gz -C /home/sandbox/.local/zed.app/ --strip-components=1
+
+# Check extraction
+if [ ! -d /home/sandbox/.local/zed.app ]; then
+    echo "[ZED] ERROR: Extraction failed!"
+    exit 1
+fi
+
+echo "[ZED] Extracted files:"
+ls -la /home/sandbox/.local/zed.app/
+
+# Find and symlink the zed binary
+ZED_BIN=""
+if [ -f /home/sandbox/.local/zed.app/bin/zed ]; then
+    ZED_BIN="/home/sandbox/.local/zed.app/bin/zed"
+elif [ -f /home/sandbox/.local/zed.app/zed ]; then
+    ZED_BIN="/home/sandbox/.local/zed.app/zed"
+elif [ -f /home/sandbox/.local/zed.app/libexec/zed-editor ]; then
+    ZED_BIN="/home/sandbox/.local/zed.app/libexec/zed-editor"
+fi
+
+if [ -n "$ZED_BIN" ]; then
+    echo "[ZED] Found binary at: $ZED_BIN"
+    ln -sf "$ZED_BIN" /home/sandbox/.local/bin/zed
+    chmod +x /home/sandbox/.local/bin/zed
+    echo "[ZED] Symlinked to /home/sandbox/.local/bin/zed"
+    echo ""
+    echo "[ZED] Testing zed --version:"
+    /home/sandbox/.local/bin/zed --version 2>&1 || echo "[ZED] Version check failed (may need display)"
+    echo ""
+    echo "############################################"
+    echo "#     ZED INSTALLATION SUCCESS!           #"
+    echo "############################################"
+else
+    echo "[ZED] ERROR: Could not find zed binary after extraction"
+    echo "[ZED] Contents of zed.app:"
+    find /home/sandbox/.local/zed.app -type f | head -20
+    echo ""
+    echo "[ZED] Creating placeholder..."
+    cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
+#!/bin/bash
+echo "Zed binary not found after extraction"
+echo "Check /home/sandbox/.local/zed.app/"
+PLACEHOLDER
+    chmod +x /home/sandbox/.local/bin/zed
+fi
+
+# Cleanup
+rm -f /tmp/zed.tar.gz
+
+echo ""
+echo "############################################"
+echo "#     ZED SETUP COMPLETE                  #"
+echo "############################################"
+echo ""
+INSTALL_ZED_SCRIPT
+
 cat > desktop/Dockerfile << 'DESKTOP_DOCKERFILE'
 FROM ubuntu:24.04
 
@@ -112,12 +235,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV DISPLAY=:0
 ENV RESOLUTION=1920x1080x24
 
+# Clean up any broken/outdated third-party repositories that might cause apt errors
+RUN rm -f /etc/apt/sources.list.d/azlux.list 2>/dev/null || true && \
+    rm -f /etc/apt/sources.list.d/log2ram.list 2>/dev/null || true
+
 # Install desktop environment + nginx for iframe proxy + software rendering + xdotool for automation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb x11vnc novnc websockify nginx \
     xfce4 xfce4-terminal xterm screen thunar mousepad \
     xterm screen \
-    sudo wget curl git ca-certificates \
+    sudo wget curl git ca-certificates openssl \
     python3 python3-pip python3-venv dbus-x11 \
     fonts-dejavu fonts-liberation \
     libxkbcommon0 libvulkan1 libasound2t64 libgbm1 \
@@ -128,6 +255,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils bzip2 xz-utils \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Update SSL certificates and set environment variables for SSL
+RUN update-ca-certificates
+
+# SSL environment variables for various applications
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+# Disable SSL verification for sandbox (development environment)
+ENV SSL_VERIFY=false
+ENV GIT_SSL_NO_VERIFY=true
+ENV PYTHONHTTPSVERIFY=0
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -157,14 +298,19 @@ MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme
 StartupWMClass=firefox' > /usr/share/applications/firefox.desktop
 
 # Install Python packages for ACP agent and bridge API in a virtual environment
+# Use trusted-host to bypass SSL certificate issues
 RUN python3 -m venv /opt/devpilot-venv && \
-    /opt/devpilot-venv/bin/pip install --upgrade pip && \
+    /opt/devpilot-venv/bin/pip install --upgrade pip \
+        --trusted-host pypi.org \
+        --trusted-host files.pythonhosted.org && \
     /opt/devpilot-venv/bin/pip install \
-    agent-client-protocol \
-    openai \
-    flask \
-    flask-cors \
-    requests
+        --trusted-host pypi.org \
+        --trusted-host files.pythonhosted.org \
+        agent-client-protocol \
+        openai \
+        flask \
+        flask-cors \
+        requests
 
 # Add venv to PATH
 ENV PATH="/opt/devpilot-venv/bin:$PATH"
@@ -198,17 +344,25 @@ RUN echo 'server { \
     ln -sf /etc/nginx/sites-available/novnc /etc/nginx/sites-enabled/novnc && \
     rm -f /etc/nginx/sites-enabled/default
 
+# Copy Zed install script before switching user (for non-BuildKit compatibility)
+COPY install-zed.sh /home/sandbox/install-zed.sh
+RUN chmod 755 /home/sandbox/install-zed.sh && chown sandbox:sandbox /home/sandbox/install-zed.sh
+
 USER sandbox
 WORKDIR /home/sandbox
 
-# Install Zed IDE
-RUN curl -fsSL https://zed.dev/install.sh | sh || true
+# Install Zed IDE with architecture check and proper error handling
+RUN /home/sandbox/install-zed.sh; rm -f /home/sandbox/install-zed.sh
 ENV PATH="/home/sandbox/.local/bin:${PATH}"
 
 # Desktop shortcut
 RUN mkdir -p Desktop && \
-    echo -e '[Desktop Entry]\nType=Application\nName=Zed\nExec=/home/sandbox/.local/bin/zed\nTerminal=false' \
-    > Desktop/zed.desktop && chmod +x Desktop/zed.desktop
+    echo '[Desktop Entry]' > Desktop/zed.desktop && \
+    echo 'Type=Application' >> Desktop/zed.desktop && \
+    echo 'Name=Zed' >> Desktop/zed.desktop && \
+    echo 'Exec=/home/sandbox/.local/bin/zed' >> Desktop/zed.desktop && \
+    echo 'Terminal=false' >> Desktop/zed.desktop && \
+    chmod +x Desktop/zed.desktop
 
 USER root
 
@@ -564,6 +718,32 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# SSL Configuration - try to fix SSL issues in sandbox
+SSL_CERT_FILE = os.environ.get('SSL_CERT_FILE', '/etc/ssl/certs/ca-certificates.crt')
+SSL_VERIFY = os.environ.get('SSL_VERIFY', 'true').lower() != 'false'
+
+# Log SSL configuration at startup
+logger.info(f"=== SSL CONFIGURATION ===")
+logger.info(f"SSL_CERT_FILE: {SSL_CERT_FILE}")
+logger.info(f"SSL_VERIFY: {SSL_VERIFY}")
+logger.info(f"CA file exists: {os.path.exists(SSL_CERT_FILE) if SSL_CERT_FILE else False}")
+
+# Determine SSL verify parameter for requests
+if not SSL_VERIFY:
+    REQUESTS_SSL_VERIFY = False
+    logger.warning("SSL verification DISABLED - not recommended for production")
+elif os.path.exists(SSL_CERT_FILE):
+    REQUESTS_SSL_VERIFY = SSL_CERT_FILE
+    logger.info(f"Using CA bundle: {SSL_CERT_FILE}")
+else:
+    REQUESTS_SSL_VERIFY = True
+    logger.info("Using system default SSL verification")
+
+# Suppress SSL warnings if verification is disabled
+if not SSL_VERIFY:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # Configuration from environment
 API_KEY = os.environ.get('OPENAI_API_KEY', '')
 API_BASE = os.environ.get('OPENAI_API_BASE', 'https://api.openai.com/v1')
@@ -737,12 +917,15 @@ def openai_chat_completions():
                 tool_calls_buffer = []  # Buffer to collect tool call chunks
                 
                 try:
+                    logger.info(f"Making streaming request to: {API_BASE}/chat/completions")
+                    logger.info(f"SSL verify: {REQUESTS_SSL_VERIFY}")
                     response = http_requests.post(
                         f"{API_BASE}/chat/completions",
                         headers=headers,
                         json=payload,
                         timeout=300,  # Longer timeout for tool execution
-                        stream=True
+                        stream=True,
+                        verify=REQUESTS_SSL_VERIFY
                     )
                     
                     if response.status_code != 200:
@@ -858,11 +1041,14 @@ def openai_chat_completions():
         
         else:
             # Non-streaming response with full tool call support
+            logger.info(f"Making non-streaming request to: {API_BASE}/chat/completions")
+            logger.info(f"SSL verify: {REQUESTS_SSL_VERIFY}")
             response = http_requests.post(
                 f"{API_BASE}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=300
+                timeout=300,
+                verify=REQUESTS_SSL_VERIFY
             )
             
             if response.status_code != 200:
@@ -926,6 +1112,30 @@ def openai_chat_completions():
             # Pass through the full response unchanged
             return jsonify(result)
     
+    except http_requests.exceptions.SSLError as ssl_err:
+        logger.error(f"SSL Error connecting to LLM: {ssl_err}")
+        logger.error(f"API_BASE: {API_BASE}")
+        logger.error(f"SSL_VERIFY setting: {REQUESTS_SSL_VERIFY}")
+        logger.error("Try setting SSL_VERIFY=false in environment or check SSL certificates")
+        return jsonify({
+            "error": {
+                "message": f"SSL certificate error: {str(ssl_err)}. Try setting SSL_VERIFY=false",
+                "type": "ssl_error",
+                "details": {
+                    "api_base": API_BASE,
+                    "ssl_verify": str(REQUESTS_SSL_VERIFY)
+                }
+            }
+        }), 502
+    except http_requests.exceptions.ConnectionError as conn_err:
+        logger.error(f"Connection error to LLM: {conn_err}")
+        logger.error(f"API_BASE: {API_BASE}")
+        return jsonify({
+            "error": {
+                "message": f"Connection error: {str(conn_err)}",
+                "type": "connection_error"
+            }
+        }), 502
     except Exception as e:
         logger.error(f"Proxy error: {e}")
         import traceback
@@ -951,6 +1161,93 @@ def openai_list_models():
             }
         ]
     })
+
+@app.route('/ssl-test', methods=['GET'])
+def ssl_test():
+    """Test SSL connectivity to LLM API and other services"""
+    import requests as http_requests
+    results = {
+        "ssl_verify_setting": str(REQUESTS_SSL_VERIFY),
+        "ssl_cert_file": SSL_CERT_FILE,
+        "ssl_cert_exists": os.path.exists(SSL_CERT_FILE) if SSL_CERT_FILE else False,
+        "api_base": API_BASE,
+        "tests": []
+    }
+    
+    # Test 1: Connect to API_BASE
+    try:
+        logger.info(f"SSL Test: Connecting to {API_BASE}/models")
+        headers = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
+        resp = http_requests.get(f"{API_BASE}/models", headers=headers, timeout=10, verify=REQUESTS_SSL_VERIFY)
+        results["tests"].append({
+            "name": "LLM API",
+            "url": f"{API_BASE}/models",
+            "success": True,
+            "status_code": resp.status_code
+        })
+    except http_requests.exceptions.SSLError as e:
+        results["tests"].append({
+            "name": "LLM API",
+            "url": f"{API_BASE}/models",
+            "success": False,
+            "error": f"SSL Error: {str(e)}"
+        })
+    except Exception as e:
+        results["tests"].append({
+            "name": "LLM API",
+            "url": f"{API_BASE}/models",
+            "success": False,
+            "error": str(e)
+        })
+    
+    # Test 2: Connect to github.com (for git clone)
+    try:
+        logger.info("SSL Test: Connecting to github.com")
+        resp = http_requests.get("https://github.com", timeout=10, verify=REQUESTS_SSL_VERIFY)
+        results["tests"].append({
+            "name": "GitHub",
+            "url": "https://github.com",
+            "success": True,
+            "status_code": resp.status_code
+        })
+    except http_requests.exceptions.SSLError as e:
+        results["tests"].append({
+            "name": "GitHub",
+            "url": "https://github.com",
+            "success": False,
+            "error": f"SSL Error: {str(e)}"
+        })
+    except Exception as e:
+        results["tests"].append({
+            "name": "GitHub",
+            "url": "https://github.com",
+            "success": False,
+            "error": str(e)
+        })
+    
+    # Test 3: Connect with verify=False explicitly
+    try:
+        logger.info("SSL Test: Connecting with verify=False")
+        resp = http_requests.get("https://github.com", timeout=10, verify=False)
+        results["tests"].append({
+            "name": "GitHub (no verify)",
+            "url": "https://github.com",
+            "success": True,
+            "status_code": resp.status_code,
+            "note": "verify=False works"
+        })
+    except Exception as e:
+        results["tests"].append({
+            "name": "GitHub (no verify)",
+            "url": "https://github.com",
+            "success": False,
+            "error": str(e)
+        })
+    
+    # Log results
+    logger.info(f"SSL Test Results: {json.dumps(results, indent=2)}")
+    
+    return jsonify(results)
 
 @app.route('/zed/conversations', methods=['GET'])
 def get_zed_conversations():
@@ -1791,6 +2088,21 @@ export DISPLAY=:0
 export XDG_RUNTIME_DIR=/tmp/runtime-sandbox
 export HOME=/home/sandbox
 
+# SSL certificate environment variables (fixes SSL issues in sandbox)
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_DIR=/etc/ssl/certs
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+# Disable SSL verification (sandbox is a dev environment)
+export SSL_VERIFY=false
+export GIT_SSL_NO_VERIFY=true
+export PYTHONHTTPSVERIFY=0
+
+# Configure git to disable SSL verification
+git config --global http.sslVerify false 2>/dev/null || true
+echo "[SSL] Git SSL verification disabled" >> /tmp/sandbox-debug.log
+
 # Log version and environment variables for debugging
 echo "=== DevPilot Sandbox v2.1.0 ===" > /tmp/sandbox-debug.log
 echo "Started at: \$(date)" >> /tmp/sandbox-debug.log
@@ -2251,6 +2563,14 @@ cat > /tmp/launch-zed.sh << ZEDLAUNCHER
 export DISPLAY=:0
 export HOME=/home/sandbox
 
+# SSL certificate environment variables (fixes SSL issues for LLM API calls)
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_DIR=/etc/ssl/certs
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export SSL_VERIFY=false
+export GIT_SSL_NO_VERIFY=true
+
 # Force software rendering with llvmpipe
 export LIBGL_ALWAYS_SOFTWARE=1
 export MESA_GL_VERSION_OVERRIDE=4.5
@@ -2660,6 +2980,11 @@ Environment=PYTHONUNBUFFERED=1
 WantedBy=multi-user.target
 SERVICE
     
+    # Clean up broken/outdated third-party repositories
+    log_info "Cleaning up broken apt repositories..."
+    rm -f /etc/apt/sources.list.d/azlux.list 2>/dev/null || true
+    rm -f /etc/apt/sources.list.d/log2ram.list 2>/dev/null || true
+    
     # Install Python dependencies
     log_info "Installing Python dependencies..."
     apt-get update && apt-get install -y python3-pip python3-venv
@@ -2669,8 +2994,13 @@ fi
 
 # Create virtual environment to avoid system package conflicts
 python3 -m venv $PROJECT_DIR/venv
-$PROJECT_DIR/venv/bin/pip install --upgrade pip
-$PROJECT_DIR/venv/bin/pip install flask flask-cors docker
+$PROJECT_DIR/venv/bin/pip install --upgrade pip \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org
+$PROJECT_DIR/venv/bin/pip install \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org \
+    flask flask-cors docker
 
 # ============================================================
 # Create management script (cross-platform)
@@ -2730,8 +3060,28 @@ case "\${1:-help}" in
         fi
         ;;
     rebuild)
+        echo "Rebuilding desktop image (using cache)..."
         docker build -t devpilot-desktop ./desktop
         echo "Desktop image rebuilt"
+        ;;
+    force-rebuild)
+        echo "Force rebuilding desktop image (no cache)..."
+        echo "Stopping all sandbox containers..."
+        docker ps -aq --filter "name=sandbox-" | xargs docker rm -f 2>/dev/null || true
+        echo "Removing old desktop image..."
+        docker rmi devpilot-desktop 2>/dev/null || true
+        echo "Pruning Docker build cache..."
+        docker builder prune -f 2>/dev/null || true
+        echo "Building fresh image..."
+        docker build --no-cache --pull -t devpilot-desktop ./desktop
+        echo "Desktop image force rebuilt (no cache)"
+        ;;
+    clean-cache)
+        echo "Cleaning Docker build cache..."
+        docker builder prune -af
+        echo "Removing dangling images..."
+        docker image prune -f
+        echo "Cache cleaned"
         ;;
     cleanup)
         docker ps -aq --filter "name=sandbox-" | xargs docker rm -f 2>/dev/null || true
@@ -2740,16 +3090,18 @@ case "\${1:-help}" in
     *)
         echo "DevPilot Sandbox Manager"
         echo ""
-        echo "Usage: $0 [command]"
+        echo "Usage: \$0 [command]"
         echo ""
         echo "Commands:"
-        echo "  start    - Start the manager"
-        echo "  stop     - Stop the manager"
-        echo "  restart  - Restart the manager"
-        echo "  status   - Show status"
-        echo "  logs     - View logs"
-        echo "  rebuild  - Rebuild desktop image"
-        echo "  cleanup  - Remove all sandbox containers"
+        echo "  start         - Start the manager"
+        echo "  stop          - Stop the manager"
+        echo "  restart       - Restart the manager"
+        echo "  status        - Show status"
+        echo "  logs          - View logs"
+        echo "  rebuild       - Rebuild desktop image (uses cache)"
+        echo "  force-rebuild - Rebuild desktop image (no cache, clean build)"
+        echo "  clean-cache   - Clean Docker build cache"
+        echo "  cleanup       - Remove all sandbox containers"
         ;;
 esac
 RUNSH

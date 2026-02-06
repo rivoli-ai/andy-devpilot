@@ -2,7 +2,7 @@ import { Component, OnInit, OnDestroy, signal, computed, effect } from '@angular
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy } from '../../core/services/backlog.service';
+import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE } from '../../core/services/backlog.service';
 import { RepositoryService } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
 import { SandboxService } from '../../core/services/sandbox.service';
@@ -69,7 +69,12 @@ export class BacklogComponent implements OnInit, OnDestroy {
   azureDevOpsProject = signal<string>('');
   azureDevOpsProjects = signal<AzureDevOpsProject[]>([]);
   azureDevOpsProjectsLoading = signal<boolean>(false);
+  azureDevOpsTeam = signal<string>('');
+  azureDevOpsTeams = signal<AzureDevOpsTeam[]>([]);
+  azureDevOpsTeamsLoading = signal<boolean>(false);
   selectedAzureDevOpsEpics = signal<Set<number>>(new Set());
+  selectedAzureDevOpsFeatures = signal<Set<number>>(new Set());
+  selectedAzureDevOpsStories = signal<Set<number>>(new Set());
   expandedAzureDevOpsItems = signal<Set<number>>(new Set());
   azureDevOpsImporting = signal<boolean>(false);
 
@@ -220,6 +225,34 @@ export class BacklogComponent implements OnInit, OnDestroy {
         return null;
       })
       .filter((e): e is Epic => e !== null);
+  });
+
+  // Epics for tree view (excludes standalone epic - those render separately without tree)
+  filteredEpicsForTree = computed(() =>
+    this.filteredEpics().filter(e => e.title !== STANDALONE_EPIC_TITLE)
+  );
+
+  // Standalone stories (no epic/feature parent) - rendered without tree structure
+  standaloneStoriesForTree = computed(() => {
+    const standaloneEpic = this.epics().find(e => e.title === STANDALONE_EPIC_TITLE);
+    if (!standaloneEpic) return [];
+    const query = this.searchQuery().toLowerCase();
+    const status = this.statusFilter();
+    const stories: Array<{ story: UserStory; feature: Feature; epic: Epic }> = [];
+    for (const feature of standaloneEpic.features) {
+      for (const story of feature.userStories) {
+        const matchesSearch = !query ||
+          story.title.toLowerCase().includes(query) ||
+          story.description?.toLowerCase().includes(query);
+        const effectiveStatus = this.getEffectiveStoryStatus(story);
+        const matchesStatus = status === 'all' ||
+          this.normalizeStatus(effectiveStatus) === status.toLowerCase();
+        if (matchesSearch && matchesStatus) {
+          stories.push({ story, feature, epic: standaloneEpic });
+        }
+      }
+    }
+    return stories;
   });
 
   // Flat list of all user stories with parent info
@@ -1325,13 +1358,55 @@ ${jsonFormatRequirement}`;
     }
   }
 
+  /** Whether a flat story item is standalone (no epic/feature parent) */
+  isStandaloneStory(item: { epicTitle: string }): boolean {
+    return item.epicTitle === STANDALONE_EPIC_TITLE;
+  }
+
+  /** Whether a user story has a warning (missing acceptance criteria or story points) */
+  hasStoryWarning(story: UserStory): boolean {
+    const hasAc = story.acceptanceCriteria != null && String(story.acceptanceCriteria).trim().length > 0;
+    const hasPoints = story.storyPoints != null && story.storyPoints > 0;
+    return !hasAc || !hasPoints;
+  }
+
+  /** Warning message for story missing acceptance criteria or story points */
+  getStoryWarningMessage(story: UserStory): string {
+    const missing: string[] = [];
+    const hasAc = story.acceptanceCriteria != null && String(story.acceptanceCriteria).trim().length > 0;
+    const hasPoints = story.storyPoints != null && story.storyPoints > 0;
+    if (!hasAc) missing.push('acceptance criteria');
+    if (!hasPoints) missing.push('story points');
+    return missing.length > 0 ? `Missing: ${missing.join(', ')}` : '';
+  }
+
+  /** Azure DevOps story missing acceptance criteria or story points */
+  hasAzureDevOpsStoryWarning(story: AzureDevOpsWorkItem): boolean {
+    const hasAc = story.acceptanceCriteria != null && String(story.acceptanceCriteria).trim().length > 0;
+    const hasPoints = story.storyPoints != null && story.storyPoints > 0;
+    return !hasAc || !hasPoints;
+  }
+
+  getAzureDevOpsStoryWarningMessage(story: AzureDevOpsWorkItem): string {
+    const missing: string[] = [];
+    const hasAc = story.acceptanceCriteria != null && String(story.acceptanceCriteria).trim().length > 0;
+    const hasPoints = story.storyPoints != null && story.storyPoints > 0;
+    if (!hasAc) missing.push('acceptance criteria');
+    if (!hasPoints) missing.push('story points');
+    return missing.length > 0 ? `Missing: ${missing.join(', ')}` : '';
+  }
+
   // Azure DevOps Import Methods
   openAzureDevOpsImport(): void {
     this.showAzureDevOpsImport.set(true);
     this.azureDevOpsError.set(null);
     this.azureDevOpsWorkItems.set(null);
     this.azureDevOpsProjects.set([]);
+    this.azureDevOpsTeams.set([]);
+    this.azureDevOpsTeam.set('');
     this.selectedAzureDevOpsEpics.set(new Set());
+    this.selectedAzureDevOpsFeatures.set(new Set());
+    this.selectedAzureDevOpsStories.set(new Set());
     this.expandedAzureDevOpsItems.set(new Set());
 
     // Load organization from settings and fetch projects
@@ -1372,6 +1447,34 @@ ${jsonFormatRequirement}`;
     });
   }
 
+  onAzureDevOpsProjectChange(): void {
+    const project = this.azureDevOpsProject();
+    // Reset team and work items when project changes
+    this.azureDevOpsTeam.set('');
+    this.azureDevOpsTeams.set([]);
+    this.azureDevOpsWorkItems.set(null);
+    this.selectedAzureDevOpsEpics.set(new Set());
+    
+    if (project) {
+      this.loadAzureDevOpsTeams(project);
+    }
+  }
+
+  loadAzureDevOpsTeams(projectName: string): void {
+    this.azureDevOpsTeamsLoading.set(true);
+    this.backlogService.getAzureDevOpsTeams(projectName).subscribe({
+      next: (teams) => {
+        this.azureDevOpsTeams.set(teams);
+        this.azureDevOpsTeamsLoading.set(false);
+      },
+      error: (err) => {
+        console.error('Failed to load Azure DevOps teams:', err);
+        this.azureDevOpsTeamsLoading.set(false);
+        // Don't show error - teams are optional
+      }
+    });
+  }
+
   closeAzureDevOpsImport(): void {
     this.showAzureDevOpsImport.set(false);
     this.azureDevOpsWorkItems.set(null);
@@ -1381,9 +1484,15 @@ ${jsonFormatRequirement}`;
   fetchAzureDevOpsWorkItems(): void {
     const org = this.azureDevOpsOrg();
     const project = this.azureDevOpsProject();
+    const team = this.azureDevOpsTeam();
     
     if (!project) {
       this.azureDevOpsError.set('Project name is required');
+      return;
+    }
+
+    if (!team) {
+      this.azureDevOpsError.set('Please select a team');
       return;
     }
 
@@ -1398,7 +1507,8 @@ ${jsonFormatRequirement}`;
     // Organization and PAT are now retrieved from settings on the backend
     this.backlogService.getAzureDevOpsWorkItems({
       organizationName: org,
-      projectName: project
+      projectName: project,
+      teamId: team
     }).subscribe({
       next: (workItems) => {
         this.azureDevOpsWorkItems.set(workItems);
@@ -1417,13 +1527,33 @@ ${jsonFormatRequirement}`;
   }
 
   toggleAzureDevOpsEpicSelection(epicId: number): void {
-    const selected = new Set(this.selectedAzureDevOpsEpics());
-    if (selected.has(epicId)) {
-      selected.delete(epicId);
+    const workItems = this.azureDevOpsWorkItems();
+    if (!workItems) return;
+
+    const features = this.getAzureDevOpsFeaturesForEpic(epicId);
+    const directStories = this.getAzureDevOpsStoriesForEpic(epicId);
+    const featureStoryIds = features.flatMap(f => this.getAzureDevOpsStoriesForFeature(f.id).map(s => s.id));
+    const allStoryIds = [...directStories.map(s => s.id), ...featureStoryIds];
+    const allFeatureIds = features.map(f => f.id);
+
+    const epicSelected = this.selectedAzureDevOpsEpics().has(epicId);
+    const selectedEpics = new Set(this.selectedAzureDevOpsEpics());
+    const selectedFeatures = new Set(this.selectedAzureDevOpsFeatures());
+    const selectedStories = new Set(this.selectedAzureDevOpsStories());
+
+    if (epicSelected) {
+      selectedEpics.delete(epicId);
+      allFeatureIds.forEach(id => selectedFeatures.delete(id));
+      allStoryIds.forEach(id => selectedStories.delete(id));
     } else {
-      selected.add(epicId);
+      selectedEpics.add(epicId);
+      allFeatureIds.forEach(id => selectedFeatures.add(id));
+      allStoryIds.forEach(id => selectedStories.add(id));
     }
-    this.selectedAzureDevOpsEpics.set(selected);
+
+    this.selectedAzureDevOpsEpics.set(selectedEpics);
+    this.selectedAzureDevOpsFeatures.set(selectedFeatures);
+    this.selectedAzureDevOpsStories.set(selectedStories);
   }
 
   toggleAzureDevOpsItemExpand(itemId: number): void {
@@ -1438,6 +1568,46 @@ ${jsonFormatRequirement}`;
 
   isAzureDevOpsEpicSelected(epicId: number): boolean {
     return this.selectedAzureDevOpsEpics().has(epicId);
+  }
+
+  /** Epic checkbox state: checked (all selected), indeterminate (some selected), unchecked */
+  getAzureDevOpsEpicCheckboxState(epicId: number): 'checked' | 'indeterminate' | 'unchecked' {
+    const workItems = this.azureDevOpsWorkItems();
+    if (!workItems) return 'unchecked';
+
+    const features = this.getAzureDevOpsFeaturesForEpic(epicId);
+    const directStories = this.getAzureDevOpsStoriesForEpic(epicId);
+    const featureStoryIds = new Set(features.flatMap(f => this.getAzureDevOpsStoriesForFeature(f.id).map(s => s.id)));
+    const allStoryIds = [...directStories.map(s => s.id), ...featureStoryIds];
+    const allFeatureIds = new Set(features.map(f => f.id));
+
+    const epicSelected = this.selectedAzureDevOpsEpics().has(epicId);
+    const selectedFeatureCount = features.filter(f => this.selectedAzureDevOpsFeatures().has(f.id)).length;
+    const selectedStoryCount = [...allStoryIds].filter(id => this.selectedAzureDevOpsStories().has(id)).length;
+
+    const totalFeatures = allFeatureIds.size;
+    const totalStories = allStoryIds.length;
+    const allSelected = epicSelected && selectedFeatureCount === totalFeatures && selectedStoryCount === totalStories;
+    const someSelected = epicSelected || selectedFeatureCount > 0 || selectedStoryCount > 0;
+
+    if (allSelected) return 'checked';
+    if (someSelected) return 'indeterminate';
+    return 'unchecked';
+  }
+
+  /** Feature checkbox state: checked (all selected), indeterminate (some selected), unchecked */
+  getAzureDevOpsFeatureCheckboxState(featureId: number): 'checked' | 'indeterminate' | 'unchecked' {
+    const stories = this.getAzureDevOpsStoriesForFeature(featureId);
+    const featureSelected = this.selectedAzureDevOpsFeatures().has(featureId);
+    const selectedStoryCount = stories.filter(s => this.selectedAzureDevOpsStories().has(s.id)).length;
+    const totalStories = stories.length;
+
+    const allSelected = featureSelected && selectedStoryCount === totalStories;
+    const someSelected = featureSelected || selectedStoryCount > 0;
+
+    if (allSelected) return 'checked';
+    if (someSelected) return 'indeterminate';
+    return 'unchecked';
   }
 
   isAzureDevOpsItemExpanded(itemId: number): boolean {
@@ -1475,22 +1645,119 @@ ${jsonFormatRequirement}`;
     return workItems.userStories.filter(s => s.parentId === epicId);
   }
 
+  /**
+   * Get orphan features (features without an epic parent)
+   */
+  getAzureDevOpsOrphanFeatures(): AzureDevOpsWorkItem[] {
+    const workItems = this.azureDevOpsWorkItems();
+    if (!workItems) return [];
+    const epicIds = new Set(workItems.epics.map(e => e.id));
+    return workItems.features.filter(f => !f.parentId || !epicIds.has(f.parentId));
+  }
+
+  /**
+   * Get orphan stories (stories without a feature or epic parent)
+   */
+  getAzureDevOpsOrphanStories(): AzureDevOpsWorkItem[] {
+    const workItems = this.azureDevOpsWorkItems();
+    if (!workItems) return [];
+    const epicIds = new Set(workItems.epics.map(e => e.id));
+    const featureIds = new Set(workItems.features.map(f => f.id));
+    return workItems.userStories.filter(s => 
+      !s.parentId || (!epicIds.has(s.parentId) && !featureIds.has(s.parentId))
+    );
+  }
+
+  // Feature selection (all features) - cascades to stories
+  toggleAzureDevOpsFeatureSelection(featureId: number): void {
+    const stories = this.getAzureDevOpsStoriesForFeature(featureId);
+    const storyIds = stories.map(s => s.id);
+
+    const featureSelected = this.selectedAzureDevOpsFeatures().has(featureId);
+    const selectedFeatures = new Set(this.selectedAzureDevOpsFeatures());
+    const selectedStories = new Set(this.selectedAzureDevOpsStories());
+
+    if (featureSelected) {
+      selectedFeatures.delete(featureId);
+      storyIds.forEach(id => selectedStories.delete(id));
+    } else {
+      selectedFeatures.add(featureId);
+      storyIds.forEach(id => selectedStories.add(id));
+    }
+
+    this.selectedAzureDevOpsFeatures.set(selectedFeatures);
+    this.selectedAzureDevOpsStories.set(selectedStories);
+  }
+
+  isAzureDevOpsFeatureSelected(featureId: number): boolean {
+    return this.selectedAzureDevOpsFeatures().has(featureId);
+  }
+
+  // Story selection (all stories)
+  toggleAzureDevOpsStorySelection(storyId: number): void {
+    const selected = new Set(this.selectedAzureDevOpsStories());
+    if (selected.has(storyId)) {
+      selected.delete(storyId);
+    } else {
+      selected.add(storyId);
+    }
+    this.selectedAzureDevOpsStories.set(selected);
+  }
+
+  isAzureDevOpsStorySelected(storyId: number): boolean {
+    return this.selectedAzureDevOpsStories().has(storyId);
+  }
+
+  /**
+   * Select all items (epics, all features, all stories)
+   */
+  selectAllAzureDevOpsItems(): void {
+    const workItems = this.azureDevOpsWorkItems();
+    if (!workItems) return;
+    
+    this.selectedAzureDevOpsEpics.set(new Set(workItems.epics.map(e => e.id)));
+    this.selectedAzureDevOpsFeatures.set(new Set(workItems.features.map(f => f.id)));
+    this.selectedAzureDevOpsStories.set(new Set(workItems.userStories.map(s => s.id)));
+  }
+
+  /**
+   * Deselect all items
+   */
+  deselectAllAzureDevOpsItems(): void {
+    this.selectedAzureDevOpsEpics.set(new Set());
+    this.selectedAzureDevOpsFeatures.set(new Set());
+    this.selectedAzureDevOpsStories.set(new Set());
+  }
+
   importSelectedAzureDevOpsItems(): void {
     const workItems = this.azureDevOpsWorkItems();
-    const selectedIds = Array.from(this.selectedAzureDevOpsEpics());
+    const selectedEpicIds = Array.from(this.selectedAzureDevOpsEpics());
+    const selectedFeatureIds = Array.from(this.selectedAzureDevOpsFeatures());
+    const selectedStoryIds = Array.from(this.selectedAzureDevOpsStories());
     const repoId = this.repositoryId();
     
-    if (!workItems || selectedIds.length === 0 || !repoId) {
-      this.azureDevOpsError.set('Please select at least one epic to import');
+    // Allow import if any items are selected
+    const hasSelections = selectedEpicIds.length > 0 || 
+                          selectedFeatureIds.length > 0 || 
+                          selectedStoryIds.length > 0;
+    
+    if (!workItems || !hasSelections || !repoId) {
+      this.azureDevOpsError.set('Please select at least one item to import (epic, feature, or user story)');
       return;
     }
 
     this.azureDevOpsImporting.set(true);
     this.azureDevOpsError.set(null);
 
-    this.backlogService.importFromAzureDevOps(repoId, workItems, selectedIds).subscribe({
-      next: (epics) => {
-        this.epics.set(epics);
+    this.backlogService.importFromAzureDevOps(
+      repoId, 
+      workItems, 
+      selectedEpicIds,
+      selectedFeatureIds,
+      selectedStoryIds
+    ).subscribe({
+      next: () => {
+        this.loadBacklog(repoId); // Merge: refresh full backlog (existing + imported)
         this.azureDevOpsImporting.set(false);
         this.closeAzureDevOpsImport();
       },
@@ -1631,8 +1898,8 @@ ${jsonFormatRequirement}`;
     this.gitHubError.set(null);
 
     this.backlogService.importFromGitHub(repoId, issues, selectedMilestones, includeUnassigned).subscribe({
-      next: (epics) => {
-        this.epics.set(epics);
+      next: () => {
+        this.loadBacklog(repoId); // Merge: refresh full backlog (existing + imported)
         this.gitHubImporting.set(false);
         this.closeGitHubImport();
       },

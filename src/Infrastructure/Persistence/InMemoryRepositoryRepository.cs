@@ -33,6 +33,13 @@ public class InMemoryRepositoryRepository : IRepositoryRepository
         return System.Threading.Tasks.Task.FromResult<Repository?>(repository);
     }
 
+    public System.Threading.Tasks.Task<Repository?> GetByFullNameProviderAndUserIdAsync(string fullName, string provider, Guid userId, CancellationToken cancellationToken = default)
+    {
+        var repository = _repositories.Values
+            .FirstOrDefault(r => r.FullName == fullName && r.Provider == provider && r.UserId == userId);
+        return System.Threading.Tasks.Task.FromResult<Repository?>(repository);
+    }
+
     public System.Threading.Tasks.Task<Repository> AddAsync(Repository repository, CancellationToken cancellationToken = default)
     {
         _repositories[repository.Id] = repository;
