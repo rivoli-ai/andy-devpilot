@@ -6,6 +6,9 @@ export interface Feature {
   description?: string;
   epicId: string;
   status: string;
+  /** "Manual" | "AzureDevOps" | "GitHub" */
+  source?: string;
+  azureDevOpsWorkItemId?: number;
   createdAt: string;
   updatedAt?: string;
   userStories: UserStory[];

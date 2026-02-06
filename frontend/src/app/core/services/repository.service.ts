@@ -228,10 +228,11 @@ export class RepositoryService {
 
   /**
    * Create a pull request for a repository
+   * @param workItemIds Azure DevOps work item IDs to link to the PR (e.g. [190])
    */
   createPullRequest(
     repositoryId: string,
-    params: { headBranch: string; baseBranch: string; title: string; body?: string }
+    params: { headBranch: string; baseBranch: string; title: string; body?: string; workItemIds?: number[] }
   ): Observable<{ url: string; number: number; title: string }> {
     return this.apiService.post<{ url: string; number: number; title: string }>(
       `/repositories/${repositoryId}/pull-requests`,

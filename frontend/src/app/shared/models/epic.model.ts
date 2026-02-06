@@ -6,6 +6,9 @@ export interface Epic {
   description?: string;
   repositoryId: string;
   status: string;
+  /** "Manual" | "AzureDevOps" | "GitHub" */
+  source?: string;
+  azureDevOpsWorkItemId?: number;
   createdAt: string;
   updatedAt?: string;
   features: Feature[];

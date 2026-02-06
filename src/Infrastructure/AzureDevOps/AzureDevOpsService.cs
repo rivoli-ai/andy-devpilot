@@ -252,6 +252,7 @@ public class AzureDevOpsService : IAzureDevOpsService
         string targetBranch,
         string title,
         string? description = null,
+        IReadOnlyList<int>? workItemIds = null,
         CancellationToken cancellationToken = default,
         bool useBasicAuth = false)
     {
@@ -300,6 +301,46 @@ public class AzureDevOpsService : IAzureDevOpsService
 
             var prId = pr.RootElement.GetProperty("pullRequestId").GetInt32();
             var prUrl = $"https://dev.azure.com/{organization}/{project}/_git/{repositoryId}/pullrequest/{prId}";
+
+            // Link work items to the PR so they appear as Related Work Items
+            var artifactId = pr.RootElement.TryGetProperty("artifactId", out var aidProp) ? aidProp.GetString() : null;
+            if (!string.IsNullOrEmpty(artifactId) && workItemIds != null && workItemIds.Count > 0)
+            {
+                foreach (var workItemId in workItemIds)
+                {
+                    try
+                    {
+                        var patchPayload = new[]
+                        {
+                            new
+                            {
+                                op = "add",
+                                path = "/relations/-",
+                                value = new
+                                {
+                                    rel = "ArtifactLink",
+                                    url = artifactId,
+                                    attributes = new { name = "pull request" }
+                                }
+                            }
+                        };
+                        var patchContent = new StringContent(
+                            JsonSerializer.Serialize(patchPayload),
+                            Encoding.UTF8,
+                            "application/json-patch+json");
+                        var witUrl = $"https://dev.azure.com/{organization}/{project}/_apis/wit/workitems/{workItemId}?api-version={AzureDevOpsApiVersion}";
+                        var patchResponse = await httpClient.PatchAsync(witUrl, patchContent, cancellationToken);
+                        if (patchResponse.IsSuccessStatusCode)
+                            _logger.LogInformation("Linked work item {WorkItemId} to PR {PrId}", workItemId, prId);
+                        else
+                            _logger.LogWarning("Failed to link work item {WorkItemId} to PR: {StatusCode}", workItemId, patchResponse.StatusCode);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to link work item {WorkItemId} to PR {PrId}", workItemId, prId);
+                    }
+                }
+            }
 
             return new AzureDevOpsPullRequestDto
             {
@@ -586,6 +627,121 @@ public class AzureDevOpsService : IAzureDevOpsService
             _logger.LogError(ex, "Error fetching work items from Azure DevOps for {Organization}/{Project}", organization, project);
             throw;
         }
+    }
+
+    public async System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsWorkItemStateDto>> GetWorkItemTypeStatesAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string workItemType,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var encodedType = Uri.EscapeDataString(workItemType);
+        var url = $"https://dev.azure.com/{organization}/{project}/_apis/wit/workitemtypes/{encodedType}/states?api-version=7.1";
+
+        var response = await httpClient.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Failed to fetch work item type states for {Type}: {StatusCode}", workItemType, response.StatusCode);
+            return Array.Empty<AzureDevOpsWorkItemStateDto>();
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var doc = JsonDocument.Parse(content);
+        var result = new List<AzureDevOpsWorkItemStateDto>();
+
+        if (doc.RootElement.TryGetProperty("value", out var valueArray))
+        {
+            foreach (var item in valueArray.EnumerateArray())
+            {
+                var name = item.TryGetProperty("name", out var n) ? n.GetString() : null;
+                var category = item.TryGetProperty("category", out var c) ? c.GetString() : null;
+                if (!string.IsNullOrEmpty(name) && !string.IsNullOrEmpty(category))
+                    result.Add(new AzureDevOpsWorkItemStateDto { Name = name, Category = category });
+            }
+        }
+
+        return result;
+    }
+
+    public async System.Threading.Tasks.Task<IReadOnlyDictionary<int, string>> GetWorkItemTypesByIdsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        IReadOnlyList<int> workItemIds,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        if (workItemIds == null || workItemIds.Count == 0)
+            return new Dictionary<int, string>();
+
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var idsParam = string.Join(",", workItemIds);
+        var url = $"https://dev.azure.com/{organization}/{project}/_apis/wit/workitems?ids={idsParam}&fields=System.WorkItemType&api-version={AzureDevOpsApiVersion}";
+
+        var response = await httpClient.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Failed to fetch work item types: {StatusCode}", response.StatusCode);
+            return new Dictionary<int, string>();
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        var doc = JsonDocument.Parse(content);
+        var result = new Dictionary<int, string>();
+
+        if (doc.RootElement.TryGetProperty("value", out var valueArray))
+        {
+            foreach (var item in valueArray.EnumerateArray())
+            {
+                var id = item.TryGetProperty("id", out var idProp) ? idProp.GetInt32() : 0;
+                var workItemType = "Unknown";
+                if (item.TryGetProperty("fields", out var fields) && fields.TryGetProperty("System.WorkItemType", out var t))
+                    workItemType = t.GetString() ?? "Unknown";
+                if (id > 0)
+                    result[id] = workItemType;
+            }
+        }
+
+        return result;
+    }
+
+    public async System.Threading.Tasks.Task UpdateWorkItemAsync(
+        string accessToken,
+        string organization,
+        string project,
+        int workItemId,
+        IReadOnlyList<AzureDevOpsWorkItemPatchOperation> patches,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        if (patches == null || patches.Count == 0)
+            return;
+
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var url = $"https://dev.azure.com/{organization}/{project}/_apis/wit/workitems/{workItemId}?api-version={AzureDevOpsApiVersion}";
+
+        var patchArray = patches.Select(p => new Dictionary<string, object?>
+        {
+            ["op"] = p.Op,
+            ["path"] = p.Path,
+            ["value"] = p.Value
+        }).ToList();
+
+        var json = JsonSerializer.Serialize(patchArray);
+        var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
+
+        var response = await httpClient.PatchAsync(url, content, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var errBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError("Azure DevOps update work item {WorkItemId} failed: {StatusCode} - {Content}", workItemId, response.StatusCode, errBody);
+            throw new HttpRequestException($"Azure DevOps API returned {response.StatusCode}: {errBody}");
+        }
+
+        _logger.LogInformation("Updated Azure DevOps work item {WorkItemId}", workItemId);
     }
 
     private AzureDevOpsWorkItemDto? ParseWorkItem(JsonElement item, string organization, string project)

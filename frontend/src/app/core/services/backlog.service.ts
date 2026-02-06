@@ -12,14 +12,17 @@ export interface CreateBacklogRequest {
   epics: {
     title: string;
     description: string;
+    azureDevOpsWorkItemId?: number;
     features: {
       title: string;
       description: string;
+      azureDevOpsWorkItemId?: number;
       userStories: {
         title: string;
         description: string;
         acceptanceCriteria: string[];
         storyPoints?: number;
+        azureDevOpsWorkItemId?: number;
       }[];
     }[];
   }[];
@@ -143,24 +146,36 @@ export class BacklogService {
 
   /**
    * Add a new Epic
+   * @param source Optional: "Manual" | "AzureDevOps" | "GitHub"
+   * @param azureDevOpsWorkItemId Optional: Azure DevOps work item ID when imported from ADO
    */
-  addEpic(repositoryId: string, title: string, description?: string): Observable<Epic> {
-    return this.apiService.post<Epic>(`/backlog/repository/${repositoryId}/epic`, { title, description }).pipe(
+  addEpic(repositoryId: string, title: string, description?: string, source?: string, azureDevOpsWorkItemId?: number): Observable<Epic> {
+    const body: { title: string; description?: string; source?: string; azureDevOpsWorkItemId?: number } = { title, description };
+    if (source) body.source = source;
+    if (azureDevOpsWorkItemId != null) body.azureDevOpsWorkItemId = azureDevOpsWorkItemId;
+    return this.apiService.post<Epic>(`/backlog/repository/${repositoryId}/epic`, body).pipe(
       tap(() => this.getBacklog(repositoryId).subscribe())
     );
   }
 
   /**
    * Add a new Feature to an Epic
+   * @param source Optional: "Manual" | "AzureDevOps" | "GitHub"
+   * @param azureDevOpsWorkItemId Optional: Azure DevOps work item ID when imported from ADO
    */
-  addFeature(epicId: string, title: string, description?: string, repositoryId?: string): Observable<Feature> {
-    return this.apiService.post<Feature>(`/backlog/epic/${epicId}/feature`, { title, description }).pipe(
+  addFeature(epicId: string, title: string, description?: string, repositoryId?: string, source?: string, azureDevOpsWorkItemId?: number): Observable<Feature> {
+    const body: { title: string; description?: string; source?: string; azureDevOpsWorkItemId?: number } = { title, description };
+    if (source) body.source = source;
+    if (azureDevOpsWorkItemId != null) body.azureDevOpsWorkItemId = azureDevOpsWorkItemId;
+    return this.apiService.post<Feature>(`/backlog/epic/${epicId}/feature`, body).pipe(
       tap(() => repositoryId && this.getBacklog(repositoryId).subscribe())
     );
   }
 
   /**
    * Add a new User Story to a Feature
+   * @param source Optional: "Manual" | "AzureDevOps" | "GitHub"
+   * @param azureDevOpsWorkItemId Optional: Azure DevOps work item ID when imported from ADO
    */
   addUserStory(
     featureId: string,
@@ -168,14 +183,19 @@ export class BacklogService {
     description?: string,
     acceptanceCriteria?: string,
     storyPoints?: number,
-    repositoryId?: string
+    repositoryId?: string,
+    source?: string,
+    azureDevOpsWorkItemId?: number
   ): Observable<UserStory> {
-    return this.apiService.post<UserStory>(`/backlog/feature/${featureId}/story`, {
+    const body: { title: string; description?: string; acceptanceCriteria?: string; storyPoints?: number; source?: string; azureDevOpsWorkItemId?: number } = {
       title,
       description,
       acceptanceCriteria,
       storyPoints
-    }).pipe(
+    };
+    if (source) body.source = source;
+    if (azureDevOpsWorkItemId != null) body.azureDevOpsWorkItemId = azureDevOpsWorkItemId;
+    return this.apiService.post<UserStory>(`/backlog/feature/${featureId}/story`, body).pipe(
       tap(() => repositoryId && this.getBacklog(repositoryId).subscribe())
     );
   }
@@ -239,6 +259,23 @@ export class BacklogService {
       status
     }).pipe(
       tap(() => repositoryId && this.getBacklog(repositoryId).subscribe())
+    );
+  }
+
+  /**
+   * Sync backlog items imported from Azure DevOps back to Azure DevOps
+   * Updates title, description, status, story points, acceptance criteria
+   */
+  syncToAzureDevOps(repositoryId: string): Observable<SyncToAzureDevOpsResponse> {
+    return this.apiService.post<SyncToAzureDevOpsResponse>(
+      `/backlog/repository/${repositoryId}/sync-to-azure-devops`,
+      {}
+    ).pipe(
+      tap(response => {
+        if (response.success && response.syncedCount > 0) {
+          this.getBacklog(repositoryId).subscribe();
+        }
+      })
     );
   }
 
@@ -333,10 +370,11 @@ export class BacklogService {
     const convertStory = (adoStory: AzureDevOpsWorkItem) => ({
       title: adoStory.title,
       description: this.stripHtml(adoStory.description || ''),
-      acceptanceCriteria: adoStory.acceptanceCriteria 
+      acceptanceCriteria: adoStory.acceptanceCriteria
         ? this.parseAcceptanceCriteria(adoStory.acceptanceCriteria)
         : [],
-      storyPoints: adoStory.storyPoints
+      storyPoints: adoStory.storyPoints,
+      azureDevOpsWorkItemId: adoStory.id
     });
 
     // Helper to convert a feature with only selected stories
@@ -346,6 +384,7 @@ export class BacklogService {
       return {
         title: adoFeature.title,
         description: this.stripHtml(adoFeature.description || ''),
+        azureDevOpsWorkItemId: adoFeature.id,
         userStories: featureStories.map(convertStory)
       };
     };
@@ -388,6 +427,7 @@ export class BacklogService {
         backlogRequest.epics.push({
           title: adoEpic.title,
           description: this.stripHtml(adoEpic.description || ''),
+          azureDevOpsWorkItemId: adoEpic.id,
           features
         });
       }
@@ -414,6 +454,7 @@ export class BacklogService {
       backlogRequest.epics.push({
         title: epicTitle,
         description: epicDesc,
+        azureDevOpsWorkItemId: adoEpic?.id,
         features: [convertedFeature]
       });
     }
@@ -453,6 +494,7 @@ export class BacklogService {
       backlogRequest.epics.push({
         title: adoEpic.title,
         description: this.stripHtml(adoEpic.description || ''),
+        azureDevOpsWorkItemId: adoEpic.id,
         features: [{
           title: 'General',
           description: 'User stories from epic',
@@ -484,9 +526,11 @@ export class BacklogService {
       backlogRequest.epics.push({
         title: epicTitle,
         description: epicDesc,
+        azureDevOpsWorkItemId: adoEpic?.id ?? undefined,
         features: featureList.map(({ feature, stories }) => ({
           title: feature.title,
           description: this.stripHtml(feature.description || ''),
+          azureDevOpsWorkItemId: feature.id,
           userStories: stories.map(convertStory)
         }))
       });
@@ -507,24 +551,26 @@ export class BacklogService {
 
     // Merge: use existing epics/features when tree already exists (match by title)
     return this.getBacklog(repositoryId).pipe(
-      switchMap(existingEpics => this.mergeBacklogItems(repositoryId, backlogRequest, [...existingEpics])),
+      switchMap(existingEpics => this.mergeBacklogItems(repositoryId, backlogRequest, [...existingEpics], 'AzureDevOps')),
       switchMap(() => this.getBacklog(repositoryId))
     );
   }
 
   /**
    * Merge backlog items: reuse existing epics/features by title, add stories to them
+   * @param source Optional: "Manual" | "AzureDevOps" | "GitHub" - set on all created items
    */
   private mergeBacklogItems(
     repositoryId: string,
     backlogRequest: CreateBacklogRequest,
-    existingEpics: Epic[]
+    existingEpics: Epic[],
+    source?: 'Manual' | 'AzureDevOps' | 'GitHub'
   ): Observable<void> {
     const addItems = async () => {
       for (const epicReq of backlogRequest.epics) {
         let epic = this.findEpicByTitle(existingEpics, epicReq.title);
         if (!epic) {
-          epic = await firstValueFrom(this.addEpic(repositoryId, epicReq.title, epicReq.description));
+          epic = await firstValueFrom(this.addEpic(repositoryId, epicReq.title, epicReq.description, source, epicReq.azureDevOpsWorkItemId));
           existingEpics.push(epic);
           if (!epic.features) epic.features = [];
         }
@@ -533,7 +579,7 @@ export class BacklogService {
           let feature = this.findFeatureByTitle(epic!, featureReq.title);
           if (!feature) {
             feature = await firstValueFrom(
-              this.addFeature(epic!.id, featureReq.title, featureReq.description, repositoryId)
+              this.addFeature(epic!.id, featureReq.title, featureReq.description, repositoryId, source, featureReq.azureDevOpsWorkItemId)
             );
             epic!.features = epic!.features ?? [];
             epic!.features.push(feature);
@@ -550,7 +596,9 @@ export class BacklogService {
                 storyReq.description,
                 ac,
                 storyReq.storyPoints,
-                repositoryId
+                repositoryId,
+                source,
+                storyReq.azureDevOpsWorkItemId
               )
             );
           }
@@ -682,7 +730,7 @@ export class BacklogService {
 
     // Merge: use existing epics/features when tree already exists (match by title)
     return this.getBacklog(repositoryId).pipe(
-      switchMap(existingEpics => this.mergeBacklogItems(repositoryId, backlogRequest, [...existingEpics])),
+      switchMap(existingEpics => this.mergeBacklogItems(repositoryId, backlogRequest, [...existingEpics], 'GitHub')),
       switchMap(() => this.getBacklog(repositoryId))
     );
   }
@@ -717,6 +765,13 @@ export class BacklogService {
       .map(line => line.trim())
       .filter(line => line.length > 0);
   }
+}
+
+export interface SyncToAzureDevOpsResponse {
+  success: boolean;
+  syncedCount: number;
+  failedCount: number;
+  errors: string[];
 }
 
 export interface SyncPrStatusResponse {

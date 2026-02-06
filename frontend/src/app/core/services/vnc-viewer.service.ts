@@ -11,6 +11,8 @@ export interface ImplementationContext {
   defaultBranch: string;
   storyTitle: string;
   storyId: string;
+  /** Azure DevOps work item ID (e.g. 190) - used to link PR to work item */
+  azureDevOpsWorkItemId?: number;
 }
 
 export interface VncViewer {

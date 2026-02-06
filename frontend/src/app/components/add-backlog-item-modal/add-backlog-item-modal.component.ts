@@ -797,6 +797,7 @@ export class AddBacklogItemModalComponent implements OnInit {
       description: this.description.trim() || undefined,
       acceptanceCriteria: this.acceptanceCriteria.trim() || undefined,
       storyPoints: this.storyPoints ?? undefined,
+      ...(editDataValue?.status != null && { status: editDataValue.status }),
       ...(!editDataValue && parentId && { parentId })
     });
     

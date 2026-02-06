@@ -126,6 +126,26 @@
           </svg>
           Import from Azure DevOps
         </button>
+        @if (hasAzureDevOpsImportedItems()) {
+          <button 
+            class="action-btn secondary"
+            (click)="syncToAzureDevOps()"
+            [disabled]="syncToAzureDevOpsLoading()"
+            title="Push updates back to Azure DevOps"
+          >
+            @if (syncToAzureDevOpsLoading()) {
+              <span class="spinner-small"></span>
+              Syncing...
+            } @else {
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                <polyline points="7 10 12 15 17 10"/>
+                <line x1="12" y1="15" x2="12" y2="3"/>
+              </svg>
+              Sync to Azure DevOps
+            }
+          </button>
+        }
       }
       <button 
         class="action-btn primary" 
@@ -144,6 +164,36 @@
       </button>
     </div>
   </div>
+
+  <!-- Sync to Azure DevOps status banner -->
+  @if (syncToAzureDevOpsSuccess() || syncToAzureDevOpsError()) {
+    <div class="generation-banner" [class]="syncToAzureDevOpsError() && !syncToAzureDevOpsSuccess() ? 'state-error' : 'state-complete'">
+      @if (syncToAzureDevOpsSuccess()) {
+        <div class="banner-content success">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span>
+            Synced {{ syncToAzureDevOpsSuccess()!.syncedCount }} item(s) to Azure DevOps
+            @if (syncToAzureDevOpsSuccess()!.failedCount > 0) {
+              ({{ syncToAzureDevOpsSuccess()!.failedCount }} failed)
+            }
+          </span>
+          <button class="close-btn" (click)="syncToAzureDevOpsSuccess.set(null); syncToAzureDevOpsError.set(null)">×</button>
+        </div>
+      } @else if (syncToAzureDevOpsError()) {
+        <div class="banner-content error">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>{{ syncToAzureDevOpsError() }}</span>
+          <button class="close-btn" (click)="syncToAzureDevOpsError.set(null); syncToAzureDevOpsSuccess.set(null)">×</button>
+        </div>
+      }
+    </div>
+  }
 
   <!-- Generation Status Banner: compact progress (complete/error only - no duplicate content) -->
   @if (generationState() === 'complete' || generationState() === 'error') {
@@ -454,6 +504,8 @@
                 <span class="work-item-icon epic">E</span>
                 <span class="work-item-id">E-{{ epic.id.substring(0, 4).toUpperCase() }}</span>
                 <span class="work-item-title">{{ epic.title }}</span>
+                @if (epic.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                @if (epic.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                 <span class="children-count" *ngIf="epic.features.length > 0">
                   {{ epic.features.length }} features
                 </span>
@@ -497,6 +549,15 @@
                         <span class="meta-label">Progress</span>
                         <span class="meta-value">{{ getEpicProgress(epic) }}%</span>
                       </div>
+                      @if (epic.source && epic.source !== 'Manual') {
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Source</span>
+                          <span class="meta-value">
+                            @if (epic.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
+                            @if (epic.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                          </span>
+                        </div>
+                      }
                       <div class="detail-actions">
                         <button class="add-item-btn" (click)="openAddFeature(epic.id); $event.stopPropagation()" title="Add Feature">
                           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -552,6 +613,8 @@
                       <span class="work-item-icon feature">F</span>
                       <span class="work-item-id">F-{{ feature.id.substring(0, 4).toUpperCase() }}</span>
                       <span class="work-item-title">{{ feature.title }}</span>
+                      @if (feature.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                      @if (feature.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                       <span class="children-count" *ngIf="feature.userStories.length > 0">
                         {{ feature.userStories.length }} stories
                       </span>
@@ -595,6 +658,15 @@
                               <span class="meta-label">Progress</span>
                               <span class="meta-value">{{ getFeatureProgress(feature) }}%</span>
                             </div>
+                            @if (feature.source && feature.source !== 'Manual') {
+                              <div class="detail-meta-item">
+                                <span class="meta-label">Source</span>
+                                <span class="meta-value">
+                                  @if (feature.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
+                                  @if (feature.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                                </span>
+                              </div>
+                            }
                             <div class="detail-actions">
                               <button class="add-item-btn" (click)="openAddStory(feature.id); $event.stopPropagation()" title="Add User Story">
                                 <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
@@ -668,6 +740,8 @@
                             </button>
                           }
                           <span class="work-item-title">{{ story.title }}</span>
+                          @if (story.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                          @if (story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                           @if (hasStoryWarning(story)) {
                             <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(story)" [title]="getStoryWarningMessage(story)" (click)="$event.stopPropagation()">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -731,6 +805,15 @@
                                   <span class="meta-label">Status</span>
                                   <span class="meta-value">{{ getEffectiveStoryStatus(story) }}</span>
                                 </div>
+                                @if (story.source && story.source !== 'Manual') {
+                                  <div class="detail-meta-item">
+                                    <span class="meta-label">Source</span>
+                                    <span class="meta-value">
+                                      @if (story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
+                                      @if (story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                                    </span>
+                                  </div>
+                                }
                                 @if (story.prUrl) {
                                   <div class="detail-meta-item pr-link-item">
                                     <span class="meta-label">Pull Request</span>
@@ -848,6 +931,8 @@
                     </button>
                   }
                   <span class="work-item-title">{{ item.story.title }}</span>
+                  @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                  @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                   @if (hasStoryWarning(item.story)) {
                     <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -909,6 +994,15 @@
                           <span class="meta-label">Status</span>
                           <span class="meta-value">{{ getEffectiveStoryStatus(item.story) }}</span>
                         </div>
+                        @if (item.story.source && item.story.source !== 'Manual') {
+                          <div class="detail-meta-item">
+                            <span class="meta-label">Source</span>
+                            <span class="meta-value">
+                              @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
+                              @if (item.story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                            </span>
+                          </div>
+                        }
                         @if (item.story.prUrl) {
                           <div class="detail-meta-item pr-link-item">
                             <span class="meta-label">Pull Request</span>
@@ -1035,6 +1129,8 @@
                   </button>
                 }
                 <span class="work-item-title">{{ item.story.title }}</span>
+                @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span> }
+                @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
                 @if (hasStoryWarning(item.story)) {
                   <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -1102,6 +1198,15 @@
                         <span class="meta-label">Priority</span>
                         <span class="meta-value">{{ item.story.priority || 'Normal' }}</span>
                       </div>
+                      @if (item.story.source && item.story.source !== 'Manual') {
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Source</span>
+                          <span class="meta-value">
+                            @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
+                            @if (item.story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                          </span>
+                        </div>
+                      }
                       @if (!isStandaloneStory(item)) {
                         <div class="detail-meta-item">
                           <span class="meta-label">Feature</span>
