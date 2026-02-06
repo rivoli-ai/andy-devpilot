@@ -165,14 +165,15 @@
     </div>
   </div>
 
-  <!-- Sync to Azure selection bar -->
-  @if (repository()?.provider === 'AzureDevOps' && hasAzureDevOpsImportedItems() && !loading() && epics().length > 0) {
+  <!-- Selection bar (Select All, Deselect All, Delete selected) -->
+  @if (!loading() && epics().length > 0) {
     <div class="sync-to-azure-bar">
-      <span class="sync-bar-label">Sync to Azure DevOps:</span>
+      <span class="sync-bar-label">Selection:</span>
       <div class="sync-bar-actions">
         <button type="button" class="sync-link-btn" (click)="selectAllForSyncToAzure()">Select All</button>
         <button type="button" class="sync-link-btn" (click)="deselectAllForSyncToAzure()">Deselect All</button>
         <span class="sync-selection-count">{{ selectedSyncToAzureEpics().size + selectedSyncToAzureFeatures().size + selectedSyncToAzureStories().size }} selected</span>
+        <button type="button" class="sync-delete-btn" (click)="openBulkDeleteConfirmation()" [disabled]="!hasSyncSelection()" title="Delete selected items">Delete selected</button>
       </div>
     </div>
   }
@@ -482,12 +483,10 @@
       </div>
     } @else if (viewMode() === 'tree') {
       <!-- Tree View -->
-      <div class="work-items-tree" [class.has-sync-column]="hasAzureDevOpsImportedItems()">
+      <div class="work-items-tree" [class.has-sync-column]="true">
         <!-- Column Headers -->
         <div class="tree-header">
-          @if (hasAzureDevOpsImportedItems()) {
-            <div class="col-sync" title="Sync to Azure DevOps">Sync</div>
-          }
+          <div class="col-sync" title="Select for delete/sync">Select</div>
           <div class="col-title">Work Item</div>
           <div class="col-status">Status</div>
           <div class="col-points">Points</div>
@@ -504,16 +503,12 @@
               [class.selected]="isSelected(epic.id)"
               (click)="selectItem(epic.id)"
             >
-              @if (hasAzureDevOpsImportedItems()) {
-                <div class="col-sync">
-                  @if (epic.source === 'AzureDevOps' && epic.azureDevOpsWorkItemId) {
-                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
-                      <input type="checkbox" [checked]="isEpicSelectedForSync(epic.id)" (change)="toggleEpicForSync(epic.id, $event)" />
-                      <span class="checkmark"></span>
-                    </label>
-                  }
-                </div>
-              }
+              <div class="col-sync">
+                <label class="sync-checkbox" [class.indeterminate]="getEpicCheckboxState(epic.id) === 'indeterminate'" (click)="$event.stopPropagation()">
+                  <input type="checkbox" [checked]="getEpicCheckboxState(epic.id) === 'checked'" (change)="toggleEpicForSync(epic.id, $event)" />
+                  <span class="checkmark"></span>
+                </label>
+              </div>
               <div class="row-content">
                 <button 
                   class="expand-btn"
@@ -629,16 +624,12 @@
                     [class.selected]="isSelected(feature.id)"
                     (click)="selectItem(feature.id)"
                   >
-                    @if (hasAzureDevOpsImportedItems()) {
-                      <div class="col-sync">
-                        @if (feature.source === 'AzureDevOps' && feature.azureDevOpsWorkItemId) {
-                          <label class="sync-checkbox" (click)="$event.stopPropagation()">
-                            <input type="checkbox" [checked]="isFeatureSelectedForSync(feature.id)" (change)="toggleFeatureForSync(feature.id, $event)" />
-                            <span class="checkmark"></span>
-                          </label>
-                        }
-                      </div>
-                    }
+                    <div class="col-sync">
+                      <label class="sync-checkbox" [class.indeterminate]="getFeatureCheckboxState(feature.id) === 'indeterminate'" (click)="$event.stopPropagation()">
+                        <input type="checkbox" [checked]="getFeatureCheckboxState(feature.id) === 'checked'" (change)="toggleFeatureForSync(feature.id, $event)" />
+                        <span class="checkmark"></span>
+                      </label>
+                    </div>
                     <div class="row-content">
                       <button 
                         class="expand-btn"
@@ -753,16 +744,12 @@
                         [class.creating]="isCreatingSandbox(story.id)"
                         (click)="onUserStoryClick(story.id)"
                       >
-                        @if (hasAzureDevOpsImportedItems()) {
-                          <div class="col-sync">
-                            @if (story.source === 'AzureDevOps' && story.azureDevOpsWorkItemId) {
-                              <label class="sync-checkbox" (click)="$event.stopPropagation()">
-                                <input type="checkbox" [checked]="isStorySelectedForSync(story.id)" (change)="toggleStoryForSync(story.id, $event)" />
-                                <span class="checkmark"></span>
-                              </label>
-                            }
-                          </div>
-                        }
+                        <div class="col-sync">
+                          <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                            <input type="checkbox" [checked]="isStorySelectedForSync(story.id)" (change)="toggleStoryForSync(story.id, $event)" />
+                            <span class="checkmark"></span>
+                          </label>
+                        </div>
                         <div class="row-content">
                           <span class="expand-btn placeholder"></span>
                           <span class="work-item-icon story">S</span>
@@ -959,16 +946,12 @@
               [class.selected]="isSelected(feature.id)"
               (click)="selectItem(feature.id)"
             >
-              @if (hasAzureDevOpsImportedItems()) {
-                <div class="col-sync">
-                  @if (feature.source === 'AzureDevOps' && feature.azureDevOpsWorkItemId) {
-                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
-                      <input type="checkbox" [checked]="isFeatureSelectedForSync(feature.id)" (change)="toggleFeatureForSync(feature.id, $event)" />
-                      <span class="checkmark"></span>
-                    </label>
-                  }
-                </div>
-              }
+              <div class="col-sync">
+                <label class="sync-checkbox" [class.indeterminate]="getFeatureCheckboxState(feature.id) === 'indeterminate'" (click)="$event.stopPropagation()">
+                  <input type="checkbox" [checked]="getFeatureCheckboxState(feature.id) === 'checked'" (change)="toggleFeatureForSync(feature.id, $event)" />
+                  <span class="checkmark"></span>
+                </label>
+              </div>
               <div class="row-content">
                 <button 
                   class="expand-btn"
@@ -1140,16 +1123,12 @@
               [class.creating]="isCreatingSandbox(item.story.id)"
               (click)="onUserStoryClick(item.story.id)"
             >
-              @if (hasAzureDevOpsImportedItems()) {
-                <div class="col-sync">
-                  @if (item.story.source === 'AzureDevOps' && item.story.azureDevOpsWorkItemId) {
-                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
-                      <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
-                      <span class="checkmark"></span>
-                    </label>
-                  }
-                </div>
-              }
+              <div class="col-sync">
+                <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                  <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
+                  <span class="checkmark"></span>
+                </label>
+              </div>
               <div class="row-content">
                 <span class="expand-btn placeholder"></span>
                 <span class="work-item-icon story">S</span>
@@ -1222,12 +1201,10 @@
       </div>
     } @else {
       <!-- Flat View - All User Stories -->
-      <div class="flat-view" [class.has-sync-column]="hasAzureDevOpsImportedItems()">
+      <div class="flat-view" [class.has-sync-column]="true">
         <!-- Column Headers -->
         <div class="flat-header">
-          @if (hasAzureDevOpsImportedItems()) {
-            <div class="col-sync" title="Sync to Azure DevOps">Sync</div>
-          }
+          <div class="col-sync" title="Select for delete/sync">Select</div>
           <div class="col-title">User Story</div>
           <div class="col-parent">Feature / Epic</div>
           <div class="col-status">Status</div>
@@ -1247,16 +1224,12 @@
               [class.creating]="isCreatingSandbox(item.story.id)"
               (click)="onUserStoryClick(item.story.id)"
             >
-              @if (hasAzureDevOpsImportedItems()) {
-                <div class="col-sync">
-                  @if (item.story.source === 'AzureDevOps' && item.story.azureDevOpsWorkItemId) {
-                    <label class="sync-checkbox" (click)="$event.stopPropagation()">
-                      <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
-                      <span class="checkmark"></span>
-                    </label>
-                  }
-                </div>
-              }
+              <div class="col-sync">
+                <label class="sync-checkbox" (click)="$event.stopPropagation()">
+                  <input type="checkbox" [checked]="isStorySelectedForSync(item.story.id)" (change)="toggleStoryForSync(item.story.id, $event)" />
+                  <span class="checkmark"></span>
+                </label>
+              </div>
               <div class="row-content">
                 <span class="work-item-icon story">S</span>
                 <span class="work-item-id">S-{{ item.story.id.substring(0, 4).toUpperCase() }}</span>
@@ -1497,6 +1470,33 @@
         <div class="delete-modal-actions">
           <button class="delete-modal-cancel" (click)="cancelDelete()">Cancel</button>
           <button class="delete-modal-confirm" (click)="confirmDelete()">Delete</button>
+        </div>
+      </div>
+    </div>
+  }
+
+  <!-- Bulk Delete Confirmation Modal -->
+  @if (bulkDeleteConfirmation(); as bulk) {
+    <div class="delete-modal-overlay" (click)="cancelBulkDelete()">
+      <div class="delete-modal" (click)="$event.stopPropagation()">
+        <div class="delete-modal-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 6 5 6 21 6"/>
+            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+            <line x1="10" y1="11" x2="10" y2="17"/>
+            <line x1="14" y1="11" x2="14" y2="17"/>
+          </svg>
+        </div>
+        <h3 class="delete-modal-title">Delete selected items?</h3>
+        <p class="delete-modal-message">
+          This will permanently delete <strong>{{ bulk.epicIds.length + bulk.featureIds.length + bulk.storyIds.length }} item(s)</strong>
+          ({{ bulk.epicIds.length }} epic(s), {{ bulk.featureIds.length }} feature(s), {{ bulk.storyIds.length }} story/stories).
+        </p>
+        <div class="delete-modal-actions">
+          <button class="delete-modal-cancel" (click)="cancelBulkDelete()" [disabled]="bulkDeleteLoading()">Cancel</button>
+          <button class="delete-modal-confirm" (click)="confirmBulkDelete()" [disabled]="bulkDeleteLoading()">
+            @if (bulkDeleteLoading()) { Deleting... } @else { Delete all }
+          </button>
         </div>
       </div>
     </div>
