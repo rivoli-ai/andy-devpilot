@@ -39,6 +39,37 @@ public class PostgresRepositoryRepository : IRepositoryRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async Task<(IEnumerable<Repository> Items, int TotalCount)> GetByUserIdPaginatedAsync(
+        Guid userId,
+        string? search = null,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var query = _context.Repositories
+            .AsNoTracking()
+            .Where(r => r.UserId == userId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
+            query = query.Where(r =>
+                r.Name.ToLower().Contains(term) ||
+                r.FullName.ToLower().Contains(term) ||
+                (r.OrganizationName != null && r.OrganizationName.ToLower().Contains(term)));
+        }
+
+        var totalCount = await query.CountAsync(cancellationToken);
+
+        var items = await query
+            .OrderBy(r => r.FullName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync(cancellationToken);
+
+        return (items, totalCount);
+    }
+
     public async Task<Repository?> GetByFullNameAndProviderAsync(string fullName, string provider, CancellationToken cancellationToken = default)
     {
         return await _context.Repositories

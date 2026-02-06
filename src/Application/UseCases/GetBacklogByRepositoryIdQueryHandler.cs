@@ -36,6 +36,8 @@ public class GetBacklogByRepositoryIdQueryHandler : IRequestHandler<GetBacklogBy
             Description = epic.Description,
             RepositoryId = epic.RepositoryId,
             Status = epic.Status,
+            Source = epic.Source,
+            AzureDevOpsWorkItemId = epic.AzureDevOpsWorkItemId,
             CreatedAt = epic.CreatedAt,
             UpdatedAt = epic.UpdatedAt,
             Features = epic.Features.Select(f => MapFeatureToDto(f)).ToList()
@@ -51,6 +53,8 @@ public class GetBacklogByRepositoryIdQueryHandler : IRequestHandler<GetBacklogBy
             Description = feature.Description,
             EpicId = feature.EpicId,
             Status = feature.Status,
+            Source = feature.Source,
+            AzureDevOpsWorkItemId = feature.AzureDevOpsWorkItemId,
             CreatedAt = feature.CreatedAt,
             UpdatedAt = feature.UpdatedAt,
             UserStories = feature.UserStories.Select(us => MapUserStoryToDto(us)).ToList()
@@ -69,6 +73,8 @@ public class GetBacklogByRepositoryIdQueryHandler : IRequestHandler<GetBacklogBy
             AcceptanceCriteria = userStory.AcceptanceCriteria,
             PrUrl = userStory.PrUrl,
             StoryPoints = userStory.StoryPoints,
+            Source = userStory.Source,
+            AzureDevOpsWorkItemId = userStory.AzureDevOpsWorkItemId,
             CreatedAt = userStory.CreatedAt,
             UpdatedAt = userStory.UpdatedAt,
             Tasks = userStory.Tasks.Select(t => MapTaskToDto(t)).ToList()

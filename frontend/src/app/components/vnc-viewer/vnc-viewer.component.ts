@@ -34,7 +34,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   viewerIndex = input<number>(0); // Index for positioning multiple minimized widgets
   embedded = input<boolean>(false); // When true, renders without container/header (for dock panel)
   bridgePort = input<number | undefined>(undefined); // Bridge API port for this sandbox
-  implementationContext = input<{ repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string } | undefined>(undefined); // Enables Push & Create PR
+  implementationContext = input<{ repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string; azureDevOpsWorkItemId?: number } | undefined>(undefined); // Enables Push & Create PR
 
   // Output: Close event
   closeEvent = output<void>();
@@ -310,10 +310,22 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     this.pushPrError.set(null);
     this.pushPrSuccess.set(null);
 
-    const branchName = `feature/US-${ctx.storyId.slice(0, 8)}-${ctx.storyTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 40)}`;
+    const shortStoryId = ctx.storyId.slice(0, 8);
+    const adoWorkItemId = ctx.azureDevOpsWorkItemId;
+    const branchName = `feature/US-${adoWorkItemId ?? shortStoryId}-${ctx.storyTitle.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '').slice(0, 40)}`;
     const commitMessage = `Implement: ${ctx.storyTitle}`;
-    const prTitle = `Implement: ${ctx.storyTitle}`;
-    const prBody = `Implements user story: **${ctx.storyTitle}**\n\nThis PR was created by DevPilot after completing the implementation.`;
+    const prTitle = adoWorkItemId != null ? `#${adoWorkItemId}: ${ctx.storyTitle}` : `${shortStoryId}: ${ctx.storyTitle}`;
+    const prBody = [
+      '## Implements User Story',
+      '',
+      adoWorkItemId != null ? `**Work Item:** #${adoWorkItemId}` : `**Story ID:** \`${ctx.storyId}\``,
+      `**Title:** ${ctx.storyTitle}`,
+      '',
+      'This PR implements the user story as described above.',
+      '',
+      '---',
+      '*Created by DevPilot*'
+    ].join('\n');
 
     // Fetch authenticated clone URL to get credentials for push
     this.repositoryService.getAuthenticatedCloneUrl(ctx.repositoryId).subscribe({
@@ -340,7 +352,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
 
   private executePush(
     port: number,
-    ctx: { repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string },
+    ctx: { repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string; azureDevOpsWorkItemId?: number },
     branchName: string,
     commitMessage: string,
     prTitle: string,
@@ -359,7 +371,8 @@ export class VncViewerComponent implements OnInit, OnDestroy {
           headBranch: branchName,
           baseBranch: ctx.defaultBranch,
           title: prTitle,
-          body: prBody
+          body: prBody,
+          workItemIds: ctx.azureDevOpsWorkItemId != null ? [ctx.azureDevOpsWorkItemId] : undefined
         }).subscribe({
           next: (pr: { url: string; title: string }) => {
             this.pushCreatingPr.set(false);

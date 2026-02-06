@@ -10,6 +10,8 @@ public class FeatureDto
     public string? Description { get; set; }
     public Guid EpicId { get; set; }
     public string Status { get; set; } = string.Empty;
+    public string Source { get; set; } = "Manual";
+    public int? AzureDevOpsWorkItemId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<UserStoryDto> UserStories { get; set; } = new();

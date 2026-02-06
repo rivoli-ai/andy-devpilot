@@ -106,6 +106,8 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(64);
+            entity.Property(e => e.Source).HasColumnName("source").HasMaxLength(32).HasDefaultValue("Manual");
+            entity.Property(e => e.AzureDevOpsWorkItemId).HasColumnName("azure_devops_work_item_id");
             entity.HasOne(e => e.Repository).WithMany(r => r.Epics).HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.Features).WithOne(f => f.Epic).HasForeignKey(f => f.EpicId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -121,6 +123,8 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.Description).HasColumnName("description");
             entity.Property(e => e.EpicId).HasColumnName("epic_id");
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(64);
+            entity.Property(e => e.Source).HasColumnName("source").HasMaxLength(32).HasDefaultValue("Manual");
+            entity.Property(e => e.AzureDevOpsWorkItemId).HasColumnName("azure_devops_work_item_id");
             entity.HasOne(e => e.Epic).WithMany(ep => ep.Features).HasForeignKey(e => e.EpicId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.UserStories).WithOne(us => us.Feature).HasForeignKey(us => us.FeatureId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -137,6 +141,8 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.FeatureId).HasColumnName("feature_id");
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(64);
             entity.Property(e => e.AcceptanceCriteria).HasColumnName("acceptance_criteria");
+            entity.Property(e => e.Source).HasColumnName("source").HasMaxLength(32).HasDefaultValue("Manual");
+            entity.Property(e => e.AzureDevOpsWorkItemId).HasColumnName("azure_devops_work_item_id");
             entity.HasOne(e => e.Feature).WithMany(f => f.UserStories).HasForeignKey(e => e.FeatureId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.Tasks).WithOne(t => t.UserStory).HasForeignKey(t => t.UserStoryId).OnDelete(DeleteBehavior.Cascade);
         });

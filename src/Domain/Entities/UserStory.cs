@@ -12,6 +12,10 @@ public class UserStory : Entity
     public string? AcceptanceCriteria { get; private set; }
     public string? PrUrl { get; private set; } // Pull Request URL when implemented
     public int? StoryPoints { get; private set; } // Estimation in story points
+    /// <summary>Source: "Manual", "AzureDevOps", "GitHub"</summary>
+    public string Source { get; private set; } = "Manual";
+    /// <summary>Azure DevOps work item ID when imported from ADO; null for manual/GitHub items</summary>
+    public int? AzureDevOpsWorkItemId { get; private set; }
 
     // Navigation properties
     public Feature Feature { get; private set; } = null!;
@@ -24,7 +28,9 @@ public class UserStory : Entity
         Guid featureId,
         string? description = null,
         string? acceptanceCriteria = null,
-        int? storyPoints = null)
+        int? storyPoints = null,
+        string? source = null,
+        int? azureDevOpsWorkItemId = null)
     {
         Title = title ?? throw new ArgumentNullException(nameof(title));
         FeatureId = featureId;
@@ -32,6 +38,8 @@ public class UserStory : Entity
         AcceptanceCriteria = acceptanceCriteria;
         StoryPoints = storyPoints;
         Status = "Backlog";
+        Source = source ?? "Manual";
+        AzureDevOpsWorkItemId = azureDevOpsWorkItemId;
     }
 
     public void SetStoryPoints(int? storyPoints)
@@ -74,6 +82,12 @@ public class UserStory : Entity
     public void SetPrUrl(string? prUrl)
     {
         PrUrl = prUrl;
+        MarkAsUpdated();
+    }
+
+    public void SetAzureDevOpsWorkItemId(int? id)
+    {
+        AzureDevOpsWorkItemId = id;
         MarkAsUpdated();
     }
 }
