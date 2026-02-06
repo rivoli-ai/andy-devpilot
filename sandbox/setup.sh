@@ -106,314 +106,124 @@ cd $PROJECT_DIR
 log_info "Creating desktop image..."
 mkdir -p desktop
 
-# Create Zed installation script (separate file to avoid escaping issues in Dockerfile)
+# Create Zed installation script - download directly like Firefox (no install script)
 cat > desktop/install-zed.sh << 'INSTALL_ZED_SCRIPT'
 #!/bin/bash
-# Don't use set -e so we can capture all errors
-
-LOG_FILE="/tmp/zed-install-debug.log"
-
-# Log to both stdout and file - everything visible during docker build
-log() {
-    echo "[ZED-INSTALL] $1"
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >> "$LOG_FILE"
-}
-
-log_cmd() {
-    # Run command and show output on both stdout and log file
-    "$@" 2>&1 | tee -a "$LOG_FILE"
-}
+# Direct download approach - same as Firefox installation
 
 echo ""
 echo "############################################"
-echo "#        ZED INSTALLATION SCRIPT          #"
+echo "#     ZED DIRECT INSTALLATION             #"
 echo "############################################"
 echo ""
-
-log "=========================================="
-log "=== SYSTEM INFORMATION ==="
-log "=========================================="
-log "Architecture: $(uname -m)"
-log "Kernel: $(uname -r)"
-log "OS: $(uname -o 2>/dev/null || echo 'Unknown')"
-log "User: $(whoami)"
-log "Home: $HOME"
-log "PWD: $(pwd)"
-log "PATH: $PATH"
-
-# Check if running in WSL or Docker
-echo ""
-log "=== ENVIRONMENT DETECTION ==="
-if grep -qi microsoft /proc/version 2>/dev/null; then
-    log "Environment: WSL detected"
-    log "WSL Version:"
-    cat /proc/version 2>&1 | tee -a "$LOG_FILE"
-elif [ -f /.dockerenv ]; then
-    log "Environment: Docker container"
-else
-    log "Environment: Native Linux or other"
-fi
-
-# Check glibc version
-echo ""
-log "=== GLIBC VERSION ==="
-if command -v ldd &>/dev/null; then
-    log_cmd ldd --version 2>&1 | head -1
-else
-    log "ldd not found - cannot check glibc"
-fi
-
-# Check required dependencies
-echo ""
-log "=== DEPENDENCY CHECK ==="
-DEPS_OK=true
-for cmd in curl tar gzip; do
-    if command -v $cmd &>/dev/null; then
-        log "  $cmd: OK ($(which $cmd))"
-    else
-        log "  $cmd: MISSING!"
-        DEPS_OK=false
-    fi
-done
-
-# Check for wget as fallback
-if command -v wget &>/dev/null; then
-    log "  wget: OK ($(which wget)) - available as fallback"
-    HAS_WGET=true
-else
-    log "  wget: not found (optional fallback)"
-    HAS_WGET=false
-fi
-
-if [ "$DEPS_OK" = false ]; then
-    log "ERROR: Missing required dependencies"
-    exit 1
-fi
-
-# Show curl version and SSL backend
-echo ""
-log "=== CURL/WGET INFO ==="
-curl --version 2>&1 | head -2 | tee -a "$LOG_FILE"
-wget --version 2>&1 | head -1 | tee -a "$LOG_FILE" || log "wget not available"
-
-# Create target directory
-echo ""
-log "=== CREATING DIRECTORIES ==="
-mkdir -p /home/sandbox/.local/bin
-log "Created /home/sandbox/.local/bin"
-log "Directory listing:"
-ls -la /home/sandbox/.local/ 2>&1 | tee -a "$LOG_FILE"
 
 ARCH=$(uname -m)
+echo "[ZED] Architecture: $ARCH"
+echo "[ZED] User: $(whoami)"
+echo "[ZED] Home: $HOME"
 
-echo ""
-log "=========================================="
-log "Architecture: $ARCH"
-if [ "$ARCH" != "x86_64" ]; then
-    log "NOTE: Running on $ARCH architecture"
-    log "Zed officially supports x86_64 Linux and ARM macOS"
-    log "Attempting installation anyway..."
-fi
-log "=========================================="
+# Create directories
+mkdir -p /home/sandbox/.local/bin
+mkdir -p /home/sandbox/.local/zed.app
 
-# Download Zed install script - same pattern as Firefox download
-echo ""
-log "=== DOWNLOADING ZED INSTALLER ==="
-log "URL: https://zed.dev/install.sh"
-log "Using Firefox-style fallback chain: curl || curl -k || wget"
-
-# Same pattern as Firefox: try curl, then curl -k, then wget
-(curl -fsSL --retry 3 --retry-delay 5 https://zed.dev/install.sh -o /tmp/zed-install.sh || \
- curl -fsSL --retry 3 --retry-delay 5 -k https://zed.dev/install.sh -o /tmp/zed-install.sh || \
- wget --no-check-certificate -q -O /tmp/zed-install.sh https://zed.dev/install.sh) 2>&1 | tee -a "$LOG_FILE"
-
-DOWNLOAD_SUCCESS=false
-if [ -f /tmp/zed-install.sh ] && [ -s /tmp/zed-install.sh ]; then
-    DOWNLOAD_SUCCESS=true
-    log "Download successful. File size: $(wc -c < /tmp/zed-install.sh) bytes"
+# Determine download URL based on architecture
+if [ "$ARCH" = "x86_64" ]; then
+    ZED_URL="https://zed.dev/api/releases/stable/latest/zed-linux-x86_64.tar.gz"
+    echo "[ZED] Using x86_64 download URL"
+elif [ "$ARCH" = "aarch64" ]; then
+    ZED_URL="https://zed.dev/api/releases/stable/latest/zed-linux-aarch64.tar.gz"
+    echo "[ZED] Using aarch64 download URL"
 else
-    log "Download FAILED"
-fi
-
-if [ "$DOWNLOAD_SUCCESS" = false ]; then
-    log "ERROR: Failed to download Zed install script"
-    log ""
-    log "Attempting verbose curl for debugging..."
-    curl -v https://zed.dev/install.sh 2>&1 | head -50 | tee -a "$LOG_FILE"
-    log ""
-    log "Creating placeholder..."
+    echo "[ZED] ERROR: Unsupported architecture: $ARCH"
+    echo "[ZED] Creating placeholder..."
     cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
 #!/bin/bash
-echo "Zed installation failed: Could not download installer (SSL error?)"
-echo "Debug log: /tmp/zed-install-debug.log"
-echo ""
-echo "Try manually: curl -k https://zed.dev/install.sh | sh"
+echo "Zed is not available for architecture: $(uname -m)"
 PLACEHOLDER
     chmod +x /home/sandbox/.local/bin/zed
     exit 0
 fi
 
-ls -la /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
-
-# Show first few lines of install script for debugging
-echo ""
-log "=== ZED INSTALL SCRIPT CONTENT (first 30 lines) ==="
-head -30 /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
-
-chmod +x /tmp/zed-install.sh
-
-# Always patch Zed installer to use -k flag for curl (same as Firefox approach)
-# This ensures any downloads within the installer also bypass SSL issues
-log ""
-log "Patching Zed installer to use curl -k (insecure) for all downloads..."
-sed -i 's/curl /curl -k /g' /tmp/zed-install.sh
-log "Patch applied"
-
-# Show patched curl commands
-log "Patched curl commands:"
-grep -n "curl" /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE" || log "No curl commands found"
-
-# Run Zed installer with full output
-echo ""
-log "=========================================="
-log "=== RUNNING ZED INSTALLER ==="
-log "=========================================="
-log "Command: /tmp/zed-install.sh"
+echo "[ZED] Download URL: $ZED_URL"
 echo ""
 
-# Capture all output
-/tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
-INSTALL_EXIT=${PIPESTATUS[0]}
+# Download Zed tarball - same pattern as Firefox
+echo "[ZED] Downloading Zed (Firefox-style fallback: curl || curl -k || wget)..."
+(curl -fsSL --retry 3 --retry-delay 5 "$ZED_URL" -o /tmp/zed.tar.gz || \
+ curl -fsSL --retry 3 --retry-delay 5 -k "$ZED_URL" -o /tmp/zed.tar.gz || \
+ wget --no-check-certificate -q -O /tmp/zed.tar.gz "$ZED_URL")
 
-echo ""
-log "=========================================="
-log "Zed installer exit code: $INSTALL_EXIT"
-log "=========================================="
-
-# Extensive post-install check
-echo ""
-log "=== POST-INSTALL VERIFICATION ==="
-
-log ""
-log "--- Contents of /home/sandbox/.local/bin/ ---"
-ls -la /home/sandbox/.local/bin/ 2>&1 | tee -a "$LOG_FILE"
-
-log ""
-log "--- All files in /home/sandbox/.local/ ---"
-find /home/sandbox/.local/ -type f 2>&1 | tee -a "$LOG_FILE"
-
-log ""
-log "--- All directories in /home/sandbox/.local/ ---"
-find /home/sandbox/.local/ -type d 2>&1 | tee -a "$LOG_FILE"
-
-# Search for zed in many locations
-echo ""
-log "=== SEARCHING FOR ZED BINARY ==="
-SEARCH_PATHS=(
-    "/home/sandbox/.local/bin/zed"
-    "/home/sandbox/.local/zed.app"
-    "/home/sandbox/.local/zed"
-    "$HOME/.local/bin/zed"
-    "$HOME/.local/zed.app"
-    "/usr/local/bin/zed"
-    "/usr/bin/zed"
-)
-
-ZED_FOUND=""
-for path in "${SEARCH_PATHS[@]}"; do
-    if [ -f "$path" ]; then
-        log "FOUND FILE: $path"
-        ls -la "$path" 2>&1 | tee -a "$LOG_FILE"
-        file "$path" 2>&1 | tee -a "$LOG_FILE"
-        ZED_FOUND="$path"
-    elif [ -d "$path" ]; then
-        log "FOUND DIR: $path"
-        ls -la "$path" 2>&1 | tee -a "$LOG_FILE"
-    else
-        log "Not found: $path"
-    fi
-done
-
-# Also search with find
-log ""
-log "--- Searching entire /home/sandbox for 'zed' ---"
-find /home/sandbox -name "*zed*" -type f 2>&1 | tee -a "$LOG_FILE" || log "No files found"
-find /home/sandbox -name "*zed*" -type d 2>&1 | tee -a "$LOG_FILE" || log "No dirs found"
-
-# Check using which and command
-log ""
-log "--- which zed ---"
-which zed 2>&1 | tee -a "$LOG_FILE" || log "which: zed not found in PATH"
-
-log ""
-log "--- command -v zed ---"
-command -v zed 2>&1 | tee -a "$LOG_FILE" || log "command: zed not found"
-
-# Final verification
-echo ""
-log "=========================================="
-if [ -f /home/sandbox/.local/bin/zed ]; then
-    log "=== ZED BINARY FOUND ==="
-    log "Location: /home/sandbox/.local/bin/zed"
-    log ""
-    log "File type:"
-    file /home/sandbox/.local/bin/zed 2>&1 | tee -a "$LOG_FILE"
-    log ""
-    log "File permissions:"
-    ls -la /home/sandbox/.local/bin/zed 2>&1 | tee -a "$LOG_FILE"
-    log ""
-    log "Testing zed --version:"
-    /home/sandbox/.local/bin/zed --version 2>&1 | tee -a "$LOG_FILE" || log "Version check failed (may need display)"
-    log ""
-    log "############################################"
-    log "#      ZED INSTALLATION SUCCESS!          #"
-    log "############################################"
-elif [ -n "$ZED_FOUND" ]; then
-    log "=== ZED FOUND AT DIFFERENT LOCATION ==="
-    log "Found at: $ZED_FOUND"
-    log "Creating symlink to expected location..."
-    ln -sf "$ZED_FOUND" /home/sandbox/.local/bin/zed
-    log "Symlink created"
-    log "############################################"
-    log "#      ZED INSTALLATION SUCCESS!          #"
-    log "############################################"
-else
-    log "############################################"
-    log "#      ZED BINARY NOT FOUND!              #"
-    log "############################################"
-    log ""
-    log "Installation may have failed silently."
-    log "Installer exit code was: $INSTALL_EXIT"
-    log ""
-    log "Creating placeholder script..."
+# Check if download succeeded
+if [ ! -f /tmp/zed.tar.gz ] || [ ! -s /tmp/zed.tar.gz ]; then
+    echo "[ZED] ERROR: Download failed!"
+    echo "[ZED] Creating placeholder..."
     cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
 #!/bin/bash
-echo "============================================"
-echo "Zed installation failed or binary not found"
-echo "============================================"
-echo ""
-echo "Debug log: /tmp/zed-install-debug.log"
-echo ""
-echo "System info:"
-echo "  Architecture: $(uname -m)"
-echo "  Kernel: $(uname -r)"
-echo ""
-echo "To retry manually:"
-echo "  curl -fsSL https://zed.dev/install.sh | sh"
-echo ""
+echo "Zed download failed (SSL/network issue)"
+echo "Try manually: curl -k https://zed.dev/api/releases/stable/latest/zed-linux-x86_64.tar.gz -o zed.tar.gz"
 PLACEHOLDER
     chmod +x /home/sandbox/.local/bin/zed
-    log "Placeholder created at /home/sandbox/.local/bin/zed"
+    exit 0
 fi
-log "=========================================="
 
-rm -f /tmp/zed-install.sh 2>/dev/null || true
-
+echo "[ZED] Download successful: $(ls -lh /tmp/zed.tar.gz | awk '{print $5}')"
 echo ""
-log "Full debug log saved to: $LOG_FILE"
+
+# Extract Zed
+echo "[ZED] Extracting to /home/sandbox/.local/zed.app/..."
+tar -xzf /tmp/zed.tar.gz -C /home/sandbox/.local/zed.app/ --strip-components=1
+
+# Check extraction
+if [ ! -d /home/sandbox/.local/zed.app ]; then
+    echo "[ZED] ERROR: Extraction failed!"
+    exit 1
+fi
+
+echo "[ZED] Extracted files:"
+ls -la /home/sandbox/.local/zed.app/
+
+# Find and symlink the zed binary
+ZED_BIN=""
+if [ -f /home/sandbox/.local/zed.app/bin/zed ]; then
+    ZED_BIN="/home/sandbox/.local/zed.app/bin/zed"
+elif [ -f /home/sandbox/.local/zed.app/zed ]; then
+    ZED_BIN="/home/sandbox/.local/zed.app/zed"
+elif [ -f /home/sandbox/.local/zed.app/libexec/zed-editor ]; then
+    ZED_BIN="/home/sandbox/.local/zed.app/libexec/zed-editor"
+fi
+
+if [ -n "$ZED_BIN" ]; then
+    echo "[ZED] Found binary at: $ZED_BIN"
+    ln -sf "$ZED_BIN" /home/sandbox/.local/bin/zed
+    chmod +x /home/sandbox/.local/bin/zed
+    echo "[ZED] Symlinked to /home/sandbox/.local/bin/zed"
+    echo ""
+    echo "[ZED] Testing zed --version:"
+    /home/sandbox/.local/bin/zed --version 2>&1 || echo "[ZED] Version check failed (may need display)"
+    echo ""
+    echo "############################################"
+    echo "#     ZED INSTALLATION SUCCESS!           #"
+    echo "############################################"
+else
+    echo "[ZED] ERROR: Could not find zed binary after extraction"
+    echo "[ZED] Contents of zed.app:"
+    find /home/sandbox/.local/zed.app -type f | head -20
+    echo ""
+    echo "[ZED] Creating placeholder..."
+    cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
+#!/bin/bash
+echo "Zed binary not found after extraction"
+echo "Check /home/sandbox/.local/zed.app/"
+PLACEHOLDER
+    chmod +x /home/sandbox/.local/bin/zed
+fi
+
+# Cleanup
+rm -f /tmp/zed.tar.gz
+
 echo ""
 echo "############################################"
-echo "#     ZED SETUP SCRIPT COMPLETE           #"
+echo "#     ZED SETUP COMPLETE                  #"
 echo "############################################"
 echo ""
 INSTALL_ZED_SCRIPT
