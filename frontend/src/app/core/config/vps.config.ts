@@ -4,7 +4,7 @@
  */
 export const VPS_CONFIG = {
   /** VPS IP address or hostname */
-  ip: 'localhost',
+  ip: '217.154.24.12',
   /** noVNC port (default: 6080) - used for single container mode */
   novncPort: 6080,
   /** Sandbox Manager API port */

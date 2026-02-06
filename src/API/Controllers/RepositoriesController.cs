@@ -432,7 +432,81 @@ public class RepositoriesController : ControllerBase
     {
         public string? OrganizationName { get; set; }
         public required string ProjectName { get; set; }
+        public string? TeamId { get; set; }
         public string? PersonalAccessToken { get; set; }
+    }
+
+    /// <summary>
+    /// Get Azure DevOps teams for a project
+    /// </summary>
+    [HttpGet("azure-devops/projects/{projectName}/teams")]
+    [Authorize]
+    public async Task<IActionResult> GetAzureDevOpsTeams(string projectName, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        try
+        {
+            // Get user to access stored settings
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+            
+            if (user == null || string.IsNullOrEmpty(user.AzureDevOpsOrganization))
+            {
+                return BadRequest(new { message = "Azure DevOps organization is not configured. Please set it in Settings." });
+            }
+
+            string accessToken;
+            bool useBasicAuth = false;
+
+            // Use stored PAT if available
+            if (!string.IsNullOrEmpty(user.AzureDevOpsAccessToken))
+            {
+                var credentials = Convert.ToBase64String(
+                    System.Text.Encoding.ASCII.GetBytes($":{user.AzureDevOpsAccessToken}"));
+                accessToken = credentials;
+                useBasicAuth = true;
+                _logger.LogInformation("Using stored PAT for fetching Azure DevOps teams");
+            }
+            else
+            {
+                // Fall back to OAuth token
+                var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(
+                    userId, ProviderTypes.AzureDevOps, cancellationToken);
+
+                if (linkedProvider == null)
+                {
+                    return BadRequest(new { 
+                        message = "Azure DevOps is not configured. Please add your PAT in Settings.",
+                        requiresPat = true 
+                    });
+                }
+
+                accessToken = linkedProvider.AccessToken;
+            }
+
+            var teams = await _azureDevOpsService.GetTeamsAsync(
+                accessToken, 
+                user.AzureDevOpsOrganization,
+                projectName,
+                cancellationToken, 
+                useBasicAuth);
+
+            return Ok(teams);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Azure DevOps authentication failed for teams");
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching Azure DevOps teams for project {Project}", projectName);
+            return StatusCode(500, new { message = "Failed to fetch teams" });
+        }
     }
 
     /// <summary>
@@ -510,6 +584,7 @@ public class RepositoriesController : ControllerBase
                 accessToken,
                 organizationName,
                 request.ProjectName,
+                request.TeamId,
                 cancellationToken,
                 useBasicAuth);
 

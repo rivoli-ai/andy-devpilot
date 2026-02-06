@@ -1071,6 +1071,49 @@
   border-left-color: var(--brand-primary);
 }
 
+/* Standalone story rows (no epic/feature parent) - same styling as nested stories */
+.tree-row.story-row.standalone {
+  background: var(--surface-ground);
+  border-left: 2px solid rgba(59, 130, 246, 0.15);
+  padding-left: 3.5rem;
+  position: relative;
+}
+
+[data-theme="light"] .tree-row.story-row.standalone {
+  background: var(--slate-50);
+  border-left-color: rgba(59, 130, 246, 0.35);
+}
+
+.tree-row.story-row.standalone:hover {
+  background: var(--surface-hover);
+  border-left-color: rgba(59, 130, 246, 0.3);
+}
+
+.tree-row.story-row.standalone.selected {
+  background: rgba(99, 102, 241, 0.06);
+  border-left: 3px solid var(--brand-primary);
+}
+
+.tree-group.standalone-stories {
+  margin-top: 0.5rem;
+}
+
+.tree-group.standalone-stories::before {
+  content: 'Standalone';
+  display: block;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.5rem 3.5rem 0.25rem;
+}
+
+/* Hide nested-2 vertical line for standalone rows (no parent tree) */
+.tree-row.story-row.standalone::before {
+  display: none;
+}
+
 /* Row Content */
 .row-content {
   display: flex;
@@ -1136,6 +1179,38 @@
 .work-item-icon.epic { background: #8b5cf6; }
 .work-item-icon.feature { background: #f59e0b; }
 .work-item-icon.story { background: #3b82f6; }
+
+.story-warning {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: #f59e0b;
+  margin-left: 0.35rem;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.story-warning:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 0.35rem 0.6rem;
+  background: var(--surface-elevated, #2d2d3a);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  pointer-events: none;
+}
+
+.story-warning svg {
+  width: 14px;
+  height: 14px;
+}
 
 /* Work Item ID */
 .work-item-id {
@@ -2518,6 +2593,19 @@
   font-size: 14px;
 }
 
+.ado-no-teams {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--surface-secondary, #252538);
+  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  color: var(--text-tertiary, #888);
+  font-size: 14px;
+  font-style: italic;
+}
+
 .ado-org-info svg {
   width: 18px;
   height: 18px;
@@ -2769,6 +2857,24 @@
   transform: rotate(45deg);
 }
 
+/* Indeterminate: dash instead of check (some children selected) */
+.ado-checkbox.indeterminate .checkmark {
+  background: #0078d4;
+  border-color: #0078d4;
+}
+
+.ado-checkbox.indeterminate .checkmark::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 7px;
+  width: 8px;
+  height: 2px;
+  background: white;
+  border: none;
+  transform: none;
+}
+
 .ado-expand-btn {
   background: transparent;
   border: none;
@@ -2873,6 +2979,51 @@
   border-left: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
   margin-left: 20px;
   margin-top: 4px;
+}
+
+/* Root level features and stories (orphans shown at same level as epics) */
+.ado-tree-item.root-level {
+  /* Same styling as epics at root level */
+}
+
+.ado-tree-item.feature.root-level .ado-item-type {
+  background: var(--feature-color, #8b5cf6);
+}
+
+.ado-tree-item.story.root-level .ado-item-type {
+  background: #3b82f6; /* Same as non-standalone user story */
+}
+
+.ado-story-warning {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: #f59e0b;
+  margin-left: 0.35rem;
+  flex-shrink: 0;
+  cursor: help;
+}
+
+.ado-story-warning:hover::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  transform: translateX(-50%) translateY(-4px);
+  padding: 0.35rem 0.6rem;
+  background: var(--surface-elevated, #2d2d3a);
+  color: var(--text-primary);
+  font-size: 0.75rem;
+  white-space: nowrap;
+  border-radius: 4px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+  z-index: 100;
+  pointer-events: none;
+}
+
+.ado-story-warning svg {
+  width: 12px;
+  height: 12px;
 }
 
 /* Spinner */
