@@ -244,7 +244,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb x11vnc novnc websockify nginx \
     xfce4 xfce4-terminal xterm screen thunar mousepad \
     xterm screen \
-    sudo wget curl git ca-certificates \
+    sudo wget curl git ca-certificates openssl \
     python3 python3-pip python3-venv dbus-x11 \
     fonts-dejavu fonts-liberation \
     libxkbcommon0 libvulkan1 libasound2t64 libgbm1 \
@@ -255,6 +255,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils bzip2 xz-utils \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Update SSL certificates and set environment variables for SSL
+RUN update-ca-certificates
+
+# SSL environment variables for various applications
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV SSL_CERT_DIR=/etc/ssl/certs
+ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -1931,6 +1941,13 @@ export DISPLAY=:0
 export XDG_RUNTIME_DIR=/tmp/runtime-sandbox
 export HOME=/home/sandbox
 
+# SSL certificate environment variables (fixes SSL issues in sandbox)
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_DIR=/etc/ssl/certs
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+
 # Log version and environment variables for debugging
 echo "=== DevPilot Sandbox v2.1.0 ===" > /tmp/sandbox-debug.log
 echo "Started at: \$(date)" >> /tmp/sandbox-debug.log
@@ -2390,6 +2407,12 @@ cat > /tmp/launch-zed.sh << ZEDLAUNCHER
 #!/bin/bash
 export DISPLAY=:0
 export HOME=/home/sandbox
+
+# SSL certificate environment variables (fixes SSL issues for LLM API calls)
+export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+export SSL_CERT_DIR=/etc/ssl/certs
+export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 
 # Force software rendering with llvmpipe
 export LIBGL_ALWAYS_SOFTWARE=1
