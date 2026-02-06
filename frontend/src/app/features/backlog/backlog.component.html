@@ -429,8 +429,8 @@
           <div class="col-progress">Progress</div>
         </div>
 
-        <!-- Epics -->
-        @for (epic of filteredEpics(); track epic.id) {
+        <!-- Epics (excludes standalone - those render below without tree) -->
+        @for (epic of filteredEpicsForTree(); track epic.id) {
           <div class="tree-group">
             <!-- Epic Row -->
             <div 
@@ -668,6 +668,15 @@
                             </button>
                           }
                           <span class="work-item-title">{{ story.title }}</span>
+                          @if (hasStoryWarning(story)) {
+                            <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(story)" [title]="getStoryWarningMessage(story)" (click)="$event.stopPropagation()">
+                              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                <line x1="12" y1="9" x2="12" y2="13"/>
+                                <line x1="12" y1="17" x2="12.01" y2="17"/>
+                              </svg>
+                            </span>
+                          }
                         </div>
                         <div class="row-status">
                           <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(story))">
@@ -794,6 +803,180 @@
             }
           </div>
         }
+
+        <!-- Standalone stories (no epic/feature parent) - flat list without tree -->
+        @if (standaloneStoriesForTree().length > 0) {
+          <div class="tree-group standalone-stories">
+            @for (item of standaloneStoriesForTree(); track item.story.id) {
+              <div 
+                class="tree-row story-row standalone nested-2"
+                [class.selected]="isSelected(item.story.id)"
+                [class.creating]="isCreatingSandbox(item.story.id)"
+                (click)="onUserStoryClick(item.story.id)"
+              >
+                <div class="row-content">
+                  <span class="expand-btn placeholder"></span>
+                  <span class="work-item-icon story">S</span>
+                  <span class="work-item-id">S-{{ item.story.id.substring(0, 4).toUpperCase() }}</span>
+                  @if (hasOpenSandbox(item.story.id)) {
+                    <button 
+                      class="implement-btn sandbox-active" 
+                      title="View open sandbox"
+                      (click)="focusSandbox($event, item.story.id)"
+                    >
+                      <span class="sandbox-pulse"></span>
+                      <svg viewBox="0 0 24 24" class="monitor-icon">
+                        <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                        <line x1="8" y1="21" x2="16" y2="21"/>
+                        <line x1="12" y1="17" x2="12" y2="21"/>
+                      </svg>
+                    </button>
+                  } @else {
+                    <button 
+                      class="implement-btn" 
+                      title="Implement this story"
+                      [disabled]="isCreatingSandbox(item.story.id)"
+                      (click)="onImplementClick($event, item.story, 'Standalone', 'Standalone')"
+                    >
+                      @if (isCreatingSandbox(item.story.id)) {
+                        <span class="loading-spinner-small"></span>
+                      } @else {
+                        <svg viewBox="0 0 24 24">
+                          <polygon points="5 3 19 12 5 21 5 3"/>
+                        </svg>
+                      }
+                    </button>
+                  }
+                  <span class="work-item-title">{{ item.story.title }}</span>
+                  @if (hasStoryWarning(item.story)) {
+                    <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                        <line x1="12" y1="9" x2="12" y2="13"/>
+                        <line x1="12" y1="17" x2="12.01" y2="17"/>
+                      </svg>
+                    </span>
+                  }
+                </div>
+                <div class="row-status">
+                  <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(item.story))">
+                    <span class="status-icon">{{ getStatusIcon(getEffectiveStoryStatus(item.story)) }}</span>
+                    {{ getEffectiveStoryStatus(item.story) }}
+                  </span>
+                  @if (item.story.prUrl) {
+                    <a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-badge" title="View Pull Request" (click)="$event.stopPropagation()">
+                      <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="18" cy="18" r="3"/>
+                        <circle cx="6" cy="6" r="3"/>
+                        <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+                        <line x1="6" y1="9" x2="6" y2="21"/>
+                      </svg>
+                    </a>
+                  }
+                </div>
+                <div class="row-points">
+                  <span class="points-value" [class.has-points]="item.story.storyPoints">
+                    {{ item.story.storyPoints || '-' }}
+                  </span>
+                </div>
+                <div class="row-progress">
+                  <span class="progress-text">{{ getStoryProgress(item.story) }}%</span>
+                </div>
+              </div>
+
+              @if (isSelected(item.story.id)) {
+                <div class="inline-details story-details standalone nested-2">
+                  <div class="inline-details-content">
+                    <div class="detail-grid">
+                      <div class="detail-main">
+                        <h4 class="detail-label">Description</h4>
+                        <p class="detail-text">{{ item.story.description || 'No description provided' }}</p>
+                        @if (item.story.acceptanceCriteria) {
+                          <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
+                          <p class="detail-text acceptance-criteria">{{ item.story.acceptanceCriteria }}</p>
+                        }
+                      </div>
+                      <div class="detail-sidebar">
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Story Points</span>
+                          <span class="meta-value">{{ item.story.storyPoints || '-' }}</span>
+                        </div>
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Priority</span>
+                          <span class="meta-value">{{ item.story.priority || 'Normal' }}</span>
+                        </div>
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Status</span>
+                          <span class="meta-value">{{ getEffectiveStoryStatus(item.story) }}</span>
+                        </div>
+                        @if (item.story.prUrl) {
+                          <div class="detail-meta-item pr-link-item">
+                            <span class="meta-label">Pull Request</span>
+                            <a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-link-badge">
+                              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="18" cy="18" r="3"/>
+                                <circle cx="6" cy="6" r="3"/>
+                                <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
+                                <line x1="6" y1="9" x2="6" y2="21"/>
+                              </svg>
+                              View PR
+                            </a>
+                          </div>
+                        }
+                        <div class="detail-actions">
+                          @if (hasOpenSandbox(item.story.id)) {
+                            <button 
+                              class="implement-action-btn sandbox-active"
+                              (click)="focusSandbox($event, item.story.id)"
+                            >
+                              <span class="sandbox-pulse"></span>
+                              <svg viewBox="0 0 24 24" class="monitor-icon">
+                                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                                <line x1="8" y1="21" x2="16" y2="21"/>
+                                <line x1="12" y1="17" x2="12" y2="21"/>
+                              </svg>
+                              View Sandbox
+                            </button>
+                          } @else {
+                            <button 
+                              class="implement-action-btn"
+                              [disabled]="isCreatingSandbox(item.story.id)"
+                              (click)="onImplementClick($event, item.story, 'Standalone', 'Standalone')"
+                            >
+                              @if (isCreatingSandbox(item.story.id)) {
+                                <span class="loading-spinner-small"></span>
+                                Creating sandbox...
+                              } @else {
+                                <svg viewBox="0 0 24 24">
+                                  <polygon points="5 3 19 12 5 21 5 3"/>
+                                </svg>
+                                Implement Story
+                              }
+                            </button>
+                          }
+                          <button class="edit-item-btn" (click)="openEditStory(item.story); $event.stopPropagation()" title="Edit Story">
+                            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+                              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+                              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+                            </svg>
+                            Edit
+                          </button>
+                          <button class="delete-item-btn" (click)="onDeleteStory(item.story.id, item.feature.id, $event)" title="Delete Story">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                              <polyline points="3 6 5 6 21 6"/>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                            </svg>
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              }
+            }
+          </div>
+        }
       </div>
     } @else {
       <!-- Flat View - All User Stories -->
@@ -840,7 +1023,7 @@
                     class="implement-btn" 
                     title="Implement this story"
                     [disabled]="isCreatingSandbox(item.story.id)"
-                    (click)="onImplementClick($event, item.story, item.featureTitle, item.epicTitle)"
+                    (click)="onImplementClick($event, item.story, isStandaloneStory(item) ? 'Standalone' : item.featureTitle, isStandaloneStory(item) ? 'Standalone' : item.epicTitle)"
                   >
                     @if (isCreatingSandbox(item.story.id)) {
                       <span class="loading-spinner-small"></span>
@@ -852,15 +1035,28 @@
                   </button>
                 }
                 <span class="work-item-title">{{ item.story.title }}</span>
+                @if (hasStoryWarning(item.story)) {
+                  <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                      <line x1="12" y1="9" x2="12" y2="13"/>
+                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                    </svg>
+                  </span>
+                }
               </div>
               <div class="row-parent">
-                <span class="parent-path">
-                  <span class="parent-epic">{{ item.epicTitle }}</span>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <polyline points="9 18 15 12 9 6"/>
-                  </svg>
-                  <span class="parent-feature">{{ item.featureTitle }}</span>
-                </span>
+                @if (isStandaloneStory(item)) {
+                  <span class="parent-path standalone">Standalone</span>
+                } @else {
+                  <span class="parent-path">
+                    <span class="parent-epic">{{ item.epicTitle }}</span>
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="9 18 15 12 9 6"/>
+                    </svg>
+                    <span class="parent-feature">{{ item.featureTitle }}</span>
+                  </span>
+                }
               </div>
               <div class="row-status">
                 <span class="status-badge" [class]="getStatusClass(getEffectiveStoryStatus(item.story))">
@@ -906,14 +1102,21 @@
                         <span class="meta-label">Priority</span>
                         <span class="meta-value">{{ item.story.priority || 'Normal' }}</span>
                       </div>
-                      <div class="detail-meta-item">
-                        <span class="meta-label">Feature</span>
-                        <span class="meta-value">{{ item.featureTitle }}</span>
-                      </div>
-                      <div class="detail-meta-item">
-                        <span class="meta-label">Epic</span>
-                        <span class="meta-value">{{ item.epicTitle }}</span>
-                      </div>
+                      @if (!isStandaloneStory(item)) {
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Feature</span>
+                          <span class="meta-value">{{ item.featureTitle }}</span>
+                        </div>
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Epic</span>
+                          <span class="meta-value">{{ item.epicTitle }}</span>
+                        </div>
+                      } @else {
+                        <div class="detail-meta-item">
+                          <span class="meta-label">Type</span>
+                          <span class="meta-value">Standalone</span>
+                        </div>
+                      }
                       @if (item.story.prUrl) {
                         <div class="detail-meta-item pr-link-item">
                           <span class="meta-label">Pull Request</span>
@@ -946,7 +1149,7 @@
                           <button 
                             class="implement-action-btn"
                             [disabled]="isCreatingSandbox(item.story.id)"
-                            (click)="onImplementClick($event, item.story, item.featureTitle, item.epicTitle)"
+                            (click)="onImplementClick($event, item.story, isStandaloneStory(item) ? 'Standalone' : item.featureTitle, isStandaloneStory(item) ? 'Standalone' : item.epicTitle)"
                           >
                             @if (isCreatingSandbox(item.story.id)) {
                               <span class="loading-spinner-small"></span>
@@ -1075,7 +1278,7 @@
                   <select 
                     id="ado-project"
                     [ngModel]="azureDevOpsProject()" 
-                    (ngModelChange)="azureDevOpsProject.set($event)"
+                    (ngModelChange)="azureDevOpsProject.set($event); onAzureDevOpsProjectChange()"
                   >
                     <option value="">Select a project...</option>
                     @for (project of azureDevOpsProjects(); track project.id) {
@@ -1087,12 +1290,41 @@
                     type="text" 
                     id="ado-project"
                     [ngModel]="azureDevOpsProject()" 
-                    (ngModelChange)="azureDevOpsProject.set($event)"
+                    (ngModelChange)="azureDevOpsProject.set($event); onAzureDevOpsProjectChange()"
                     placeholder="e.g., MyProject"
                   />
                 }
                 <span class="ado-form-hint">Select the Azure DevOps project containing your work items</span>
               </div>
+
+              <!-- Team Selection (shown after project is selected) -->
+              @if (azureDevOpsProject()) {
+                <div class="ado-form-group">
+                  <label for="ado-team">Team <span class="required">*</span></label>
+                  @if (azureDevOpsTeamsLoading()) {
+                    <div class="ado-loading-projects">
+                      <span class="spinner-small"></span>
+                      <span>Loading teams...</span>
+                    </div>
+                  } @else if (azureDevOpsTeams().length > 0) {
+                    <select 
+                      id="ado-team"
+                      [ngModel]="azureDevOpsTeam()" 
+                      (ngModelChange)="azureDevOpsTeam.set($event)"
+                    >
+                      <option value="">Select a team...</option>
+                      @for (team of azureDevOpsTeams(); track team.id) {
+                        <option [value]="team.id">{{ team.name }}</option>
+                      }
+                    </select>
+                  } @else {
+                    <div class="ado-no-teams">
+                      <span>No teams found for this project</span>
+                    </div>
+                  }
+                  <span class="ado-form-hint">Select the team whose backlog you want to import</span>
+                </div>
+              }
 
               @if (azureDevOpsError()) {
                 <div class="ado-error">
@@ -1121,7 +1353,7 @@
                 <button 
                   class="ado-btn primary" 
                   (click)="fetchAzureDevOpsWorkItems()"
-                  [disabled]="azureDevOpsLoading() || !azureDevOpsOrg() || !azureDevOpsProject()"
+                  [disabled]="azureDevOpsLoading() || !azureDevOpsOrg() || !azureDevOpsProject() || !azureDevOpsTeam()"
                 >
                   @if (azureDevOpsLoading()) {
                     <span class="spinner-small"></span>
@@ -1130,7 +1362,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
-                    Fetch Work Items
+                    Fetch Team Backlog
                   }
                 </button>
               </div>
@@ -1140,32 +1372,35 @@
             <div class="ado-work-items">
               <div class="ado-work-items-header">
                 <div class="ado-work-items-stats">
-                  <span class="ado-stat epic">{{ azureDevOpsWorkItems()!.epics.length }} Epics</span>
-                  <span class="ado-stat feature">{{ azureDevOpsWorkItems()!.features.length }} Features</span>
-                  <span class="ado-stat story">{{ azureDevOpsWorkItems()!.userStories.length }} User Stories</span>
+                  @if (azureDevOpsWorkItems()!.epics.length > 0) {
+                    <span class="ado-stat epic">{{ azureDevOpsWorkItems()!.epics.length }} Epics</span>
+                  }
+                  @if (azureDevOpsWorkItems()!.features.length > 0) {
+                    <span class="ado-stat feature">{{ azureDevOpsWorkItems()!.features.length }} Features</span>
+                  }
+                  @if (azureDevOpsWorkItems()!.userStories.length > 0) {
+                    <span class="ado-stat story">{{ azureDevOpsWorkItems()!.userStories.length }} User Stories</span>
+                  }
                 </div>
                 <div class="ado-selection-actions">
-                  <button class="ado-link-btn" (click)="selectAllAzureDevOpsEpics()">Select All</button>
-                  <button class="ado-link-btn" (click)="deselectAllAzureDevOpsEpics()">Deselect All</button>
+                  <button class="ado-link-btn" (click)="selectAllAzureDevOpsItems()">Select All</button>
+                  <button class="ado-link-btn" (click)="deselectAllAzureDevOpsItems()">Deselect All</button>
                 </div>
               </div>
 
-              @if (azureDevOpsWorkItems()!.epics.length === 0) {
-                <div class="ado-empty">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
-                  </svg>
-                  <p>No epics found in this project. Try a different project or check your permissions.</p>
-                </div>
-              } @else {
+              <!-- Unified Tree View -->
+              @if (azureDevOpsWorkItems()!.epics.length > 0 || 
+                   getAzureDevOpsOrphanFeatures().length > 0 || 
+                   getAzureDevOpsOrphanStories().length > 0) {
                 <div class="ado-tree">
+                  <!-- Epics -->
                   @for (epic of azureDevOpsWorkItems()!.epics; track epic.id) {
                     <div class="ado-tree-item epic">
-                      <div class="ado-tree-row" [class.selected]="isAzureDevOpsEpicSelected(epic.id)">
-                        <label class="ado-checkbox">
+                      <div class="ado-tree-row" [class.selected]="getAzureDevOpsEpicCheckboxState(epic.id) !== 'unchecked'">
+                        <label class="ado-checkbox" [class.indeterminate]="getAzureDevOpsEpicCheckboxState(epic.id) === 'indeterminate'">
                           <input 
                             type="checkbox" 
-                            [checked]="isAzureDevOpsEpicSelected(epic.id)"
+                            [checked]="getAzureDevOpsEpicCheckboxState(epic.id) === 'checked'"
                             (change)="toggleAzureDevOpsEpicSelection(epic.id)"
                           />
                           <span class="checkmark"></span>
@@ -1188,7 +1423,15 @@
                         <div class="ado-tree-children">
                           @for (feature of getAzureDevOpsFeaturesForEpic(epic.id); track feature.id) {
                             <div class="ado-tree-item feature">
-                              <div class="ado-tree-row">
+                              <div class="ado-tree-row" [class.selected]="getAzureDevOpsFeatureCheckboxState(feature.id) !== 'unchecked'">
+                                <label class="ado-checkbox" [class.indeterminate]="getAzureDevOpsFeatureCheckboxState(feature.id) === 'indeterminate'">
+                                  <input 
+                                    type="checkbox" 
+                                    [checked]="getAzureDevOpsFeatureCheckboxState(feature.id) === 'checked'"
+                                    (change)="toggleAzureDevOpsFeatureSelection(feature.id)"
+                                  />
+                                  <span class="checkmark"></span>
+                                </label>
                                 <button 
                                   class="ado-expand-btn"
                                   [class.expanded]="isAzureDevOpsItemExpanded(feature.id)"
@@ -1207,9 +1450,26 @@
                                 <div class="ado-tree-children">
                                   @for (story of getAzureDevOpsStoriesForFeature(feature.id); track story.id) {
                                     <div class="ado-tree-item story">
-                                      <div class="ado-tree-row">
+                                      <div class="ado-tree-row" [class.selected]="isAzureDevOpsStorySelected(story.id)">
+                                        <label class="ado-checkbox">
+                                          <input 
+                                            type="checkbox" 
+                                            [checked]="isAzureDevOpsStorySelected(story.id)"
+                                            (change)="toggleAzureDevOpsStorySelection(story.id)"
+                                          />
+                                          <span class="checkmark"></span>
+                                        </label>
                                         <span class="ado-item-type story">S</span>
                                         <span class="ado-item-title">{{ story.title }}</span>
+                                        @if (hasAzureDevOpsStoryWarning(story)) {
+                                          <span class="ado-story-warning" [attr.data-tooltip]="getAzureDevOpsStoryWarningMessage(story)" [title]="getAzureDevOpsStoryWarningMessage(story)">
+                                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                              <line x1="12" y1="9" x2="12" y2="13"/>
+                                              <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                            </svg>
+                                          </span>
+                                        }
                                         @if (story.storyPoints) {
                                           <span class="ado-story-points">{{ story.storyPoints }} pts</span>
                                         }
@@ -1224,10 +1484,27 @@
 
                           <!-- Direct stories under epic -->
                           @for (story of getAzureDevOpsStoriesForEpic(epic.id); track story.id) {
-                            <div class="ado-tree-item story orphan">
-                              <div class="ado-tree-row">
+                            <div class="ado-tree-item story">
+                              <div class="ado-tree-row" [class.selected]="isAzureDevOpsStorySelected(story.id)">
+                                <label class="ado-checkbox">
+                                  <input 
+                                    type="checkbox" 
+                                    [checked]="isAzureDevOpsStorySelected(story.id)"
+                                    (change)="toggleAzureDevOpsStorySelection(story.id)"
+                                  />
+                                  <span class="checkmark"></span>
+                                </label>
                                 <span class="ado-item-type story">S</span>
                                 <span class="ado-item-title">{{ story.title }}</span>
+                                @if (hasAzureDevOpsStoryWarning(story)) {
+                                  <span class="ado-story-warning" [attr.data-tooltip]="getAzureDevOpsStoryWarningMessage(story)" [title]="getAzureDevOpsStoryWarningMessage(story)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                      <line x1="12" y1="9" x2="12" y2="13"/>
+                                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                  </span>
+                                }
                                 @if (story.storyPoints) {
                                   <span class="ado-story-points">{{ story.storyPoints }} pts</span>
                                 }
@@ -1239,6 +1516,107 @@
                       }
                     </div>
                   }
+
+                  <!-- Orphan Features (at root level, same as epics) -->
+                  @for (feature of getAzureDevOpsOrphanFeatures(); track feature.id) {
+                    <div class="ado-tree-item feature root-level">
+                      <div class="ado-tree-row" [class.selected]="getAzureDevOpsFeatureCheckboxState(feature.id) !== 'unchecked'">
+                        <label class="ado-checkbox" [class.indeterminate]="getAzureDevOpsFeatureCheckboxState(feature.id) === 'indeterminate'">
+                          <input 
+                            type="checkbox" 
+                            [checked]="getAzureDevOpsFeatureCheckboxState(feature.id) === 'checked'"
+                            (change)="toggleAzureDevOpsFeatureSelection(feature.id)"
+                          />
+                          <span class="checkmark"></span>
+                        </label>
+                        <button 
+                          class="ado-expand-btn"
+                          [class.expanded]="isAzureDevOpsItemExpanded(feature.id)"
+                          (click)="toggleAzureDevOpsItemExpand(feature.id)"
+                        >
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="9 18 15 12 9 6"/>
+                          </svg>
+                        </button>
+                        <span class="ado-item-type feature">F</span>
+                        <span class="ado-item-title">{{ feature.title }}</span>
+                        <span class="ado-item-state" [class]="getAzureDevOpsStateClass(feature.state)">{{ feature.state }}</span>
+                      </div>
+
+                      @if (isAzureDevOpsItemExpanded(feature.id)) {
+                        <div class="ado-tree-children">
+                          @for (story of getAzureDevOpsStoriesForFeature(feature.id); track story.id) {
+                            <div class="ado-tree-item story">
+                              <div class="ado-tree-row" [class.selected]="isAzureDevOpsStorySelected(story.id)">
+                                <label class="ado-checkbox">
+                                  <input 
+                                    type="checkbox" 
+                                    [checked]="isAzureDevOpsStorySelected(story.id)"
+                                    (change)="toggleAzureDevOpsStorySelection(story.id)"
+                                  />
+                                  <span class="checkmark"></span>
+                                </label>
+                                <span class="ado-item-type story">S</span>
+                                <span class="ado-item-title">{{ story.title }}</span>
+                                @if (hasAzureDevOpsStoryWarning(story)) {
+                                  <span class="ado-story-warning" [attr.data-tooltip]="getAzureDevOpsStoryWarningMessage(story)" [title]="getAzureDevOpsStoryWarningMessage(story)">
+                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                                      <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                                      <line x1="12" y1="9" x2="12" y2="13"/>
+                                      <line x1="12" y1="17" x2="12.01" y2="17"/>
+                                    </svg>
+                                  </span>
+                                }
+                                @if (story.storyPoints) {
+                                  <span class="ado-story-points">{{ story.storyPoints }} pts</span>
+                                }
+                                <span class="ado-item-state" [class]="getAzureDevOpsStateClass(story.state)">{{ story.state }}</span>
+                              </div>
+                            </div>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+
+                  <!-- Orphan Stories (at root level) -->
+                  @for (story of getAzureDevOpsOrphanStories(); track story.id) {
+                    <div class="ado-tree-item story root-level">
+                      <div class="ado-tree-row" [class.selected]="isAzureDevOpsStorySelected(story.id)">
+                        <label class="ado-checkbox">
+                          <input 
+                            type="checkbox" 
+                            [checked]="isAzureDevOpsStorySelected(story.id)"
+                            (change)="toggleAzureDevOpsStorySelection(story.id)"
+                          />
+                          <span class="checkmark"></span>
+                        </label>
+                        <span class="ado-item-type story">S</span>
+                        <span class="ado-item-title">{{ story.title }}</span>
+                        @if (hasAzureDevOpsStoryWarning(story)) {
+                          <span class="ado-story-warning" [attr.data-tooltip]="getAzureDevOpsStoryWarningMessage(story)" [title]="getAzureDevOpsStoryWarningMessage(story)">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12">
+                              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+                              <line x1="12" y1="9" x2="12" y2="13"/>
+                              <line x1="12" y1="17" x2="12.01" y2="17"/>
+                            </svg>
+                          </span>
+                        }
+                        @if (story.storyPoints) {
+                          <span class="ado-story-points">{{ story.storyPoints }} pts</span>
+                        }
+                        <span class="ado-item-state" [class]="getAzureDevOpsStateClass(story.state)">{{ story.state }}</span>
+                      </div>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <!-- Empty State -->
+                <div class="ado-empty">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                    <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+                  </svg>
+                  <p>No work items found in this team's backlog. Try selecting a different team or check your permissions.</p>
                 </div>
               }
 
@@ -1263,7 +1641,7 @@
                 <button 
                   class="ado-btn primary" 
                   (click)="importSelectedAzureDevOpsItems()"
-                  [disabled]="azureDevOpsImporting() || selectedAzureDevOpsEpics().size === 0"
+                  [disabled]="azureDevOpsImporting() || (selectedAzureDevOpsEpics().size === 0 && selectedAzureDevOpsFeatures().size === 0 && selectedAzureDevOpsStories().size === 0)"
                 >
                   @if (azureDevOpsImporting()) {
                     <span class="spinner-small"></span>
@@ -1272,7 +1650,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M12 5v14M5 12h14"/>
                     </svg>
-                    Import {{ selectedAzureDevOpsEpics().size }} Epic(s)
+                    Import {{ selectedAzureDevOpsEpics().size + selectedAzureDevOpsFeatures().size + selectedAzureDevOpsStories().size }} Item(s)
                   }
                 </button>
               </div>

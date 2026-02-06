@@ -9,6 +9,8 @@ using MediatR;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Authorization;
 using System.Security.Claims;
+using OpenAI;
+using OpenAI.Chat;
 
 /// <summary>
 /// Controller for managing backlog (Epics, Features, User Stories)
@@ -26,6 +28,7 @@ public class BacklogController : ControllerBase
     private readonly IFeatureRepository _featureRepository;
     private readonly ILinkedProviderRepository _linkedProviderRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IConfiguration _configuration;
 
     public BacklogController(
         IMediator mediator, 
@@ -35,7 +38,8 @@ public class BacklogController : ControllerBase
         IEpicRepository epicRepository,
         IFeatureRepository featureRepository,
         ILinkedProviderRepository linkedProviderRepository,
-        IUserRepository userRepository)
+        IUserRepository userRepository,
+        IConfiguration configuration)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -45,6 +49,7 @@ public class BacklogController : ControllerBase
         _featureRepository = featureRepository ?? throw new ArgumentNullException(nameof(featureRepository));
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
     /// <summary>
@@ -522,6 +527,177 @@ public class BacklogController : ControllerBase
     }
 
     /// <summary>
+    /// Use AI to suggest improved description or acceptance criteria for a backlog item
+    /// </summary>
+    [HttpPost("ai/suggest")]
+    [Authorize]
+    public async Task<IActionResult> AISuggest(
+        [FromBody] AISuggestRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(request.Title))
+        {
+            return BadRequest(new { error = "Title is required for AI suggestion." });
+        }
+
+        if (request.Field != "description" && request.Field != "acceptanceCriteria")
+        {
+            return BadRequest(new { error = "Field must be 'description' or 'acceptanceCriteria'." });
+        }
+
+        // Get user ID from JWT token
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { error = "Invalid user token" });
+        }
+
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (user == null)
+        {
+            return Unauthorized(new { error = "User not found" });
+        }
+
+        // Get user's AI settings with fallback to global config
+        var apiKey = user.AiApiKey ?? _configuration["AI:ApiKey"];
+        var endpoint = user.AiBaseUrl ?? _configuration["AI:Endpoint"];
+        var model = user.AiModel ?? _configuration["AI:Model"] ?? "gpt-4o-mini";
+
+        if (string.IsNullOrEmpty(apiKey))
+        {
+            return BadRequest(new { error = "AI API key not configured. Please configure your AI settings first." });
+        }
+
+        try
+        {
+            // Build the prompt
+            var systemPrompt = BuildAISuggestSystemPrompt(request.Field, request.ItemType);
+            var userPrompt = BuildAISuggestUserPrompt(request.Field, request.ItemType, request.Title, request.CurrentContent, request.Description);
+
+            // Create OpenAI client
+            ChatClient client;
+            if (!string.IsNullOrEmpty(endpoint))
+            {
+                var clientOptions = new OpenAIClientOptions
+                {
+                    Endpoint = new Uri(endpoint)
+                };
+                client = new ChatClient(
+                    model: model,
+                    credential: new System.ClientModel.ApiKeyCredential(apiKey),
+                    options: clientOptions
+                );
+            }
+            else
+            {
+                client = new ChatClient(model, apiKey);
+            }
+
+            var chatOptions = new ChatCompletionOptions
+            {
+                Temperature = 0.7f
+            };
+
+            var messages = new List<ChatMessage>
+            {
+                new SystemChatMessage(systemPrompt),
+                new UserChatMessage(userPrompt)
+            };
+
+            _logger.LogInformation("AI suggest request: field={Field}, itemType={ItemType}, title={Title}",
+                request.Field, request.ItemType, request.Title);
+
+            var response = await client.CompleteChatAsync(messages, chatOptions, cancellationToken);
+            var suggestion = response.Value.Content[0].Text.Trim();
+
+            return Ok(new { suggestion });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "AI suggestion failed for field={Field}, itemType={ItemType}", request.Field, request.ItemType);
+            return StatusCode(500, new { error = "AI suggestion failed. Please try again." });
+        }
+    }
+
+    private static string BuildAISuggestSystemPrompt(string field, string itemType)
+    {
+        var typeLabel = itemType switch
+        {
+            "epic" => "Epic",
+            "feature" => "Feature",
+            "story" => "User Story",
+            _ => "backlog item"
+        };
+
+        if (field == "acceptanceCriteria")
+        {
+            return $@"You are an experienced product owner and agile coach. Your task is to write or improve acceptance criteria for a {typeLabel}.
+
+Rules:
+- Always write in English.
+- Use the Given/When/Then (Gherkin) format for every criterion:
+  ""- Given [precondition], When [action], Then [expected result]""
+- Each criterion must be specific, measurable, and independently testable.
+- Cover the main happy path, key edge cases, and at least one error scenario.
+- Keep each criterion concise (1-3 lines max).
+- Write one criterion per bullet point, starting with ""- Given"".
+- Output ONLY the acceptance criteria text, no headers, no explanations, no markdown code blocks.";
+        }
+
+        return $@"You are an experienced product owner and agile coach. Your task is to write or improve the description for a {typeLabel}.
+
+Rules:
+- Always write in English.
+- Write a clear, concise description that explains the purpose and scope.
+- For user stories, use the format: ""As a [persona], I want [action] so that [benefit]"" when appropriate.
+- For epics and features, describe the business value and high-level scope.
+- Keep it under 3-4 sentences unless the topic warrants more detail.
+- Output ONLY the description text, no headers, no explanations, no markdown code blocks.";
+    }
+
+    private static string BuildAISuggestUserPrompt(string field, string itemType, string title, string? currentContent, string? description)
+    {
+        var typeLabel = itemType switch
+        {
+            "epic" => "Epic",
+            "feature" => "Feature",
+            "story" => "User Story",
+            _ => "backlog item"
+        };
+
+        var prompt = $"{typeLabel} title: \"{title}\"";
+
+        if (field == "acceptanceCriteria")
+        {
+            if (!string.IsNullOrWhiteSpace(description))
+            {
+                prompt += $"\nDescription: \"{description}\"";
+            }
+            if (!string.IsNullOrWhiteSpace(currentContent))
+            {
+                prompt += $"\n\nExisting acceptance criteria to improve:\n{currentContent}";
+            }
+            else
+            {
+                prompt += "\n\nWrite acceptance criteria for this item.";
+            }
+        }
+        else
+        {
+            if (!string.IsNullOrWhiteSpace(currentContent))
+            {
+                prompt += $"\n\nExisting description to improve:\n{currentContent}";
+            }
+            else
+            {
+                prompt += "\n\nWrite a description for this item.";
+            }
+        }
+
+        return prompt;
+    }
+
+    /// <summary>
     /// Get GitHub access token from linked providers or legacy user field
     /// </summary>
     private async Task<string?> GetGitHubAccessTokenAsync(Guid userId, CancellationToken cancellationToken)
@@ -624,4 +800,16 @@ public class UpdateUserStoryRequest
     public string? AcceptanceCriteria { get; set; }
     public int? StoryPoints { get; set; }
     public string? Status { get; set; }
+}
+
+/// <summary>
+/// Request model for AI-powered field suggestion
+/// </summary>
+public class AISuggestRequest
+{
+    public string Field { get; set; } = string.Empty; // "description" or "acceptanceCriteria"
+    public string ItemType { get; set; } = string.Empty; // "epic", "feature", "story"
+    public string Title { get; set; } = string.Empty;
+    public string? CurrentContent { get; set; }
+    public string? Description { get; set; } // For AC suggestions, the story description for context
 }

@@ -317,7 +317,7 @@ public class AzureDevOpsService : IAzureDevOpsService
         }
     }
 
-    public async System.Threading.Tasks.Task<AzureDevOpsWorkItemsHierarchyDto> GetWorkItemsAsync(
+    public async System.Threading.Tasks.Task<IEnumerable<AzureDevOpsTeamDto>> GetTeamsAsync(
         string accessToken,
         string organization,
         string project,
@@ -328,14 +328,118 @@ public class AzureDevOpsService : IAzureDevOpsService
 
         try
         {
+            var response = await httpClient.GetAsync(
+                $"https://dev.azure.com/{organization}/_apis/projects/{project}/teams?api-version={AzureDevOpsApiVersion}",
+                cancellationToken);
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            // Check for HTML response (authentication failure)
+            if (content.TrimStart().StartsWith("<") || content.TrimStart().StartsWith("<!"))
+            {
+                _logger.LogError("Azure DevOps returned HTML instead of JSON for teams query");
+                throw new InvalidOperationException($"Azure DevOps authentication failed for organization '{organization}'. Please check your PAT.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Azure DevOps teams API failed: {StatusCode} - {Content}", response.StatusCode, content);
+                throw new HttpRequestException($"Azure DevOps API returned {response.StatusCode}: {content}");
+            }
+
+            var teams = JsonDocument.Parse(content);
+            var result = new List<AzureDevOpsTeamDto>();
+
+            if (teams.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                foreach (var team in valueArray.EnumerateArray())
+                {
+                    result.Add(new AzureDevOpsTeamDto
+                    {
+                        Id = team.GetProperty("id").GetString() ?? "",
+                        Name = team.GetProperty("name").GetString() ?? "",
+                        Description = team.TryGetProperty("description", out var desc) ? desc.GetString() : null,
+                        ProjectName = project,
+                        ProjectId = team.TryGetProperty("projectId", out var projId) ? projId.GetString() : null
+                    });
+                }
+            }
+
+            _logger.LogInformation("Found {Count} teams in project {Organization}/{Project}", result.Count, organization, project);
+            return result;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching teams from Azure DevOps for {Organization}/{Project}", organization, project);
+            throw;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<AzureDevOpsWorkItemsHierarchyDto> GetWorkItemsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string? teamId = null,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+
+        try
+        {
             var result = new AzureDevOpsWorkItemsHierarchyDto();
 
-            // Use WIQL to query all work items (Epics, Features, User Stories, Tasks, Bugs)
+            // If teamId is provided, get the team's area path to filter work items
+            string? teamAreaPath = null;
+            if (!string.IsNullOrEmpty(teamId))
+            {
+                try
+                {
+                    var teamSettingsResponse = await httpClient.GetAsync(
+                        $"https://dev.azure.com/{organization}/{project}/{teamId}/_apis/work/teamsettings?api-version={AzureDevOpsApiVersion}",
+                        cancellationToken);
+                    
+                    if (teamSettingsResponse.IsSuccessStatusCode)
+                    {
+                        var teamSettingsContent = await teamSettingsResponse.Content.ReadAsStringAsync(cancellationToken);
+                        var teamSettings = JsonDocument.Parse(teamSettingsContent);
+                        
+                        // Get the team's default area path
+                        if (teamSettings.RootElement.TryGetProperty("defaultArea", out var defaultArea) &&
+                            defaultArea.TryGetProperty("path", out var pathProp))
+                        {
+                            teamAreaPath = pathProp.GetString();
+                            _logger.LogInformation("Team {TeamId} default area path: {AreaPath}", teamId, teamAreaPath);
+                        }
+                    }
+                    else
+                    {
+                        _logger.LogWarning("Failed to get team settings for {TeamId}: {StatusCode}", teamId, teamSettingsResponse.StatusCode);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Error getting team area path for {TeamId}", teamId);
+                }
+            }
+
+            // Build WIQL query - optionally filter by team's area path
+            string areaPathFilter = "";
+            if (!string.IsNullOrEmpty(teamAreaPath))
+            {
+                // Use UNDER to include child area paths
+                areaPathFilter = $" AND [System.AreaPath] UNDER '{teamAreaPath}'";
+            }
+
             var wiqlQuery = new
             {
                 query = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.AssignedTo], [System.Parent]
                           FROM WorkItems 
-                          WHERE [System.TeamProject] = '{project}' 
+                          WHERE [System.TeamProject] = '{project}'{areaPathFilter}
                           AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Product Backlog Item')
                           ORDER BY [System.WorkItemType], [System.Id]"
             };

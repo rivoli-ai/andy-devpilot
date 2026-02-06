@@ -55,12 +55,24 @@ public interface IAzureDevOpsService
         bool useBasicAuth = false);
 
     /// <summary>
+    /// Gets teams in a project
+    /// </summary>
+    System.Threading.Tasks.Task<IEnumerable<AzureDevOpsTeamDto>> GetTeamsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
+    /// <summary>
     /// Gets work items (Epics, Features, User Stories, Tasks) from an Azure DevOps project
+    /// Optionally filtered by team's area path
     /// </summary>
     System.Threading.Tasks.Task<AzureDevOpsWorkItemsHierarchyDto> GetWorkItemsAsync(
         string accessToken,
         string organization,
         string project,
+        string? teamId = null,
         CancellationToken cancellationToken = default,
         bool useBasicAuth = false);
 
@@ -133,6 +145,18 @@ public class AzureDevOpsProjectDto
     public required string Name { get; set; }
     public string? Description { get; set; }
     public required string State { get; set; }
+}
+
+/// <summary>
+/// DTO representing an Azure DevOps team
+/// </summary>
+public class AzureDevOpsTeamDto
+{
+    public required string Id { get; set; }
+    public required string Name { get; set; }
+    public string? Description { get; set; }
+    public string? ProjectName { get; set; }
+    public string? ProjectId { get; set; }
 }
 
 /// <summary>

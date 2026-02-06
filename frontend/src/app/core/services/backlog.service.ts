@@ -1,9 +1,12 @@
 import { Injectable, signal } from '@angular/core';
-import { Observable, tap } from 'rxjs';
+import { Observable, tap, switchMap, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
 import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
+
+/** Epic title used for standalone user stories (no epic/feature parent). Rendered without tree. */
+export const STANDALONE_EPIC_TITLE = '__Standalone__';
 
 export interface CreateBacklogRequest {
   epics: {
@@ -96,6 +99,26 @@ export class BacklogService {
    */
   getPrHeadBranch(prUrl: string): Observable<{ branch: string }> {
     return this.apiService.post<{ branch: string }>('/backlog/pr-head-branch', { prUrl });
+  }
+
+  /**
+   * Use AI to suggest improved description or acceptance criteria for a backlog item.
+   * Requires AI to be configured (API key set).
+   */
+  suggestWithAI(
+    field: 'description' | 'acceptanceCriteria',
+    itemType: string,
+    title: string,
+    currentContent?: string,
+    description?: string
+  ): Observable<{ suggestion: string }> {
+    return this.apiService.post<{ suggestion: string }>('/backlog/ai/suggest', {
+      field,
+      itemType,
+      title,
+      currentContent,
+      description
+    });
   }
 
   /**
@@ -254,6 +277,13 @@ export class BacklogService {
   }
 
   /**
+   * Fetch Azure DevOps teams for a specific project
+   */
+  getAzureDevOpsTeams(projectName: string): Observable<AzureDevOpsTeam[]> {
+    return this.apiService.get<AzureDevOpsTeam[]>(`/repositories/azure-devops/projects/${encodeURIComponent(projectName)}/teams`);
+  }
+
+  /**
    * Fetch work items from Azure DevOps
    */
   getAzureDevOpsWorkItems(request: AzureDevOpsWorkItemsRequest): Observable<AzureDevOpsWorkItemsHierarchy> {
@@ -261,71 +291,281 @@ export class BacklogService {
   }
 
   /**
+   * Find existing epic by title (case-insensitive)
+   */
+  private findEpicByTitle(epics: Epic[], title: string): Epic | undefined {
+    const t = title.toLowerCase().trim();
+    return epics.find(e => e.title.toLowerCase().trim() === t);
+  }
+
+  /**
+   * Find existing feature by title under epic (case-insensitive)
+   */
+  private findFeatureByTitle(epic: Epic, title: string): Feature | undefined {
+    const t = title.toLowerCase().trim();
+    return (epic.features ?? []).find(f => f.title.toLowerCase().trim() === t);
+  }
+
+  /**
    * Import Azure DevOps work items into the backlog
    * Converts Azure DevOps Epics/Features/User Stories to DevPilot format
+   * Granular selection: can select individual epics, features, or stories
+   * Reuses existing epics/features when tree already exists (match by title)
    */
   importFromAzureDevOps(
     repositoryId: string,
     workItems: AzureDevOpsWorkItemsHierarchy,
-    selectedEpicIds: number[]
+    selectedEpicIds: number[],
+    selectedFeatureIds: number[] = [],
+    selectedStoryIds: number[] = []
   ): Observable<Epic[]> {
-    // Build the backlog structure from selected Azure DevOps items
     const backlogRequest: CreateBacklogRequest = {
       epics: []
     };
 
-    // Filter to only selected epics and their children
-    const selectedEpics = workItems.epics.filter(e => selectedEpicIds.includes(e.id));
+    const selectedEpicSet = new Set(selectedEpicIds);
+    const selectedFeatureSet = new Set(selectedFeatureIds);
+    const selectedStorySet = new Set(selectedStoryIds);
+    const epicIds = new Set(workItems.epics.map(e => e.id));
+    const featureIds = new Set(workItems.features.map(f => f.id));
 
-    for (const adoEpic of selectedEpics) {
-      // Find features that belong to this epic
-      const epicFeatures = workItems.features.filter(f => f.parentId === adoEpic.id);
+    // Helper to convert a story
+    const convertStory = (adoStory: AzureDevOpsWorkItem) => ({
+      title: adoStory.title,
+      description: this.stripHtml(adoStory.description || ''),
+      acceptanceCriteria: adoStory.acceptanceCriteria 
+        ? this.parseAcceptanceCriteria(adoStory.acceptanceCriteria)
+        : [],
+      storyPoints: adoStory.storyPoints
+    });
 
-      const features = epicFeatures.map(adoFeature => {
-        // Find user stories that belong to this feature
-        const featureStories = workItems.userStories.filter(s => s.parentId === adoFeature.id);
+    // Helper to convert a feature with only selected stories
+    const convertFeatureWithSelectedStories = (adoFeature: AzureDevOpsWorkItem) => {
+      const featureStories = workItems.userStories
+        .filter(s => s.parentId === adoFeature.id && selectedStorySet.has(s.id));
+      return {
+        title: adoFeature.title,
+        description: this.stripHtml(adoFeature.description || ''),
+        userStories: featureStories.map(convertStory)
+      };
+    };
 
-        return {
-          title: adoFeature.title,
-          description: this.stripHtml(adoFeature.description || ''),
-          userStories: featureStories.map(adoStory => ({
-            title: adoStory.title,
-            description: this.stripHtml(adoStory.description || ''),
-            acceptanceCriteria: adoStory.acceptanceCriteria 
-              ? this.parseAcceptanceCriteria(adoStory.acceptanceCriteria)
-              : [],
-            storyPoints: adoStory.storyPoints
-          }))
-        };
-      });
+    // Track which features and stories have been processed (to avoid duplicates)
+    const processedFeatures = new Set<number>();
+    const processedStories = new Set<number>();
 
-      // Also add orphan user stories (stories without a feature parent but with this epic as ancestor)
-      // These are stories directly under the epic
-      const orphanStories = workItems.userStories.filter(s => s.parentId === adoEpic.id);
-      if (orphanStories.length > 0) {
-        // Create a "General" feature for orphan stories
-        features.push({
-          title: 'General',
-          description: 'User stories imported directly from epic',
-          userStories: orphanStories.map(adoStory => ({
-            title: adoStory.title,
-            description: this.stripHtml(adoStory.description || ''),
-            acceptanceCriteria: adoStory.acceptanceCriteria 
-              ? this.parseAcceptanceCriteria(adoStory.acceptanceCriteria)
-              : [],
-            storyPoints: adoStory.storyPoints
-          }))
-        });
+    // 1. Process selected epics
+    for (const adoEpic of workItems.epics.filter(e => selectedEpicSet.has(e.id))) {
+      const features: { title: string; description: string; userStories: any[] }[] = [];
+
+      // Get features under this epic that are selected
+      const epicFeatures = workItems.features.filter(f => 
+        f.parentId === adoEpic.id && selectedFeatureSet.has(f.id)
+      );
+
+      for (const feature of epicFeatures) {
+        features.push(convertFeatureWithSelectedStories(feature));
+        processedFeatures.add(feature.id);
+        workItems.userStories
+          .filter(s => s.parentId === feature.id && selectedStorySet.has(s.id))
+          .forEach(s => processedStories.add(s.id));
       }
 
+      // Get direct stories under this epic that are selected
+      const epicDirectStories = workItems.userStories.filter(s => 
+        s.parentId === adoEpic.id && selectedStorySet.has(s.id)
+      );
+      if (epicDirectStories.length > 0) {
+        features.push({
+          title: 'General',
+          description: 'User stories from epic',
+          userStories: epicDirectStories.map(convertStory)
+        });
+        epicDirectStories.forEach(s => processedStories.add(s.id));
+      }
+
+      if (features.length > 0) {
+        backlogRequest.epics.push({
+          title: adoEpic.title,
+          description: this.stripHtml(adoEpic.description || ''),
+          features
+        });
+      }
+    }
+
+    // 2. Process selected features not under a selected epic (orphan or under unselected epic)
+    // If feature has epic parent: use epic title so we merge into existing epic tree
+    // If orphan: use feature title as epic title
+    const remainingFeatures = workItems.features.filter(f => 
+      selectedFeatureSet.has(f.id) && !processedFeatures.has(f.id)
+    );
+
+    for (const feature of remainingFeatures) {
+      processedFeatures.add(feature.id);
+      const convertedFeature = convertFeatureWithSelectedStories(feature);
+      workItems.userStories
+        .filter(s => s.parentId === feature.id && selectedStorySet.has(s.id))
+        .forEach(s => processedStories.add(s.id));
+
+      const adoEpic = feature.parentId != null ? workItems.epics.find(e => e.id === feature.parentId) : null;
+      const epicTitle = adoEpic ? adoEpic.title : feature.title;
+      const epicDesc = adoEpic ? this.stripHtml(adoEpic.description || '') : this.stripHtml(feature.description || '');
+
       backlogRequest.epics.push({
-        title: adoEpic.title,
-        description: this.stripHtml(adoEpic.description || ''),
-        features
+        title: epicTitle,
+        description: epicDesc,
+        features: [convertedFeature]
       });
     }
 
-    return this.createBacklog(repositoryId, backlogRequest);
+    // 3. Process selected stories not under a selected epic/feature
+    // Split: stories with epic/feature parent → show tree; truly orphan → Standalone
+    const remainingStories = workItems.userStories.filter(s => 
+      selectedStorySet.has(s.id) && !processedStories.has(s.id)
+    );
+
+    const orphanStories: AzureDevOpsWorkItem[] = [];
+    const storiesWithEpicParent: Array<{ story: AzureDevOpsWorkItem; epicId: number }> = [];
+    const storiesWithFeatureParent: Array<{ story: AzureDevOpsWorkItem; featureId: number }> = [];
+
+    for (const story of remainingStories) {
+      const parentId = story.parentId;
+      if (parentId == null || parentId === undefined) {
+        orphanStories.push(story);
+      } else if (epicIds.has(parentId)) {
+        storiesWithEpicParent.push({ story, epicId: parentId });
+      } else if (featureIds.has(parentId)) {
+        storiesWithFeatureParent.push({ story, featureId: parentId });
+      } else {
+        orphanStories.push(story);
+      }
+    }
+
+    // 3a. Stories with epic parent (not selected) → create Epic → Feature('General') → Story (tree)
+    const epicIdToStories = new Map<number, AzureDevOpsWorkItem[]>();
+    for (const { story, epicId } of storiesWithEpicParent) {
+      const list = epicIdToStories.get(epicId) ?? [];
+      list.push(story);
+      epicIdToStories.set(epicId, list);
+    }
+    for (const [epicId, stories] of epicIdToStories) {
+      const adoEpic = workItems.epics.find(e => e.id === epicId)!;
+      backlogRequest.epics.push({
+        title: adoEpic.title,
+        description: this.stripHtml(adoEpic.description || ''),
+        features: [{
+          title: 'General',
+          description: 'User stories from epic',
+          userStories: stories.map(convertStory)
+        }]
+      });
+    }
+
+    // 3b. Stories with feature parent (not selected) → create Epic → Feature → Story (tree)
+    // Group by feature, then by epic to merge features under same epic
+    const featureIdToStories = new Map<number, AzureDevOpsWorkItem[]>();
+    for (const { story, featureId } of storiesWithFeatureParent) {
+      const list = featureIdToStories.get(featureId) ?? [];
+      list.push(story);
+      featureIdToStories.set(featureId, list);
+    }
+    const epicIdToFeatures = new Map<number, Array<{ feature: AzureDevOpsWorkItem; stories: AzureDevOpsWorkItem[] }>>();
+    for (const [featureId, stories] of featureIdToStories) {
+      const adoFeature = workItems.features.find(f => f.id === featureId)!;
+      const epicId = adoFeature.parentId ?? -1;
+      const list = epicIdToFeatures.get(epicId) ?? [];
+      list.push({ feature: adoFeature, stories });
+      epicIdToFeatures.set(epicId, list);
+    }
+    for (const [epicId, featureList] of epicIdToFeatures) {
+      const adoEpic = epicId >= 0 ? workItems.epics.find(e => e.id === epicId) : null;
+      const epicTitle = adoEpic?.title ?? featureList[0].feature.title;
+      const epicDesc = adoEpic ? this.stripHtml(adoEpic.description || '') : this.stripHtml(featureList[0].feature.description || '');
+      backlogRequest.epics.push({
+        title: epicTitle,
+        description: epicDesc,
+        features: featureList.map(({ feature, stories }) => ({
+          title: feature.title,
+          description: this.stripHtml(feature.description || ''),
+          userStories: stories.map(convertStory)
+        }))
+      });
+    }
+
+    // 3c. Truly orphan stories (no epic/feature parent) → Standalone only
+    if (orphanStories.length > 0) {
+      backlogRequest.epics.push({
+        title: STANDALONE_EPIC_TITLE,
+        description: 'User stories without epic or feature parent',
+        features: [{
+          title: 'User Stories',
+          description: 'Standalone user stories',
+          userStories: orphanStories.map(convertStory)
+        }]
+      });
+    }
+
+    // Merge: use existing epics/features when tree already exists (match by title)
+    return this.getBacklog(repositoryId).pipe(
+      switchMap(existingEpics => this.mergeBacklogItems(repositoryId, backlogRequest, [...existingEpics])),
+      switchMap(() => this.getBacklog(repositoryId))
+    );
+  }
+
+  /**
+   * Merge backlog items: reuse existing epics/features by title, add stories to them
+   */
+  private mergeBacklogItems(
+    repositoryId: string,
+    backlogRequest: CreateBacklogRequest,
+    existingEpics: Epic[]
+  ): Observable<void> {
+    const addItems = async () => {
+      for (const epicReq of backlogRequest.epics) {
+        let epic = this.findEpicByTitle(existingEpics, epicReq.title);
+        if (!epic) {
+          epic = await firstValueFrom(this.addEpic(repositoryId, epicReq.title, epicReq.description));
+          existingEpics.push(epic);
+          if (!epic.features) epic.features = [];
+        }
+
+        for (const featureReq of epicReq.features) {
+          let feature = this.findFeatureByTitle(epic!, featureReq.title);
+          if (!feature) {
+            feature = await firstValueFrom(
+              this.addFeature(epic!.id, featureReq.title, featureReq.description, repositoryId)
+            );
+            epic!.features = epic!.features ?? [];
+            epic!.features.push(feature);
+          }
+
+          for (const storyReq of featureReq.userStories) {
+            const ac = Array.isArray(storyReq.acceptanceCriteria)
+              ? storyReq.acceptanceCriteria.join('\n- ')
+              : undefined;
+            await firstValueFrom(
+              this.addUserStory(
+                feature!.id,
+                storyReq.title,
+                storyReq.description,
+                ac,
+                storyReq.storyPoints,
+                repositoryId
+              )
+            );
+          }
+        }
+      }
+    };
+
+    return new Observable<void>(subscriber => {
+      addItems()
+        .then(() => {
+          subscriber.next();
+          subscriber.complete();
+        })
+        .catch(err => subscriber.error(err));
+    });
   }
 
   /**
@@ -440,7 +680,11 @@ export class BacklogService {
       }
     }
 
-    return this.createBacklog(repositoryId, backlogRequest);
+    // Merge: use existing epics/features when tree already exists (match by title)
+    return this.getBacklog(repositoryId).pipe(
+      switchMap(existingEpics => this.mergeBacklogItems(repositoryId, backlogRequest, [...existingEpics])),
+      switchMap(() => this.getBacklog(repositoryId))
+    );
   }
 
   /**
@@ -532,6 +776,7 @@ export interface AzureDevOpsWorkItemsHierarchy {
 export interface AzureDevOpsWorkItemsRequest {
   organizationName: string;
   projectName: string;
+  teamId?: string;
   personalAccessToken?: string;
 }
 
@@ -540,6 +785,14 @@ export interface AzureDevOpsProject {
   name: string;
   description?: string;
   state: string;
+}
+
+export interface AzureDevOpsTeam {
+  id: string;
+  name: string;
+  description?: string;
+  projectName?: string;
+  projectId?: string;
 }
 
 // GitHub Issue types
