@@ -1438,6 +1438,11 @@ ${jsonFormatRequirement}`;
       next: (projects) => {
         this.azureDevOpsProjects.set(projects);
         this.azureDevOpsProjectsLoading.set(false);
+        // If a project is already selected (e.g. from repo or previous open), load its teams
+        const project = this.azureDevOpsProject();
+        if (project) {
+          this.loadAzureDevOpsTeams(project);
+        }
       },
       error: (err) => {
         console.error('Failed to load Azure DevOps projects:', err);
