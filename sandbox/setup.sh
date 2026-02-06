@@ -265,6 +265,10 @@ ENV SSL_CERT_DIR=/etc/ssl/certs
 ENV REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+# Disable SSL verification for sandbox (development environment)
+ENV SSL_VERIFY=false
+ENV GIT_SSL_NO_VERIFY=true
+ENV PYTHONHTTPSVERIFY=0
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -714,6 +718,32 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 CORS(app)
 
+# SSL Configuration - try to fix SSL issues in sandbox
+SSL_CERT_FILE = os.environ.get('SSL_CERT_FILE', '/etc/ssl/certs/ca-certificates.crt')
+SSL_VERIFY = os.environ.get('SSL_VERIFY', 'true').lower() != 'false'
+
+# Log SSL configuration at startup
+logger.info(f"=== SSL CONFIGURATION ===")
+logger.info(f"SSL_CERT_FILE: {SSL_CERT_FILE}")
+logger.info(f"SSL_VERIFY: {SSL_VERIFY}")
+logger.info(f"CA file exists: {os.path.exists(SSL_CERT_FILE) if SSL_CERT_FILE else False}")
+
+# Determine SSL verify parameter for requests
+if not SSL_VERIFY:
+    REQUESTS_SSL_VERIFY = False
+    logger.warning("SSL verification DISABLED - not recommended for production")
+elif os.path.exists(SSL_CERT_FILE):
+    REQUESTS_SSL_VERIFY = SSL_CERT_FILE
+    logger.info(f"Using CA bundle: {SSL_CERT_FILE}")
+else:
+    REQUESTS_SSL_VERIFY = True
+    logger.info("Using system default SSL verification")
+
+# Suppress SSL warnings if verification is disabled
+if not SSL_VERIFY:
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+
 # Configuration from environment
 API_KEY = os.environ.get('OPENAI_API_KEY', '')
 API_BASE = os.environ.get('OPENAI_API_BASE', 'https://api.openai.com/v1')
@@ -887,12 +917,15 @@ def openai_chat_completions():
                 tool_calls_buffer = []  # Buffer to collect tool call chunks
                 
                 try:
+                    logger.info(f"Making streaming request to: {API_BASE}/chat/completions")
+                    logger.info(f"SSL verify: {REQUESTS_SSL_VERIFY}")
                     response = http_requests.post(
                         f"{API_BASE}/chat/completions",
                         headers=headers,
                         json=payload,
                         timeout=300,  # Longer timeout for tool execution
-                        stream=True
+                        stream=True,
+                        verify=REQUESTS_SSL_VERIFY
                     )
                     
                     if response.status_code != 200:
@@ -1008,11 +1041,14 @@ def openai_chat_completions():
         
         else:
             # Non-streaming response with full tool call support
+            logger.info(f"Making non-streaming request to: {API_BASE}/chat/completions")
+            logger.info(f"SSL verify: {REQUESTS_SSL_VERIFY}")
             response = http_requests.post(
                 f"{API_BASE}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=300
+                timeout=300,
+                verify=REQUESTS_SSL_VERIFY
             )
             
             if response.status_code != 200:
@@ -1076,6 +1112,30 @@ def openai_chat_completions():
             # Pass through the full response unchanged
             return jsonify(result)
     
+    except http_requests.exceptions.SSLError as ssl_err:
+        logger.error(f"SSL Error connecting to LLM: {ssl_err}")
+        logger.error(f"API_BASE: {API_BASE}")
+        logger.error(f"SSL_VERIFY setting: {REQUESTS_SSL_VERIFY}")
+        logger.error("Try setting SSL_VERIFY=false in environment or check SSL certificates")
+        return jsonify({
+            "error": {
+                "message": f"SSL certificate error: {str(ssl_err)}. Try setting SSL_VERIFY=false",
+                "type": "ssl_error",
+                "details": {
+                    "api_base": API_BASE,
+                    "ssl_verify": str(REQUESTS_SSL_VERIFY)
+                }
+            }
+        }), 502
+    except http_requests.exceptions.ConnectionError as conn_err:
+        logger.error(f"Connection error to LLM: {conn_err}")
+        logger.error(f"API_BASE: {API_BASE}")
+        return jsonify({
+            "error": {
+                "message": f"Connection error: {str(conn_err)}",
+                "type": "connection_error"
+            }
+        }), 502
     except Exception as e:
         logger.error(f"Proxy error: {e}")
         import traceback
@@ -1101,6 +1161,93 @@ def openai_list_models():
             }
         ]
     })
+
+@app.route('/ssl-test', methods=['GET'])
+def ssl_test():
+    """Test SSL connectivity to LLM API and other services"""
+    import requests as http_requests
+    results = {
+        "ssl_verify_setting": str(REQUESTS_SSL_VERIFY),
+        "ssl_cert_file": SSL_CERT_FILE,
+        "ssl_cert_exists": os.path.exists(SSL_CERT_FILE) if SSL_CERT_FILE else False,
+        "api_base": API_BASE,
+        "tests": []
+    }
+    
+    # Test 1: Connect to API_BASE
+    try:
+        logger.info(f"SSL Test: Connecting to {API_BASE}/models")
+        headers = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
+        resp = http_requests.get(f"{API_BASE}/models", headers=headers, timeout=10, verify=REQUESTS_SSL_VERIFY)
+        results["tests"].append({
+            "name": "LLM API",
+            "url": f"{API_BASE}/models",
+            "success": True,
+            "status_code": resp.status_code
+        })
+    except http_requests.exceptions.SSLError as e:
+        results["tests"].append({
+            "name": "LLM API",
+            "url": f"{API_BASE}/models",
+            "success": False,
+            "error": f"SSL Error: {str(e)}"
+        })
+    except Exception as e:
+        results["tests"].append({
+            "name": "LLM API",
+            "url": f"{API_BASE}/models",
+            "success": False,
+            "error": str(e)
+        })
+    
+    # Test 2: Connect to github.com (for git clone)
+    try:
+        logger.info("SSL Test: Connecting to github.com")
+        resp = http_requests.get("https://github.com", timeout=10, verify=REQUESTS_SSL_VERIFY)
+        results["tests"].append({
+            "name": "GitHub",
+            "url": "https://github.com",
+            "success": True,
+            "status_code": resp.status_code
+        })
+    except http_requests.exceptions.SSLError as e:
+        results["tests"].append({
+            "name": "GitHub",
+            "url": "https://github.com",
+            "success": False,
+            "error": f"SSL Error: {str(e)}"
+        })
+    except Exception as e:
+        results["tests"].append({
+            "name": "GitHub",
+            "url": "https://github.com",
+            "success": False,
+            "error": str(e)
+        })
+    
+    # Test 3: Connect with verify=False explicitly
+    try:
+        logger.info("SSL Test: Connecting with verify=False")
+        resp = http_requests.get("https://github.com", timeout=10, verify=False)
+        results["tests"].append({
+            "name": "GitHub (no verify)",
+            "url": "https://github.com",
+            "success": True,
+            "status_code": resp.status_code,
+            "note": "verify=False works"
+        })
+    except Exception as e:
+        results["tests"].append({
+            "name": "GitHub (no verify)",
+            "url": "https://github.com",
+            "success": False,
+            "error": str(e)
+        })
+    
+    # Log results
+    logger.info(f"SSL Test Results: {json.dumps(results, indent=2)}")
+    
+    return jsonify(results)
 
 @app.route('/zed/conversations', methods=['GET'])
 def get_zed_conversations():
@@ -1947,6 +2094,14 @@ export SSL_CERT_DIR=/etc/ssl/certs
 export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
+# Disable SSL verification (sandbox is a dev environment)
+export SSL_VERIFY=false
+export GIT_SSL_NO_VERIFY=true
+export PYTHONHTTPSVERIFY=0
+
+# Configure git to disable SSL verification
+git config --global http.sslVerify false 2>/dev/null || true
+echo "[SSL] Git SSL verification disabled" >> /tmp/sandbox-debug.log
 
 # Log version and environment variables for debugging
 echo "=== DevPilot Sandbox v2.1.0 ===" > /tmp/sandbox-debug.log
@@ -2413,6 +2568,8 @@ export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 export SSL_CERT_DIR=/etc/ssl/certs
 export REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
 export CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+export SSL_VERIFY=false
+export GIT_SSL_NO_VERIFY=true
 
 # Force software rendering with llvmpipe
 export LIBGL_ALWAYS_SOFTWARE=1
