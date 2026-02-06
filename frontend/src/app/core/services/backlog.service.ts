@@ -446,10 +446,12 @@ export class BacklogService {
 
     // 2. Process selected features not under a selected epic (orphan or under unselected epic)
     // If feature has epic parent: use epic title so we merge into existing epic tree
-    // If orphan: use feature title as epic title
+    // If orphan (no epic): add to Standalone epic as standalone feature (do NOT create epic)
     const remainingFeatures = workItems.features.filter(f => 
       selectedFeatureSet.has(f.id) && !processedFeatures.has(f.id)
     );
+
+    const standaloneFeatures: { title: string; description: string; userStories: any[]; azureDevOpsWorkItemId?: number }[] = [];
 
     for (const feature of remainingFeatures) {
       processedFeatures.add(feature.id);
@@ -459,15 +461,19 @@ export class BacklogService {
         .forEach(s => processedStories.add(s.id));
 
       const adoEpic = feature.parentId != null ? workItems.epics.find(e => e.id === feature.parentId) : null;
-      const epicTitle = adoEpic ? adoEpic.title : feature.title;
-      const epicDesc = adoEpic ? this.stripHtml(adoEpic.description || '') : this.stripHtml(feature.description || '');
 
-      backlogRequest.epics.push({
-        title: epicTitle,
-        description: epicDesc,
-        azureDevOpsWorkItemId: adoEpic?.id,
-        features: [convertedFeature]
-      });
+      if (adoEpic) {
+        // Feature has epic parent (epic not selected) → create epic → feature
+        backlogRequest.epics.push({
+          title: adoEpic.title,
+          description: this.stripHtml(adoEpic.description || ''),
+          azureDevOpsWorkItemId: adoEpic.id,
+          features: [convertedFeature]
+        });
+      } else {
+        // Orphan feature (no epic) → add to Standalone epic
+        standaloneFeatures.push(convertedFeature);
+      }
     }
 
     // 3. Process selected stories not under a selected epic/feature
@@ -547,16 +553,23 @@ export class BacklogService {
       });
     }
 
-    // 3c. Truly orphan stories (no epic/feature parent) → Standalone only
+    // 3c. Truly orphan stories (no epic/feature parent) and orphan features → Standalone epic
+    const standaloneEpicFeatures: { title: string; description: string; userStories: any[]; azureDevOpsWorkItemId?: number }[] = [];
+
     if (orphanStories.length > 0) {
+      standaloneEpicFeatures.push({
+        title: 'User Stories',
+        description: 'Standalone user stories',
+        userStories: orphanStories.map(convertStory)
+      });
+    }
+    standaloneEpicFeatures.push(...standaloneFeatures);
+
+    if (standaloneEpicFeatures.length > 0) {
       backlogRequest.epics.push({
         title: STANDALONE_EPIC_TITLE,
-        description: 'User stories without epic or feature parent',
-        features: [{
-          title: 'User Stories',
-          description: 'Standalone user stories',
-          userStories: orphanStories.map(convertStory)
-        }]
+        description: 'Items without epic or feature parent',
+        features: standaloneEpicFeatures
       });
     }
 
