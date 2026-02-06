@@ -162,10 +162,11 @@ public class BacklogController : ControllerBase
     /// <summary>
     /// Sync backlog items imported from Azure DevOps back to Azure DevOps
     /// Updates title, description, status, story points, acceptance criteria
+    /// When epicIds, featureIds, storyIds are provided, only those items are synced.
     /// </summary>
     [HttpPost("repository/{repositoryId}/sync-to-azure-devops")]
     [Authorize]
-    public async Task<IActionResult> SyncToAzureDevOps(Guid repositoryId, CancellationToken cancellationToken)
+    public async Task<IActionResult> SyncToAzureDevOps(Guid repositoryId, [FromBody] SyncToAzureDevOpsRequest? request, CancellationToken cancellationToken)
     {
         var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
@@ -173,7 +174,11 @@ public class BacklogController : ControllerBase
             return Unauthorized("User ID not found in token");
         }
 
-        var command = new SyncBacklogToAzureDevOpsCommand(repositoryId, userId);
+        var epicIds = request?.EpicIds ?? Array.Empty<Guid>();
+        var featureIds = request?.FeatureIds ?? Array.Empty<Guid>();
+        var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
+
+        var command = new SyncBacklogToAzureDevOpsCommand(repositoryId, userId, epicIds, featureIds, storyIds);
         var result = await _mediator.Send(command, cancellationToken);
 
         if (!result.Success && result.SyncedCount == 0 && result.FailedCount == 0)
@@ -763,6 +768,13 @@ public class UpdateStoryStatusRequest
 public class SyncPrStatusRequest
 {
     public string AccessToken { get; set; } = string.Empty;
+}
+
+public class SyncToAzureDevOpsRequest
+{
+    public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();
 }
 
 /// <summary>
