@@ -264,8 +264,8 @@ USER sandbox
 WORKDIR /home/sandbox
 
 # Install Zed IDE with architecture check and proper error handling
-COPY install-zed.sh /tmp/install-zed.sh
-RUN chmod +x /tmp/install-zed.sh && /tmp/install-zed.sh && rm -f /tmp/install-zed.sh
+COPY --chmod=755 install-zed.sh /tmp/install-zed.sh
+RUN /tmp/install-zed.sh && rm -f /tmp/install-zed.sh
 ENV PATH="/home/sandbox/.local/bin:${PATH}"
 
 # Desktop shortcut
