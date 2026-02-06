@@ -176,33 +176,25 @@ for cmd in curl tar gzip; do
     fi
 done
 
+# Check for wget as fallback
+if command -v wget &>/dev/null; then
+    log "  wget: OK ($(which wget)) - available as fallback"
+    HAS_WGET=true
+else
+    log "  wget: not found (optional fallback)"
+    HAS_WGET=false
+fi
+
 if [ "$DEPS_OK" = false ]; then
     log "ERROR: Missing required dependencies"
     exit 1
 fi
 
-# Check SSL/CA certificates
+# Show curl version and SSL backend
 echo ""
-log "=== SSL/CA CERTIFICATES CHECK ==="
-if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-    log "CA bundle: /etc/ssl/certs/ca-certificates.crt ($(wc -l < /etc/ssl/certs/ca-certificates.crt) lines)"
-elif [ -d /etc/ssl/certs ]; then
-    log "CA certs dir: /etc/ssl/certs ($(ls /etc/ssl/certs | wc -l) files)"
-else
-    log "WARNING: No CA certificates found!"
-fi
-
-# Test SSL connectivity
-log ""
-log "Testing SSL connectivity to zed.dev..."
-if curl -sS --connect-timeout 5 -I https://zed.dev 2>&1 | head -5 | tee -a "$LOG_FILE"; then
-    log "SSL connection to zed.dev: OK"
-    SSL_OK=true
-else
-    log "SSL connection to zed.dev: FAILED"
-    log "Will try with --insecure flag"
-    SSL_OK=false
-fi
+log "=== CURL/WGET INFO ==="
+curl --version 2>&1 | head -2 | tee -a "$LOG_FILE"
+wget --version 2>&1 | head -1 | tee -a "$LOG_FILE" || log "wget not available"
 
 # Create target directory
 echo ""
@@ -224,36 +216,23 @@ if [ "$ARCH" != "x86_64" ]; then
 fi
 log "=========================================="
 
-# Download Zed install script
+# Download Zed install script - same pattern as Firefox download
 echo ""
 log "=== DOWNLOADING ZED INSTALLER ==="
 log "URL: https://zed.dev/install.sh"
+log "Using Firefox-style fallback chain: curl || curl -k || wget"
+
+# Same pattern as Firefox: try curl, then curl -k, then wget
+(curl -fsSL --retry 3 --retry-delay 5 https://zed.dev/install.sh -o /tmp/zed-install.sh || \
+ curl -fsSL --retry 3 --retry-delay 5 -k https://zed.dev/install.sh -o /tmp/zed-install.sh || \
+ wget --no-check-certificate -q -O /tmp/zed-install.sh https://zed.dev/install.sh) 2>&1 | tee -a "$LOG_FILE"
 
 DOWNLOAD_SUCCESS=false
-
-# Try secure download first
-if [ "$SSL_OK" = true ]; then
-    log "Attempting secure download..."
-    curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
-    CURL_EXIT=$?
-    log "curl exit code: $CURL_EXIT"
-    if [ -f /tmp/zed-install.sh ] && [ -s /tmp/zed-install.sh ]; then
-        DOWNLOAD_SUCCESS=true
-        log "Secure download successful"
-    fi
-fi
-
-# Fallback to insecure if secure failed
-if [ "$DOWNLOAD_SUCCESS" = false ]; then
-    log ""
-    log "Attempting download with --insecure flag (SSL verification disabled)..."
-    curl -fsSL --insecure https://zed.dev/install.sh -o /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
-    CURL_EXIT=$?
-    log "curl exit code: $CURL_EXIT"
-    if [ -f /tmp/zed-install.sh ] && [ -s /tmp/zed-install.sh ]; then
-        DOWNLOAD_SUCCESS=true
-        log "Insecure download successful"
-    fi
+if [ -f /tmp/zed-install.sh ] && [ -s /tmp/zed-install.sh ]; then
+    DOWNLOAD_SUCCESS=true
+    log "Download successful. File size: $(wc -c < /tmp/zed-install.sh) bytes"
+else
+    log "Download FAILED"
 fi
 
 if [ "$DOWNLOAD_SUCCESS" = false ]; then
@@ -274,7 +253,6 @@ PLACEHOLDER
     exit 0
 fi
 
-log "Download successful. File size: $(wc -c < /tmp/zed-install.sh) bytes"
 ls -la /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
 
 # Show first few lines of install script for debugging
@@ -284,13 +262,16 @@ head -30 /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE"
 
 chmod +x /tmp/zed-install.sh
 
-# If SSL failed, patch the Zed install script to use --insecure
-if [ "$SSL_OK" = false ]; then
-    log ""
-    log "Patching Zed installer to use --insecure for curl..."
-    sed -i 's/curl /curl --insecure /g' /tmp/zed-install.sh
-    log "Patch applied"
-fi
+# Always patch Zed installer to use -k flag for curl (same as Firefox approach)
+# This ensures any downloads within the installer also bypass SSL issues
+log ""
+log "Patching Zed installer to use curl -k (insecure) for all downloads..."
+sed -i 's/curl /curl -k /g' /tmp/zed-install.sh
+log "Patch applied"
+
+# Show patched curl commands
+log "Patched curl commands:"
+grep -n "curl" /tmp/zed-install.sh 2>&1 | tee -a "$LOG_FILE" || log "No curl commands found"
 
 # Run Zed installer with full output
 echo ""
@@ -298,9 +279,6 @@ log "=========================================="
 log "=== RUNNING ZED INSTALLER ==="
 log "=========================================="
 log "Command: /tmp/zed-install.sh"
-if [ "$SSL_OK" = false ]; then
-    log "NOTE: Running with SSL verification disabled (patched)"
-fi
 echo ""
 
 # Capture all output
