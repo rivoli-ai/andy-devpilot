@@ -105,6 +105,59 @@ cd $PROJECT_DIR
 # ============================================================
 log_info "Creating desktop image..."
 mkdir -p desktop
+
+# Create Zed installation script (separate file to avoid escaping issues in Dockerfile)
+cat > desktop/install-zed.sh << 'INSTALL_ZED_SCRIPT'
+#!/bin/bash
+set -e
+
+ARCH=$(uname -m)
+echo "=== Zed Installation ==="
+echo "Architecture: $ARCH"
+
+mkdir -p /home/sandbox/.local/bin
+
+if [ "$ARCH" != "x86_64" ]; then
+    echo "WARNING: Zed only supports x86_64 (amd64) architecture."
+    echo "Current architecture: $ARCH"
+    echo "Zed will NOT be installed. Creating placeholder..."
+    cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
+#!/bin/bash
+echo "Zed is not available on this architecture ($(uname -m))."
+echo "Please use VS Code or another editor."
+PLACEHOLDER
+    chmod +x /home/sandbox/.local/bin/zed
+    exit 0
+fi
+
+echo "Installing Zed for x86_64..."
+curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh
+chmod +x /tmp/zed-install.sh
+
+if /tmp/zed-install.sh 2>&1 | tee /tmp/zed-install.log; then
+    echo "=== Zed installation completed ==="
+    if [ -f /home/sandbox/.local/bin/zed ]; then
+        /home/sandbox/.local/bin/zed --version 2>/dev/null || echo "Zed binary exists but version check failed"
+    else
+        echo "Zed binary not found at expected location, checking..."
+        ls -la /home/sandbox/.local/bin/ 2>/dev/null || true
+    fi
+else
+    echo "=== Zed Installation FAILED ==="
+    echo "Check /tmp/zed-install.log for details:"
+    cat /tmp/zed-install.log
+    echo "Creating placeholder script..."
+    cat > /home/sandbox/.local/bin/zed << 'PLACEHOLDER'
+#!/bin/bash
+echo "Zed installation failed. Check /tmp/zed-install.log for details."
+PLACEHOLDER
+    chmod +x /home/sandbox/.local/bin/zed
+fi
+
+rm -f /tmp/zed-install.sh
+echo "=== Zed setup complete ==="
+INSTALL_ZED_SCRIPT
+
 cat > desktop/Dockerfile << 'DESKTOP_DOCKERFILE'
 FROM ubuntu:24.04
 
@@ -211,54 +264,18 @@ USER sandbox
 WORKDIR /home/sandbox
 
 # Install Zed IDE with architecture check and proper error handling
-RUN set -e && \
-    ARCH=\$(uname -m) && \
-    echo "=== Zed Installation ===" && \
-    echo "Architecture: \$ARCH" && \
-    if [ "\$ARCH" != "x86_64" ]; then \
-        echo "WARNING: Zed only supports x86_64 (amd64) architecture." && \
-        echo "Current architecture: \$ARCH" && \
-        echo "Zed will NOT be installed. Consider using VS Code or another editor." && \
-        mkdir -p /home/sandbox/.local/bin && \
-        echo '#!/bin/bash' > /home/sandbox/.local/bin/zed && \
-        echo 'echo "Zed is not available on this architecture (\$ARCH). Please use VS Code or another editor."' >> /home/sandbox/.local/bin/zed && \
-        chmod +x /home/sandbox/.local/bin/zed; \
-    else \
-        echo "Installing Zed for x86_64..." && \
-        curl -fsSL https://zed.dev/install.sh -o /tmp/zed-install.sh && \
-        chmod +x /tmp/zed-install.sh && \
-        /tmp/zed-install.sh 2>&1 | tee /tmp/zed-install.log || { \
-            echo "=== Zed Installation FAILED ===" && \
-            echo "Check /tmp/zed-install.log for details" && \
-            cat /tmp/zed-install.log && \
-            echo "Creating placeholder script..." && \
-            mkdir -p /home/sandbox/.local/bin && \
-            echo '#!/bin/bash' > /home/sandbox/.local/bin/zed && \
-            echo 'echo "Zed installation failed. Check /tmp/zed-install.log for details."' >> /home/sandbox/.local/bin/zed && \
-            chmod +x /home/sandbox/.local/bin/zed; \
-        } && \
-        rm -f /tmp/zed-install.sh && \
-        if [ -f /home/sandbox/.local/bin/zed ]; then \
-            echo "=== Zed installed successfully ===" && \
-            /home/sandbox/.local/bin/zed --version 2>/dev/null || echo "Zed binary exists but version check failed"; \
-        else \
-            echo "=== Zed binary not found after installation ===" && \
-            ls -la /home/sandbox/.local/bin/ 2>/dev/null || true; \
-        fi; \
-    fi
+COPY install-zed.sh /tmp/install-zed.sh
+RUN chmod +x /tmp/install-zed.sh && /tmp/install-zed.sh && rm -f /tmp/install-zed.sh
 ENV PATH="/home/sandbox/.local/bin:${PATH}"
 
-# Desktop shortcut (only creates functional shortcut if Zed was installed)
+# Desktop shortcut
 RUN mkdir -p Desktop && \
-    if [ -x /home/sandbox/.local/bin/zed ] && /home/sandbox/.local/bin/zed --version >/dev/null 2>&1; then \
-        echo -e '[Desktop Entry]\nType=Application\nName=Zed\nExec=/home/sandbox/.local/bin/zed\nIcon=accessories-text-editor\nTerminal=false\nCategories=Development;IDE;' \
-        > Desktop/zed.desktop && chmod +x Desktop/zed.desktop && \
-        echo "Zed desktop shortcut created"; \
-    else \
-        echo "Zed not available - creating info shortcut" && \
-        echo -e '[Desktop Entry]\nType=Application\nName=Zed (Not Available)\nExec=xmessage "Zed is not available on this system. Architecture: $(uname -m)"\nTerminal=false' \
-        > Desktop/zed.desktop && chmod +x Desktop/zed.desktop; \
-    fi
+    echo '[Desktop Entry]' > Desktop/zed.desktop && \
+    echo 'Type=Application' >> Desktop/zed.desktop && \
+    echo 'Name=Zed' >> Desktop/zed.desktop && \
+    echo 'Exec=/home/sandbox/.local/bin/zed' >> Desktop/zed.desktop && \
+    echo 'Terminal=false' >> Desktop/zed.desktop && \
+    chmod +x Desktop/zed.desktop
 
 USER root
 
