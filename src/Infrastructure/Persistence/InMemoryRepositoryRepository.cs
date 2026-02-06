@@ -26,6 +26,35 @@ public class InMemoryRepositoryRepository : IRepositoryRepository
         return System.Threading.Tasks.Task.FromResult<IEnumerable<Repository>>(repositories);
     }
 
+    public System.Threading.Tasks.Task<(IEnumerable<Repository> Items, int TotalCount)> GetByUserIdPaginatedAsync(
+        Guid userId,
+        string? search = null,
+        int page = 1,
+        int pageSize = 20,
+        CancellationToken cancellationToken = default)
+    {
+        var filtered = _repositories.Values
+            .Where(r => r.UserId == userId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLowerInvariant();
+            filtered = filtered.Where(r =>
+                r.Name.ToLowerInvariant().Contains(term) ||
+                r.FullName.ToLowerInvariant().Contains(term) ||
+                (r.OrganizationName != null && r.OrganizationName.ToLowerInvariant().Contains(term)));
+        }
+
+        var totalCount = filtered.Count();
+        var items = filtered
+            .OrderBy(r => r.FullName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        return System.Threading.Tasks.Task.FromResult<(IEnumerable<Repository> Items, int TotalCount)>((items, totalCount));
+    }
+
     public System.Threading.Tasks.Task<Repository?> GetByFullNameAndProviderAsync(string fullName, string provider, CancellationToken cancellationToken = default)
     {
         var repository = _repositories.Values

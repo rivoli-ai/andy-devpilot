@@ -18,6 +18,7 @@ public class CreateEpicRequest
 {
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string? Source { get; set; } // "Manual", "AzureDevOps", "GitHub"
     public List<CreateFeatureRequest> Features { get; set; } = new();
 }
 
@@ -25,6 +26,7 @@ public class CreateFeatureRequest
 {
     public string Title { get; set; } = string.Empty;
     public string Description { get; set; } = string.Empty;
+    public string? Source { get; set; }
     public List<CreateUserStoryRequest> UserStories { get; set; } = new();
 }
 
@@ -34,6 +36,7 @@ public class CreateUserStoryRequest
     public string Description { get; set; } = string.Empty;
     public List<string> AcceptanceCriteria { get; set; } = new();
     public int? StoryPoints { get; set; }
+    public string? Source { get; set; }
 }
 
 /// <summary>
@@ -78,20 +81,25 @@ public class CreateBacklogCommandHandler : IRequestHandler<CreateBacklogCommand,
 
         foreach (var epicRequest in command.Request.Epics)
         {
+            var source = epicRequest.Source ?? "Manual";
+
             // Create Epic
             var epic = new Epic(
                 epicRequest.Title,
                 command.RepositoryId,
-                epicRequest.Description
+                epicRequest.Description,
+                source
             );
 
             // Add Features
             foreach (var featureRequest in epicRequest.Features)
             {
+                var featureSource = featureRequest.Source ?? source;
                 var feature = new Feature(
                     featureRequest.Title,
                     epic.Id,
-                    featureRequest.Description
+                    featureRequest.Description,
+                    featureSource
                 );
 
                 // Add User Stories
@@ -101,12 +109,15 @@ public class CreateBacklogCommandHandler : IRequestHandler<CreateBacklogCommand,
                         ? string.Join("\n- ", userStoryRequest.AcceptanceCriteria)
                         : null;
 
+                    var storySource = userStoryRequest.Source ?? featureSource;
+
                     var userStory = new UserStory(
                         userStoryRequest.Title,
                         feature.Id,
                         userStoryRequest.Description,
                         acceptanceCriteria,
-                        userStoryRequest.StoryPoints
+                        userStoryRequest.StoryPoints,
+                        storySource
                     );
 
                     feature.UserStories.Add(userStory);
@@ -139,6 +150,8 @@ public class CreateBacklogCommandHandler : IRequestHandler<CreateBacklogCommand,
             Description = epic.Description,
             RepositoryId = epic.RepositoryId,
             Status = epic.Status,
+            Source = epic.Source,
+            AzureDevOpsWorkItemId = epic.AzureDevOpsWorkItemId,
             CreatedAt = epic.CreatedAt,
             UpdatedAt = epic.UpdatedAt,
             Features = epic.Features.Select(f => new FeatureDto
@@ -148,6 +161,8 @@ public class CreateBacklogCommandHandler : IRequestHandler<CreateBacklogCommand,
                 Description = f.Description,
                 EpicId = f.EpicId,
                 Status = f.Status,
+                Source = f.Source,
+                AzureDevOpsWorkItemId = f.AzureDevOpsWorkItemId,
                 CreatedAt = f.CreatedAt,
                 UpdatedAt = f.UpdatedAt,
                 UserStories = f.UserStories.Select(us => new UserStoryDto
@@ -160,6 +175,8 @@ public class CreateBacklogCommandHandler : IRequestHandler<CreateBacklogCommand,
                     AcceptanceCriteria = us.AcceptanceCriteria,
                     PrUrl = us.PrUrl,
                     StoryPoints = us.StoryPoints,
+                    Source = us.Source,
+                    AzureDevOpsWorkItemId = us.AzureDevOpsWorkItemId,
                     CreatedAt = us.CreatedAt,
                     UpdatedAt = us.UpdatedAt,
                     Tasks = new List<TaskDto>()

@@ -19,6 +19,8 @@ public class CreatePullRequestRequest
     public required string BaseBranch { get; set; }
     public required string Title { get; set; }
     public string? Body { get; set; }
+    /// <summary>Azure DevOps work item IDs to link to the PR (e.g. [190])</summary>
+    public List<int>? WorkItemIds { get; set; }
 }
 
 /// <summary>
@@ -844,6 +846,7 @@ public class RepositoriesController : ControllerBase
                 request.BaseBranch,
                 request.Title,
                 request.Body,
+                request.WorkItemIds,
                 cancellationToken,
                 useBasicAuth);
 

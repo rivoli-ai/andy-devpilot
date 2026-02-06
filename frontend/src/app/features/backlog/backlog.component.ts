@@ -78,6 +78,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
   expandedAzureDevOpsItems = signal<Set<number>>(new Set());
   azureDevOpsImporting = signal<boolean>(false);
 
+  // Sync to Azure DevOps state
+  syncToAzureDevOpsLoading = signal<boolean>(false);
+  syncToAzureDevOpsError = signal<string | null>(null);
+  syncToAzureDevOpsSuccess = signal<{ syncedCount: number; failedCount: number } | null>(null);
+
   // GitHub import state
   showGitHubImport = signal<boolean>(false);
   gitHubLoading = signal<boolean>(false);
@@ -127,6 +132,20 @@ export class BacklogComponent implements OnInit, OnDestroy {
       }))
     )
   );
+
+  hasAzureDevOpsImportedItems = computed(() => {
+    const epics = this.epics();
+    for (const epic of epics) {
+      if (epic.source === 'AzureDevOps' && epic.azureDevOpsWorkItemId) return true;
+      for (const feature of epic.features || []) {
+        if (feature.source === 'AzureDevOps' && feature.azureDevOpsWorkItemId) return true;
+        for (const story of feature.userStories || []) {
+          if (story.source === 'AzureDevOps' && story.azureDevOpsWorkItemId) return true;
+        }
+      }
+    }
+    return false;
+  });
 
   totalStoryPoints = computed(() => 
     this.epics().reduce((sum, epic) => 
@@ -588,6 +607,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
     acceptanceCriteria?: string;
     storyPoints?: number;
     parentId?: string;
+    status?: string;
   }): void {
     const type = this.addModalType();
     const parentId = data.parentId ?? this.addModalParentId();
@@ -601,7 +621,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
     if (type === 'epic') {
       if (isEditing && data.id) {
-        this.backlogService.updateEpic(data.id, data.title, data.description, undefined, repoId).subscribe({
+        this.backlogService.updateEpic(data.id, data.title, data.description, data.status, repoId).subscribe({
           next: () => {
             this.backlogService.getBacklog(repoId).subscribe(epics => this.epics.set(epics));
             this.closeAddModal();
@@ -626,7 +646,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
       }
     } else if (type === 'feature') {
       if (isEditing && data.id) {
-        this.backlogService.updateFeature(data.id, data.title, data.description, undefined, repoId).subscribe({
+        this.backlogService.updateFeature(data.id, data.title, data.description, data.status, repoId).subscribe({
           next: () => {
             this.backlogService.getBacklog(repoId).subscribe(epics => this.epics.set(epics));
             this.closeAddModal();
@@ -662,7 +682,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
           data.description,
           data.acceptanceCriteria,
           data.storyPoints,
-          undefined,
+          data.status,
           repoId
         ).subscribe({
           next: () => {
@@ -839,7 +859,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
               repositoryFullName: repo.fullName,
               defaultBranch: repo.defaultBranch || 'main',
               storyTitle: story.title,
-              storyId: story.id
+              storyId: story.id,
+              azureDevOpsWorkItemId: story.azureDevOpsWorkItemId
             }
           );
           
@@ -1397,6 +1418,29 @@ ${jsonFormatRequirement}`;
   }
 
   // Azure DevOps Import Methods
+  syncToAzureDevOps(): void {
+    const repoId = this.repositoryId();
+    if (!repoId) return;
+    this.syncToAzureDevOpsLoading.set(true);
+    this.syncToAzureDevOpsError.set(null);
+    this.syncToAzureDevOpsSuccess.set(null);
+    this.backlogService.syncToAzureDevOps(repoId).subscribe({
+      next: (res) => {
+        this.syncToAzureDevOpsLoading.set(false);
+        if (res.success) {
+          this.syncToAzureDevOpsSuccess.set({ syncedCount: res.syncedCount, failedCount: res.failedCount });
+        } else {
+          this.syncToAzureDevOpsError.set(res.errors?.[0] || 'Sync failed');
+          this.syncToAzureDevOpsSuccess.set(res.syncedCount > 0 ? { syncedCount: res.syncedCount, failedCount: res.failedCount } : null);
+        }
+      },
+      error: (err) => {
+        this.syncToAzureDevOpsLoading.set(false);
+        this.syncToAzureDevOpsError.set(err.error?.message || err.message || 'Failed to sync to Azure DevOps');
+      }
+    });
+  }
+
   openAzureDevOpsImport(): void {
     this.showAzureDevOpsImport.set(true);
     this.azureDevOpsError.set(null);

@@ -1409,6 +1409,34 @@
   color: #ef4444;
 }
 
+/* Source badge - Azure DevOps / GitHub import indicator */
+.source-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.15rem 0.4rem;
+  border-radius: 4px;
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin-left: 0.4rem;
+  opacity: 0.9;
+}
+
+.source-badge.ado {
+  background: rgba(0, 120, 212, 0.15);
+  color: #0078d4;
+}
+
+.source-badge.gh {
+  background: rgba(36, 41, 47, 0.12);
+  color: #24292f;
+}
+
+.tree-row.story-row .source-badge {
+  font-size: 0.6rem;
+  padding: 0.1rem 0.35rem;
+}
+
 /* PR Badge - Small icon next to status */
 .pr-badge {
   display: inline-flex;
@@ -2986,12 +3014,14 @@
   /* Same styling as epics at root level */
 }
 
-.ado-tree-item.feature.root-level .ado-item-type {
-  background: var(--feature-color, #8b5cf6);
+/* Only the feature's own badge - not nested story badges */
+.ado-tree-item.feature.root-level > .ado-tree-row .ado-item-type.feature {
+  background: #8b5cf6;
 }
 
-.ado-tree-item.story.root-level .ado-item-type {
-  background: #3b82f6; /* Same as non-standalone user story */
+.ado-tree-item.story.root-level .ado-item-type,
+.ado-tree-item.story .ado-item-type.story {
+  background: #3b82f6; /* Blue for all user stories */
 }
 
 .ado-story-warning {

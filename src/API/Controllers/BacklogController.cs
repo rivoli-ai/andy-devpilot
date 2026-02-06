@@ -119,7 +119,7 @@ public class BacklogController : ControllerBase
         [FromBody] AddEpicRequest request,
         CancellationToken cancellationToken)
     {
-        var command = new AddEpicCommand(repositoryId, request.Title, request.Description);
+        var command = new AddEpicCommand(repositoryId, request.Title, request.Description, request.Source, request.AzureDevOpsWorkItemId);
         var epic = await _mediator.Send(command, cancellationToken);
         return Ok(epic);
     }
@@ -133,7 +133,7 @@ public class BacklogController : ControllerBase
         [FromBody] AddFeatureRequest request,
         CancellationToken cancellationToken)
     {
-        var command = new AddFeatureCommand(epicId, request.Title, request.Description);
+        var command = new AddFeatureCommand(epicId, request.Title, request.Description, request.Source, request.AzureDevOpsWorkItemId);
         var feature = await _mediator.Send(command, cancellationToken);
         return Ok(feature);
     }
@@ -152,9 +152,42 @@ public class BacklogController : ControllerBase
             request.Title,
             request.Description,
             request.AcceptanceCriteria,
-            request.StoryPoints);
+            request.StoryPoints,
+            request.Source,
+            request.AzureDevOpsWorkItemId);
         var story = await _mediator.Send(command, cancellationToken);
         return Ok(story);
+    }
+
+    /// <summary>
+    /// Sync backlog items imported from Azure DevOps back to Azure DevOps
+    /// Updates title, description, status, story points, acceptance criteria
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/sync-to-azure-devops")]
+    [Authorize]
+    public async Task<IActionResult> SyncToAzureDevOps(Guid repositoryId, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        var command = new SyncBacklogToAzureDevOpsCommand(repositoryId, userId);
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.Success && result.SyncedCount == 0 && result.FailedCount == 0)
+        {
+            return BadRequest(new { success = false, message = result.Errors.FirstOrDefault(), errors = result.Errors });
+        }
+
+        return Ok(new
+        {
+            success = result.Success,
+            syncedCount = result.SyncedCount,
+            failedCount = result.FailedCount,
+            errors = result.Errors
+        });
     }
 
     /// <summary>
@@ -748,6 +781,8 @@ public class AddEpicRequest
 {
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? Source { get; set; } // "Manual", "AzureDevOps", "GitHub"
+    public int? AzureDevOpsWorkItemId { get; set; }
 }
 
 /// <summary>
@@ -757,6 +792,8 @@ public class AddFeatureRequest
 {
     public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
+    public string? Source { get; set; }
+    public int? AzureDevOpsWorkItemId { get; set; }
 }
 
 /// <summary>
@@ -768,6 +805,8 @@ public class AddUserStoryRequest
     public string? Description { get; set; }
     public string? AcceptanceCriteria { get; set; }
     public int? StoryPoints { get; set; }
+    public string? Source { get; set; }
+    public int? AzureDevOpsWorkItemId { get; set; }
 }
 
 /// <summary>

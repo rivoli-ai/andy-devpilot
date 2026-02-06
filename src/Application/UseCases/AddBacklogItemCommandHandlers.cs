@@ -7,7 +7,7 @@ using MediatR;
 using Microsoft.Extensions.Logging;
 
 // Add Epic
-public record AddEpicCommand(Guid RepositoryId, string Title, string? Description = null) : IRequest<EpicDto>;
+public record AddEpicCommand(Guid RepositoryId, string Title, string? Description = null, string? Source = null, int? AzureDevOpsWorkItemId = null) : IRequest<EpicDto>;
 
 public class AddEpicCommandHandler : IRequestHandler<AddEpicCommand, EpicDto>
 {
@@ -31,7 +31,7 @@ public class AddEpicCommandHandler : IRequestHandler<AddEpicCommand, EpicDto>
         if (repo == null)
             throw new InvalidOperationException($"Repository {command.RepositoryId} not found");
 
-        var epic = new Epic(command.Title, command.RepositoryId, command.Description);
+        var epic = new Epic(command.Title, command.RepositoryId, command.Description, command.Source, command.AzureDevOpsWorkItemId);
         epic = await _epicRepository.AddAsync(epic, cancellationToken);
         _logger.LogInformation("Added Epic {EpicId}: {Title}", epic.Id, epic.Title);
 
@@ -42,6 +42,8 @@ public class AddEpicCommandHandler : IRequestHandler<AddEpicCommand, EpicDto>
             Description = epic.Description,
             RepositoryId = epic.RepositoryId,
             Status = epic.Status,
+            Source = epic.Source,
+            AzureDevOpsWorkItemId = epic.AzureDevOpsWorkItemId,
             CreatedAt = epic.CreatedAt,
             UpdatedAt = epic.UpdatedAt,
             Features = []
@@ -50,7 +52,7 @@ public class AddEpicCommandHandler : IRequestHandler<AddEpicCommand, EpicDto>
 }
 
 // Add Feature
-public record AddFeatureCommand(Guid EpicId, string Title, string? Description = null) : IRequest<FeatureDto>;
+public record AddFeatureCommand(Guid EpicId, string Title, string? Description = null, string? Source = null, int? AzureDevOpsWorkItemId = null) : IRequest<FeatureDto>;
 
 public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, FeatureDto>
 {
@@ -74,7 +76,7 @@ public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, Featu
         if (epic == null)
             throw new InvalidOperationException($"Epic {command.EpicId} not found");
 
-        var feature = new Feature(command.Title, command.EpicId, command.Description);
+        var feature = new Feature(command.Title, command.EpicId, command.Description, command.Source, command.AzureDevOpsWorkItemId);
         feature = await _featureRepository.AddAsync(feature, cancellationToken);
         _logger.LogInformation("Added Feature {FeatureId}: {Title} to Epic {EpicId}", feature.Id, feature.Title, command.EpicId);
 
@@ -85,6 +87,8 @@ public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, Featu
             Description = feature.Description,
             EpicId = feature.EpicId,
             Status = feature.Status,
+            Source = feature.Source,
+            AzureDevOpsWorkItemId = feature.AzureDevOpsWorkItemId,
             CreatedAt = feature.CreatedAt,
             UpdatedAt = feature.UpdatedAt,
             UserStories = []
@@ -93,7 +97,7 @@ public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, Featu
 }
 
 // Add User Story
-public record AddUserStoryCommand(Guid FeatureId, string Title, string? Description = null, string? AcceptanceCriteria = null, int? StoryPoints = null) : IRequest<UserStoryDto>;
+public record AddUserStoryCommand(Guid FeatureId, string Title, string? Description = null, string? AcceptanceCriteria = null, int? StoryPoints = null, string? Source = null, int? AzureDevOpsWorkItemId = null) : IRequest<UserStoryDto>;
 
 public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, UserStoryDto>
 {
@@ -117,7 +121,7 @@ public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, U
         if (feature == null)
             throw new InvalidOperationException($"Feature {command.FeatureId} not found");
 
-        var userStory = new UserStory(command.Title, command.FeatureId, command.Description, command.AcceptanceCriteria, command.StoryPoints);
+        var userStory = new UserStory(command.Title, command.FeatureId, command.Description, command.AcceptanceCriteria, command.StoryPoints, command.Source, command.AzureDevOpsWorkItemId);
         userStory = await _userStoryRepository.AddAsync(userStory, cancellationToken);
         _logger.LogInformation("Added UserStory {StoryId}: {Title} to Feature {FeatureId}", userStory.Id, userStory.Title, command.FeatureId);
 
@@ -130,6 +134,8 @@ public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, U
             Status = userStory.Status,
             AcceptanceCriteria = userStory.AcceptanceCriteria,
             StoryPoints = userStory.StoryPoints,
+            Source = userStory.Source,
+            AzureDevOpsWorkItemId = userStory.AzureDevOpsWorkItemId,
             CreatedAt = userStory.CreatedAt,
             UpdatedAt = userStory.UpdatedAt,
             Tasks = []
