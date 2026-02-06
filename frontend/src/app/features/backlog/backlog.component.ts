@@ -15,7 +15,7 @@ import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
 import { AddBacklogItemModalComponent, AddItemType, EditItemData } from '../../components/add-backlog-item-modal/add-backlog-item-modal.component';
-import { Subject, interval, takeUntil, filter, switchMap } from 'rxjs';
+import { Subject, interval, takeUntil, filter, switchMap, forkJoin } from 'rxjs';
 
 type WorkItemType = 'epic' | 'feature' | 'story';
 type ViewMode = 'tree' | 'flat';
@@ -59,6 +59,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   // Delete confirmation modal state
   deleteConfirmation = signal<{ type: 'epic' | 'feature' | 'story'; id: string; parentId?: string; title: string } | null>(null);
+  bulkDeleteConfirmation = signal<{ epicIds: string[]; featureIds: string[]; storyIds: string[] } | null>(null);
+  bulkDeleteLoading = signal<boolean>(false);
 
   // Azure DevOps import state
   showAzureDevOpsImport = signal<boolean>(false);
@@ -573,6 +575,50 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   cancelDelete(): void {
     this.deleteConfirmation.set(null);
+  }
+
+  openBulkDeleteConfirmation(): void {
+    const epicIds = Array.from(this.selectedSyncToAzureEpics());
+    const featureIds = Array.from(this.selectedSyncToAzureFeatures());
+    const storyIds = Array.from(this.selectedSyncToAzureStories());
+    if (epicIds.length === 0 && featureIds.length === 0 && storyIds.length === 0) return;
+    this.bulkDeleteConfirmation.set({ epicIds, featureIds, storyIds });
+  }
+
+  cancelBulkDelete(): void {
+    this.bulkDeleteConfirmation.set(null);
+  }
+
+  confirmBulkDelete(): void {
+    const confirmation = this.bulkDeleteConfirmation();
+    if (!confirmation) return;
+    const repoId = this.repositoryId();
+    if (!repoId) return;
+    this.bulkDeleteLoading.set(true);
+    const { epicIds, featureIds, storyIds } = confirmation;
+    const deletes = [
+      ...storyIds.map(id => this.backlogService.deleteUserStory(id, repoId)),
+      ...featureIds.map(id => this.backlogService.deleteFeature(id, repoId)),
+      ...epicIds.map(id => this.backlogService.deleteEpic(id, repoId))
+    ];
+    if (deletes.length === 0) {
+      this.bulkDeleteLoading.set(false);
+      this.bulkDeleteConfirmation.set(null);
+      return;
+    }
+    forkJoin(deletes).subscribe({
+      next: () => {
+        this.bulkDeleteLoading.set(false);
+        this.bulkDeleteConfirmation.set(null);
+        this.deselectAllForSyncToAzure();
+        this.backlogService.getBacklog(repoId).subscribe(epics => this.epics.set(epics));
+      },
+      error: (err) => {
+        this.bulkDeleteLoading.set(false);
+        this.bulkDeleteConfirmation.set(null);
+        this.error.set(err?.message || 'Failed to delete items');
+      }
+    });
   }
 
   confirmDelete(): void {
@@ -1464,11 +1510,11 @@ ${jsonFormatRequirement}`;
     const featureIds = new Set<string>();
     const storyIds = new Set<string>();
     for (const epic of epics) {
-      if (epic.source === 'AzureDevOps' && epic.azureDevOpsWorkItemId) epicIds.add(epic.id);
+      epicIds.add(epic.id);
       for (const feature of epic.features || []) {
-        if (feature.source === 'AzureDevOps' && feature.azureDevOpsWorkItemId) featureIds.add(feature.id);
+        featureIds.add(feature.id);
         for (const story of feature.userStories || []) {
-          if (story.source === 'AzureDevOps' && story.azureDevOpsWorkItemId) storyIds.add(story.id);
+          storyIds.add(story.id);
         }
       }
     }
@@ -1485,18 +1531,49 @@ ${jsonFormatRequirement}`;
 
   toggleEpicForSync(epicId: string, event: Event): void {
     event.stopPropagation();
-    const set = new Set(this.selectedSyncToAzureEpics());
-    if (set.has(epicId)) set.delete(epicId);
-    else set.add(epicId);
-    this.selectedSyncToAzureEpics.set(set);
+    const epic = this.epics().find(e => e.id === epicId);
+    if (!epic) return;
+    const featureIds = (epic.features || []).map(f => f.id);
+    const storyIds = (epic.features || []).flatMap(f => (f.userStories || []).map(s => s.id));
+    const epicSelected = this.selectedSyncToAzureEpics().has(epicId);
+    const selectedEpics = new Set(this.selectedSyncToAzureEpics());
+    const selectedFeatures = new Set(this.selectedSyncToAzureFeatures());
+    const selectedStories = new Set(this.selectedSyncToAzureStories());
+    if (epicSelected) {
+      selectedEpics.delete(epicId);
+      featureIds.forEach(id => selectedFeatures.delete(id));
+      storyIds.forEach(id => selectedStories.delete(id));
+    } else {
+      selectedEpics.add(epicId);
+      featureIds.forEach(id => selectedFeatures.add(id));
+      storyIds.forEach(id => selectedStories.add(id));
+    }
+    this.selectedSyncToAzureEpics.set(selectedEpics);
+    this.selectedSyncToAzureFeatures.set(selectedFeatures);
+    this.selectedSyncToAzureStories.set(selectedStories);
   }
 
   toggleFeatureForSync(featureId: string, event: Event): void {
     event.stopPropagation();
-    const set = new Set(this.selectedSyncToAzureFeatures());
-    if (set.has(featureId)) set.delete(featureId);
-    else set.add(featureId);
-    this.selectedSyncToAzureFeatures.set(set);
+    let feature: Feature | undefined;
+    for (const epic of this.epics()) {
+      feature = epic.features?.find(f => f.id === featureId);
+      if (feature) break;
+    }
+    if (!feature) return;
+    const storyIds = (feature.userStories || []).map(s => s.id);
+    const featureSelected = this.selectedSyncToAzureFeatures().has(featureId);
+    const selectedFeatures = new Set(this.selectedSyncToAzureFeatures());
+    const selectedStories = new Set(this.selectedSyncToAzureStories());
+    if (featureSelected) {
+      selectedFeatures.delete(featureId);
+      storyIds.forEach(id => selectedStories.delete(id));
+    } else {
+      selectedFeatures.add(featureId);
+      storyIds.forEach(id => selectedStories.add(id));
+    }
+    this.selectedSyncToAzureFeatures.set(selectedFeatures);
+    this.selectedSyncToAzureStories.set(selectedStories);
   }
 
   toggleStoryForSync(storyId: string, event: Event): void {
@@ -1505,6 +1582,41 @@ ${jsonFormatRequirement}`;
     if (set.has(storyId)) set.delete(storyId);
     else set.add(storyId);
     this.selectedSyncToAzureStories.set(set);
+  }
+
+  /** Epic checkbox state: checked (all selected), indeterminate (some selected), unchecked */
+  getEpicCheckboxState(epicId: string): 'checked' | 'indeterminate' | 'unchecked' {
+    const epic = this.epics().find(e => e.id === epicId);
+    if (!epic) return 'unchecked';
+    const features = epic.features || [];
+    const storyIds = features.flatMap(f => (f.userStories || []).map(s => s.id));
+    const featureIds = features.map(f => f.id);
+    const epicSelected = this.selectedSyncToAzureEpics().has(epicId);
+    const selectedFeatureCount = featureIds.filter(id => this.selectedSyncToAzureFeatures().has(id)).length;
+    const selectedStoryCount = storyIds.filter(id => this.selectedSyncToAzureStories().has(id)).length;
+    const allSelected = epicSelected && selectedFeatureCount === featureIds.length && selectedStoryCount === storyIds.length;
+    const someSelected = epicSelected || selectedFeatureCount > 0 || selectedStoryCount > 0;
+    if (allSelected) return 'checked';
+    if (someSelected) return 'indeterminate';
+    return 'unchecked';
+  }
+
+  /** Feature checkbox state: checked (all selected), indeterminate (some selected), unchecked */
+  getFeatureCheckboxState(featureId: string): 'checked' | 'indeterminate' | 'unchecked' {
+    let feature: Feature | undefined;
+    for (const epic of this.epics()) {
+      feature = epic.features?.find(f => f.id === featureId);
+      if (feature) break;
+    }
+    if (!feature) return 'unchecked';
+    const storyIds = (feature.userStories || []).map(s => s.id);
+    const featureSelected = this.selectedSyncToAzureFeatures().has(featureId);
+    const selectedStoryCount = storyIds.filter(id => this.selectedSyncToAzureStories().has(id)).length;
+    const allSelected = featureSelected && selectedStoryCount === storyIds.length;
+    const someSelected = featureSelected || selectedStoryCount > 0;
+    if (allSelected) return 'checked';
+    if (someSelected) return 'indeterminate';
+    return 'unchecked';
   }
 
   isEpicSelectedForSync(epicId: string): boolean {
@@ -1548,9 +1660,27 @@ ${jsonFormatRequirement}`;
     this.syncToAzureDevOpsLoading.set(true);
     this.syncToAzureDevOpsError.set(null);
     this.syncToAzureDevOpsSuccess.set(null);
-    const epicIds = Array.from(this.selectedSyncToAzureEpics());
-    const featureIds = Array.from(this.selectedSyncToAzureFeatures());
-    const storyIds = Array.from(this.selectedSyncToAzureStories());
+    const epics = this.epics();
+    const epicIds = Array.from(this.selectedSyncToAzureEpics()).filter(id => {
+      const e = epics.find(x => x.id === id);
+      return e?.source === 'AzureDevOps' && e?.azureDevOpsWorkItemId;
+    });
+    const featureIds = Array.from(this.selectedSyncToAzureFeatures()).filter(id => {
+      for (const e of epics) {
+        const f = e.features?.find(x => x.id === id);
+        if (f) return f.source === 'AzureDevOps' && f.azureDevOpsWorkItemId;
+      }
+      return false;
+    });
+    const storyIds = Array.from(this.selectedSyncToAzureStories()).filter(id => {
+      for (const e of epics) {
+        for (const f of e.features || []) {
+          const s = f.userStories?.find(x => x.id === id);
+          if (s) return s.source === 'AzureDevOps' && s.azureDevOpsWorkItemId;
+        }
+      }
+      return false;
+    });
     this.backlogService.syncToAzureDevOps(repoId, { epicIds, featureIds, storyIds }).subscribe({
       next: (res) => {
         this.syncToAzureDevOpsLoading.set(false);
