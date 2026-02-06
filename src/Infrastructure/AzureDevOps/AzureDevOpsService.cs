@@ -393,53 +393,70 @@ public class AzureDevOpsService : IAzureDevOpsService
         {
             var result = new AzureDevOpsWorkItemsHierarchyDto();
 
-            // If teamId is provided, get the team's area path to filter work items
-            string? teamAreaPath = null;
+            // When teamId is provided, fetch team's area paths via Team Field Values API and filter WIQL
+            string? areaPathFilter = null;
             if (!string.IsNullOrEmpty(teamId))
             {
                 try
                 {
-                    var teamSettingsResponse = await httpClient.GetAsync(
-                        $"https://dev.azure.com/{organization}/{project}/{teamId}/_apis/work/teamsettings?api-version={AzureDevOpsApiVersion}",
-                        cancellationToken);
-                    
-                    if (teamSettingsResponse.IsSuccessStatusCode)
+                    var teamFieldValuesUrl = $"https://dev.azure.com/{organization}/{project}/{teamId}/_apis/work/teamsettings/teamfieldvalues?api-version={AzureDevOpsApiVersion}";
+                    var teamFieldResponse = await httpClient.GetAsync(teamFieldValuesUrl, cancellationToken);
+                    if (teamFieldResponse.IsSuccessStatusCode)
                     {
-                        var teamSettingsContent = await teamSettingsResponse.Content.ReadAsStringAsync(cancellationToken);
-                        var teamSettings = JsonDocument.Parse(teamSettingsContent);
-                        
-                        // Get the team's default area path
-                        if (teamSettings.RootElement.TryGetProperty("defaultArea", out var defaultArea) &&
-                            defaultArea.TryGetProperty("path", out var pathProp))
+                        var teamFieldContent = await teamFieldResponse.Content.ReadAsStringAsync(cancellationToken);
+                        var teamFieldDoc = JsonDocument.Parse(teamFieldContent);
+                        var root = teamFieldDoc.RootElement;
+
+                        // Team Field Values returns: { "defaultValue": "Project\\Team", "values": [{ "value": "...", "includeChildren": true }] }
+                        var areaPaths = new List<string>();
+                        if (root.TryGetProperty("defaultValue", out var defaultVal))
                         {
-                            teamAreaPath = pathProp.GetString();
-                            _logger.LogInformation("Team {TeamId} default area path: {AreaPath}", teamId, teamAreaPath);
+                            var path = defaultVal.GetString();
+                            if (!string.IsNullOrEmpty(path)) areaPaths.Add(path);
+                        }
+                        if (root.TryGetProperty("values", out var valuesArr))
+                        {
+                            foreach (var v in valuesArr.EnumerateArray())
+                            {
+                                if (v.TryGetProperty("value", out var valProp))
+                                {
+                                    var path = valProp.GetString();
+                                    if (!string.IsNullOrEmpty(path) && !areaPaths.Contains(path))
+                                        areaPaths.Add(path);
+                                }
+                            }
+                        }
+
+                        if (areaPaths.Count > 0)
+                        {
+                            // Build OR clause: (AreaPath UNDER 'path1' OR AreaPath UNDER 'path2' ...)
+                            var underClauses = areaPaths.Select(p => $"[System.AreaPath] UNDER '{p.Replace("'", "''")}'");
+                            areaPathFilter = " AND (" + string.Join(" OR ", underClauses) + ")";
+                            _logger.LogInformation("Team {TeamId} area paths: {Paths}", teamId, string.Join(", ", areaPaths));
+                        }
+                        else
+                        {
+                            _logger.LogWarning("Team {TeamId} has no area paths in team field values", teamId);
                         }
                     }
                     else
                     {
-                        _logger.LogWarning("Failed to get team settings for {TeamId}: {StatusCode}", teamId, teamSettingsResponse.StatusCode);
+                        _logger.LogWarning("Team Field Values API failed for {TeamId}: {StatusCode}", teamId, teamFieldResponse.StatusCode);
                     }
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Error getting team area path for {TeamId}", teamId);
+                    _logger.LogWarning(ex, "Error fetching team field values for {TeamId}", teamId);
                 }
             }
 
-            // Build WIQL query - optionally filter by team's area path
-            string areaPathFilter = "";
-            if (!string.IsNullOrEmpty(teamAreaPath))
-            {
-                // Use UNDER to include child area paths
-                areaPathFilter = $" AND [System.AreaPath] UNDER '{teamAreaPath}'";
-            }
+            var areaFilter = areaPathFilter ?? "";
 
             var wiqlQuery = new
             {
                 query = $@"SELECT [System.Id], [System.Title], [System.WorkItemType], [System.State], [System.AssignedTo], [System.Parent]
                           FROM WorkItems 
-                          WHERE [System.TeamProject] = '{project}'{areaPathFilter}
+                          WHERE [System.TeamProject] = '{project}'{areaFilter}
                           AND [System.WorkItemType] IN ('Epic', 'Feature', 'User Story', 'Task', 'Bug', 'Product Backlog Item')
                           ORDER BY [System.WorkItemType], [System.Id]"
             };
@@ -449,8 +466,12 @@ public class AzureDevOpsService : IAzureDevOpsService
                 Encoding.UTF8,
                 "application/json");
 
+            var wiqlUrl = $"https://dev.azure.com/{organization}/{project}/_apis/wit/wiql?api-version={AzureDevOpsApiVersion}";
+            _logger.LogInformation("Fetching work items (team filter: {TeamFilter}, area filter applied: {HasFilter})",
+                string.IsNullOrEmpty(teamId) ? "none" : teamId, !string.IsNullOrEmpty(areaFilter));
+
             var wiqlResponse = await httpClient.PostAsync(
-                $"https://dev.azure.com/{organization}/{project}/_apis/wit/wiql?api-version={AzureDevOpsApiVersion}",
+                wiqlUrl,
                 jsonContent,
                 cancellationToken);
 
