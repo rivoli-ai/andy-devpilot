@@ -1466,6 +1466,16 @@ a.source-badge.ado:hover {
   color: #24292f;
 }
 
+.source-badge.gh svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+:host-context([data-theme="dark"]) .source-badge.gh {
+  background: rgba(255, 255, 255, 0.12);
+  color: #c9d1d9;
+}
+
 .tree-row.story-row .source-badge {
   font-size: 0.6rem;
   padding: 0.1rem 0.35rem;
@@ -2987,7 +2997,7 @@ a.source-badge.ado:hover {
 
 /* Tree View */
 .ado-tree {
-  max-height: 400px;
+  max-height: 340px;
   overflow-y: auto;
   padding-right: 8px;
 }
@@ -3006,6 +3016,14 @@ a.source-badge.ado:hover {
 
 .ado-tree-item.story.orphan {
   margin-left: 28px;
+}
+
+.ado-tree-item.issue {
+  margin-left: 28px;
+}
+
+.ado-tree-item.issue.root-level {
+  margin-left: 0;
 }
 
 .ado-tree-row {
@@ -3240,6 +3258,12 @@ a.source-badge.ado:hover {
   transform: rotate(90deg);
 }
 
+.ado-expand-spacer {
+  width: 22px;
+  min-width: 22px;
+  flex-shrink: 0;
+}
+
 .ado-item-type {
   display: inline-flex;
   align-items: center;
@@ -3282,6 +3306,23 @@ a.source-badge.ado:hover {
   background: var(--surface-tertiary, rgba(255, 255, 255, 0.1));
   padding: 2px 6px;
   border-radius: 10px;
+}
+
+.ado-issue-count,
+.ado-issue-number {
+  font-size: 11px;
+  color: var(--text-muted);
+  background: var(--surface-tertiary, rgba(255, 255, 255, 0.1));
+  padding: 2px 6px;
+  border-radius: 10px;
+}
+
+.ado-label {
+  font-size: 10px;
+  color: var(--text-muted);
+  background: var(--surface-tertiary, rgba(255, 255, 255, 0.08));
+  padding: 2px 6px;
+  border-radius: 6px;
 }
 
 .ado-item-state {
@@ -3733,8 +3774,16 @@ a.source-badge.ado:hover {
 
 .gh-modal-body {
   padding: 24px;
-  overflow-y: auto;
   flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.gh-modal-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .gh-loading {
@@ -3786,6 +3835,136 @@ a.source-badge.ado:hover {
   gap: 16px;
 }
 
+/* Filters bar (like ADO) */
+.gh-filters-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 16px;
+  background: var(--surface-elevated, rgba(255, 255, 255, 0.04));
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
+  border-radius: 12px;
+  margin-bottom: 16px;
+}
+
+.gh-filter-status,
+.gh-filter-search-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gh-segmented-toggle {
+  display: inline-flex;
+  background: var(--surface-default, rgba(0, 0, 0, 0.2));
+  border-radius: 10px;
+  padding: 3px;
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
+}
+
+.gh-toggle-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: transparent;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.gh-toggle-option:hover {
+  color: var(--text-primary);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.gh-toggle-option.active {
+  color: #fff;
+  background: #24292e;
+  box-shadow: 0 2px 8px rgba(36, 41, 46, 0.35);
+}
+
+.gh-toggle-option svg {
+  flex-shrink: 0;
+}
+
+.gh-filter-search-wrap {
+  flex: 1;
+  min-width: 220px;
+  max-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.gh-filter-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-tertiary);
+}
+
+.gh-filter-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px;
+  background: var(--surface-default, rgba(0, 0, 0, 0.2));
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.gh-filter-search:focus-within {
+  border-color: #0366d6;
+  box-shadow: 0 0 0 2px rgba(3, 102, 214, 0.2);
+}
+
+.gh-filter-search svg {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+}
+
+.gh-filter-search input {
+  flex: 1;
+  padding: 10px 0;
+  background: transparent;
+  border: none;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.gh-filter-search input:focus {
+  outline: none;
+}
+
+.gh-filter-search input::placeholder {
+  color: var(--text-tertiary);
+}
+
+.gh-filter-clear {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.gh-filter-clear:hover {
+  color: var(--text-primary);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.05));
+}
+
 .gh-stat {
   font-size: 13px;
   font-weight: 500;
@@ -3793,14 +3972,20 @@ a.source-badge.ado:hover {
   border-radius: 12px;
 }
 
-.gh-stat.milestone {
+/* Epic/Feature/Story colors (same as ADO) */
+.gh-stat.epic {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+}
+
+.gh-stat.feature {
   background: rgba(139, 92, 246, 0.15);
   color: #a78bfa;
 }
 
-.gh-stat.issue {
-  background: rgba(34, 197, 94, 0.15);
-  color: #4ade80;
+.gh-stat.story {
+  background: rgba(59, 130, 246, 0.15);
+  color: #60a5fa;
 }
 
 .gh-stat.unassigned {
@@ -3871,6 +4056,10 @@ a.source-badge.ado:hover {
   margin-left: 28px;
 }
 
+.gh-tree-item.issue.root-level {
+  margin-left: 0;
+}
+
 .gh-tree-row {
   display: flex;
   align-items: center;
@@ -3929,6 +4118,23 @@ a.source-badge.ado:hover {
   transform: rotate(45deg);
 }
 
+.gh-checkbox.indeterminate .checkmark {
+  background: #24292e;
+  border-color: #24292e;
+}
+
+.gh-checkbox.indeterminate .checkmark::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 7px;
+  width: 10px;
+  height: 2px;
+  background: white;
+  border: none;
+  transform: none;
+}
+
 .gh-expand-btn {
   background: transparent;
   border: none;
@@ -3957,6 +4163,12 @@ a.source-badge.ado:hover {
   transform: rotate(90deg);
 }
 
+.gh-expand-spacer {
+  width: 22px;
+  min-width: 22px;
+  flex-shrink: 0;
+}
+
 .gh-item-type {
   display: inline-flex;
   align-items: center;
@@ -3971,20 +4183,25 @@ a.source-badge.ado:hover {
   color: white;
 }
 
+.gh-item-type.epic,
 .gh-item-type.milestone {
   background: #f59e0b;
+  color: white;
 }
 
 .gh-item-type.feature {
   background: #8b5cf6;
+  color: white;
 }
 
 .gh-item-type.story {
   background: #3b82f6;
+  color: white;
 }
 
 .gh-item-type.unassigned {
   background: #6e7681;
+  color: white;
 }
 
 .gh-item-title {
@@ -4074,7 +4291,8 @@ a.source-badge.ado:hover {
   display: flex;
   justify-content: flex-end;
   gap: 12px;
-  margin-top: 24px;
+  flex-shrink: 0;
+  margin-top: 16px;
   padding-top: 20px;
   border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
 }
@@ -4120,4 +4338,118 @@ a.source-badge.ado:hover {
 .gh-btn.secondary:hover {
   background: var(--surface-hover, rgba(255, 255, 255, 0.05));
   color: var(--text-primary);
+}
+
+/* Light mode - GitHub Import Modal (match ADO) */
+:host-context([data-theme="light"]) .gh-modal {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .gh-modal-header {
+  border-bottom-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .gh-modal-title h2 {
+  color: #111827;
+}
+
+:host-context([data-theme="light"]) .gh-filters-bar {
+  background: #f9fafb;
+  border-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .gh-segmented-toggle {
+  background: #e5e7eb;
+  border-color: #d1d5db;
+}
+
+:host-context([data-theme="light"]) .gh-toggle-option {
+  color: #4b5563;
+}
+
+:host-context([data-theme="light"]) .gh-toggle-option:hover {
+  color: #111827;
+  background: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .gh-toggle-option.active {
+  color: #fff;
+  background: #24292e;
+}
+
+:host-context([data-theme="light"]) .gh-filter-label {
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .gh-filter-search {
+  background: #ffffff;
+  border-color: #d1d5db;
+}
+
+:host-context([data-theme="light"]) .gh-filter-search input {
+  color: #111827;
+}
+
+:host-context([data-theme="light"]) .gh-filter-search input::placeholder {
+  color: #9ca3af;
+}
+
+:host-context([data-theme="light"]) .gh-stat.epic {
+  background: rgba(245, 158, 11, 0.15);
+  color: #b45309;
+}
+
+:host-context([data-theme="light"]) .gh-stat.feature {
+  background: rgba(139, 92, 246, 0.15);
+  color: #6d28d9;
+}
+
+:host-context([data-theme="light"]) .gh-stat.story {
+  background: rgba(59, 130, 246, 0.15);
+  color: #2563eb;
+}
+
+:host-context([data-theme="light"]) .gh-stat.unassigned {
+  background: rgba(156, 163, 175, 0.15);
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .gh-link-btn {
+  color: #374151;
+}
+
+:host-context([data-theme="light"]) .gh-link-btn:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+:host-context([data-theme="light"]) .gh-description {
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .gh-tree-row:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+:host-context([data-theme="light"]) .gh-tree-row.selected {
+  background: rgba(3, 102, 214, 0.08);
+  border-color: rgba(3, 102, 214, 0.2);
+}
+
+:host-context([data-theme="light"]) .gh-tree-children {
+  border-left-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .gh-form-actions {
+  border-top-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .gh-btn.secondary {
+  color: #374151;
+  border-color: #d1d5db;
+}
+
+:host-context([data-theme="light"]) .gh-btn.secondary:hover {
+  background: #f3f4f6;
+  color: #111827;
 }

@@ -829,6 +829,199 @@
   color: #a5d6ff;
 }
 
+/* Light mode - Code file reader */
+:host-context([data-theme="light"]) .file-content.code-viewer {
+  background: #f6f8fa;
+}
+
+:host-context([data-theme="light"]) .code-toolbar {
+  background: #eaeef2;
+  border-bottom-color: rgba(0, 0, 0, 0.12);
+}
+
+:host-context([data-theme="light"]) .code-lang-label {
+  color: #57606a;
+}
+
+:host-context([data-theme="light"]) .copy-btn {
+  color: #24292f;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+:host-context([data-theme="light"]) .copy-btn:hover {
+  color: #24292f;
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+:host-context([data-theme="light"]) .line-number {
+  background: #f6f8fa;
+  color: #57606a;
+  border-right-color: rgba(0, 0, 0, 0.12);
+}
+
+:host-context([data-theme="light"]) .line-content {
+  color: #24292f;
+}
+
+:host-context([data-theme="light"]) .code-line:hover {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+/* Light mode - Code viewer Prism tokens (GitHub Light) */
+:host-context([data-theme="light"]) .code-viewer .token.comment,
+:host-context([data-theme="light"]) .code-viewer .token.prolog,
+:host-context([data-theme="light"]) .code-viewer .token.doctype,
+:host-context([data-theme="light"]) .code-viewer .token.cdata {
+  color: #6e7781;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.punctuation {
+  color: #24292f;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.property {
+  color: #0550ae;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.tag,
+:host-context([data-theme="light"]) .code-viewer .token.constant,
+:host-context([data-theme="light"]) .code-viewer .token.symbol,
+:host-context([data-theme="light"]) .code-viewer .token.deleted {
+  color: #cf222e;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.boolean,
+:host-context([data-theme="light"]) .code-viewer .token.number {
+  color: #0550ae;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.selector,
+:host-context([data-theme="light"]) .code-viewer .token.attr-name,
+:host-context([data-theme="light"]) .code-viewer .token.char,
+:host-context([data-theme="light"]) .code-viewer .token.builtin,
+:host-context([data-theme="light"]) .code-viewer .token.inserted {
+  color: #0a3069;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.string {
+  color: #0a3069;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.operator,
+:host-context([data-theme="light"]) .code-viewer .token.entity,
+:host-context([data-theme="light"]) .code-viewer .token.url,
+:host-context([data-theme="light"]) .code-viewer .token.variable {
+  color: #0550ae;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.atrule,
+:host-context([data-theme="light"]) .code-viewer .token.attr-value,
+:host-context([data-theme="light"]) .code-viewer .token.function {
+  color: #8250df;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.class-name {
+  color: #116329;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.keyword {
+  color: #cf222e;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.regex,
+:host-context([data-theme="light"]) .code-viewer .token.important {
+  color: #116329;
+}
+
+:host-context([data-theme="light"]) .code-viewer[data-lang="json"] .token.property {
+  color: #0550ae;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.keyword.sql {
+  color: #cf222e;
+}
+
+:host-context([data-theme="light"]) .code-viewer .token.string.sql {
+  color: #0a3069;
+}
+
+/* Light mode - File explanation panel (in code file reader) */
+:host-context([data-theme="light"]) .file-explanation {
+  background: linear-gradient(180deg, #f6f8fa 0%, #ffffff 100%);
+  border-top-color: rgba(139, 92, 246, 0.2);
+}
+
+:host-context([data-theme="light"]) .explanation-header {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.08), rgba(99, 102, 241, 0.05));
+  border-bottom-color: rgba(139, 92, 246, 0.15);
+}
+
+:host-context([data-theme="light"]) .explanation-title span {
+  background: linear-gradient(135deg, #7c3aed, #6d28d9);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+:host-context([data-theme="light"]) .explanation-title svg {
+  color: #7c3aed;
+}
+
+:host-context([data-theme="light"]) .refresh-file-btn {
+  color: #57606a;
+  background: rgba(0, 0, 0, 0.04);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+:host-context([data-theme="light"]) .refresh-file-btn:hover:not(:disabled) {
+  color: #24292f;
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
+:host-context([data-theme="light"]) .close-explanation-btn {
+  color: #57606a;
+}
+
+:host-context([data-theme="light"]) .close-explanation-btn:hover {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.08);
+}
+
+:host-context([data-theme="light"]) .file-explanation .exp-section {
+  background: rgba(0, 0, 0, 0.02);
+  border-color: rgba(0, 0, 0, 0.08);
+}
+
+:host-context([data-theme="light"]) .file-explanation .exp-section:hover {
+  background: rgba(0, 0, 0, 0.03);
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+:host-context([data-theme="light"]) .file-explanation .exp-section h4 {
+  color: #24292f;
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+}
+
+:host-context([data-theme="light"]) .file-explanation .exp-content.markdown-content,
+:host-context([data-theme="light"]) .file-explanation .exp-content.markdown-content p,
+:host-context([data-theme="light"]) .file-explanation .exp-content.markdown-content li {
+  color: #24292f;
+}
+
+:host-context([data-theme="light"]) .file-explanation .exp-content.markdown-content strong,
+:host-context([data-theme="light"]) .file-explanation .exp-content.markdown-content h1,
+:host-context([data-theme="light"]) .file-explanation .exp-content.markdown-content h2,
+:host-context([data-theme="light"]) .file-explanation .exp-content.markdown-content h3 {
+  color: #24292f;
+}
+
+:host-context([data-theme="light"]) .file-explanation .exp-meta {
+  color: #57606a;
+}
+
 /* Light theme adjustments */
 :host-context([data-theme="light"]) .tree-node.directory .node-icon {
   color: #c9a227;
@@ -1245,6 +1438,17 @@
   border-color: rgba(255, 255, 255, 0.15);
 }
 
+:host-context([data-theme="light"]) .refresh-btn {
+  background: rgba(0, 0, 0, 0.04);
+  color: #24292f;
+  border-color: rgba(0, 0, 0, 0.12);
+}
+
+:host-context([data-theme="light"]) .refresh-btn:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  border-color: rgba(0, 0, 0, 0.18);
+}
+
 .refresh-btn:disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -1628,6 +1832,22 @@
   width: auto !important;
 }
 
+/* Dark mode - force text visibility on colored shapes (custom fills can make text invisible) */
+:host-context([data-theme="dark"]) ::ng-deep .mermaid svg .node .label,
+:host-context([data-theme="dark"]) ::ng-deep .mermaid svg .nodeLabel,
+:host-context([data-theme="dark"]) ::ng-deep .mermaid svg .node text,
+:host-context([data-theme="dark"]) ::ng-deep .mermaid svg text,
+:host-context([data-theme="dark"]) ::ng-deep .mermaid svg .edgeLabel text {
+  fill: #e6edf3 !important;
+  color: #e6edf3 !important;
+}
+
+/* Dark mode - label-container fill for dark theme */
+:host-context([data-theme="dark"]) ::ng-deep .mermaid svg .label-container,
+:host-context([data-theme="dark"]) ::ng-deep .mermaid svg .label-container rect {
+  fill: #21262d !important;
+}
+
 /* Light mode overrides for Mermaid */
 :host-context([data-theme="light"]) ::ng-deep .mermaid-wrapper {
   background: linear-gradient(180deg, rgba(139, 92, 246, 0.05) 0%, #ffffff 100%);
@@ -1737,16 +1957,17 @@
 
 /* Light mode overrides for code blocks */
 :host-context([data-theme="light"]) ::ng-deep .code-block-wrapper {
-  border-color: rgba(0, 0, 0, 0.1);
+  background: #f6f8fa !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
 }
 
 :host-context([data-theme="light"]) ::ng-deep .code-block-header {
-  background: rgba(0, 0, 0, 0.03);
-  border-bottom-color: rgba(0, 0, 0, 0.08);
+  background: #eaeef2 !important;
+  border-bottom-color: rgba(0, 0, 0, 0.12) !important;
 }
 
 :host-context([data-theme="light"]) ::ng-deep .code-lang {
-  color: #57606a;
+  color: #57606a !important;
 }
 
 :host-context([data-theme="light"]) ::ng-deep .code-block {
@@ -1822,6 +2043,42 @@
   border: none;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   margin: 24px 0;
+}
+
+/* Light mode - analysis section markdown */
+:host-context([data-theme="light"]) .analysis-section .markdown-content h1 {
+  border-bottom-color: rgba(0, 0, 0, 0.1);
+  color: #24292f;
+}
+
+:host-context([data-theme="light"]) .analysis-section .markdown-content h2 {
+  color: #7c3aed;
+}
+
+:host-context([data-theme="light"]) .analysis-section .markdown-content h3 {
+  color: #6d28d9;
+}
+
+:host-context([data-theme="light"]) .analysis-section .markdown-content h4 {
+  color: #57606a;
+}
+
+:host-context([data-theme="light"]) .analysis-section .markdown-content blockquote {
+  background: rgba(139, 92, 246, 0.06);
+  color: #57606a;
+}
+
+:host-context([data-theme="light"]) .analysis-section .markdown-content hr {
+  border-top-color: rgba(0, 0, 0, 0.1);
+}
+
+:host-context([data-theme="light"]) .analysis-section .markdown-content p,
+:host-context([data-theme="light"]) .analysis-section .markdown-content li {
+  color: #24292f;
+}
+
+:host-context([data-theme="light"]) .analysis-section .markdown-content strong {
+  color: #24292f;
 }
 
 /* ============================================

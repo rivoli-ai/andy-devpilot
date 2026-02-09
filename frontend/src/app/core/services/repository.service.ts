@@ -160,6 +160,17 @@ export class RepositoryService {
   }
 
   /**
+   * Add a GitHub repository manually by URL (e.g. https://github.com/owner/repo or owner/repo)
+   * Requires GitHub to be connected.
+   */
+  addManualGitHubRepo(repoUrl: string): Observable<{ id: string; name: string; fullName: string; provider: string; organizationName: string; defaultBranch?: string; alreadyExists: boolean }> {
+    return this.apiService.post<{ id: string; name: string; fullName: string; provider: string; organizationName: string; defaultBranch?: string; alreadyExists: boolean }>(
+      '/repositories/add-github',
+      { repoUrl }
+    );
+  }
+
+  /**
    * Sync repositories from GitHub
    * Uses authenticated user's GitHub token
    */

@@ -94,7 +94,7 @@
           </div>
         }
       </div>
-      @if (epics().length === 0) {
+      @if (totalEpics() === 0) {
         <button class="action-btn secondary" (click)="openAddEpic()" title="Add Epic">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <polygon points="12 2 2 7 12 12 22 7 12 2"/>
@@ -113,6 +113,24 @@
             <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
           </svg>
           Import from GitHub
+        </button>
+        <button 
+          class="action-btn secondary"
+          (click)="syncToGitHub()"
+          [disabled]="syncToGitHubLoading() || !hasGitHubImportedItems() || !hasSyncSelection()"
+          title="Push selected items to GitHub (import from GitHub first, then select items)"
+        >
+          @if (syncToGitHubLoading()) {
+            <span class="spinner-small"></span>
+            Syncing...
+          } @else {
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Sync to GitHub
+          }
         </button>
       }
       <!-- Import from Azure DevOps (only for Azure DevOps repos) -->
@@ -166,7 +184,7 @@
   </div>
 
   <!-- Selection bar (Select All, Deselect All, Delete selected) -->
-  @if (!loading() && epics().length > 0) {
+  @if (!loading() && hasAnyBacklogItems()) {
     <div class="sync-to-azure-bar">
       <span class="sync-bar-label">Selection:</span>
       <div class="sync-bar-actions">
@@ -175,6 +193,36 @@
         <span class="sync-selection-count">{{ selectedSyncToAzureEpics().size + selectedSyncToAzureFeatures().size + selectedSyncToAzureStories().size }} selected</span>
         <button type="button" class="sync-delete-btn" (click)="openBulkDeleteConfirmation()" [disabled]="!hasSyncSelection()" title="Delete selected items">Delete selected</button>
       </div>
+    </div>
+  }
+
+  <!-- Sync to GitHub status banner -->
+  @if (syncToGitHubSuccess() || syncToGitHubError()) {
+    <div class="generation-banner" [class]="syncToGitHubError() && !syncToGitHubSuccess() ? 'state-error' : 'state-complete'">
+      @if (syncToGitHubSuccess()) {
+        <div class="banner-content success">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+          <span>
+            Synced {{ syncToGitHubSuccess()!.syncedCount }} item(s) to GitHub
+            @if (syncToGitHubSuccess()!.failedCount > 0) {
+              ({{ syncToGitHubSuccess()!.failedCount }} failed)
+            }
+          </span>
+          <button class="close-btn" (click)="syncToGitHubSuccess.set(null); syncToGitHubError.set(null)">×</button>
+        </div>
+      } @else if (syncToGitHubError()) {
+        <div class="banner-content error">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="10"/>
+            <line x1="12" y1="8" x2="12" y2="12"/>
+            <line x1="12" y1="16" x2="12.01" y2="16"/>
+          </svg>
+          <span>{{ syncToGitHubError() }}</span>
+          <button class="close-btn" (click)="syncToGitHubError.set(null); syncToGitHubSuccess.set(null)">×</button>
+        </div>
+      }
     </div>
   }
 
@@ -233,7 +281,7 @@
   }
 
   <!-- Stats Bar -->
-  @if (!loading() && epics().length > 0) {
+  @if (!loading() && hasAnyBacklogItems()) {
     <div class="stats-bar">
       <div class="stat-item">
         <span class="stat-icon epic">E</span>
@@ -282,7 +330,7 @@
   }
 
   <!-- Toolbar -->
-  @if (!loading() && epics().length > 0) {
+  @if (!loading() && hasAnyBacklogItems()) {
     <div class="toolbar">
       <div class="toolbar-left">
         <div class="search-box">
@@ -358,7 +406,7 @@
           </svg>
           Epic
         </button>
-        @if (epics().length > 0) {
+        @if (totalEpics() > 0) {
           <button class="toolbar-add-btn feature" (click)="openAddFeature()" title="Add Feature">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <rect x="3" y="3" width="7" height="7"/>
@@ -454,7 +502,7 @@
           </div>
         </div>
       </div>
-    } @else if (epics().length === 0) {
+    } @else if (!hasAnyBacklogItems()) {
       <div class="empty-state">
         <div class="empty-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
@@ -531,7 +579,7 @@
                     <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                   }
                 }
-                @if (epic.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                @if (epic.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                 <span class="children-count" *ngIf="epic.features.length > 0">
                   {{ epic.features.length }} features
                 </span>
@@ -580,7 +628,7 @@
                           <span class="meta-label">Source</span>
                           <span class="meta-value">
                             @if (epic.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
-                            @if (epic.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                            @if (epic.source === 'GitHub') { <span class="source-badge gh" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                           </span>
                         </div>
                       }
@@ -652,7 +700,7 @@
                         <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                       }
                     }
-                      @if (feature.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                      @if (feature.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                       <span class="children-count" *ngIf="feature.userStories.length > 0">
                         {{ feature.userStories.length }} stories
                       </span>
@@ -701,7 +749,7 @@
                                 <span class="meta-label">Source</span>
                                 <span class="meta-value">
                                   @if (feature.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
-                                  @if (feature.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                                  @if (feature.source === 'GitHub') { <span class="source-badge gh" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                                 </span>
                               </div>
                             }
@@ -791,7 +839,7 @@
                               <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                             }
                           }
-                          @if (story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                          @if (story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                           @if (hasStoryWarning(story)) {
                             <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(story)" [title]="getStoryWarningMessage(story)" (click)="$event.stopPropagation()">
                               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -860,7 +908,7 @@
                                     <span class="meta-label">Source</span>
                                     <span class="meta-value">
                                       @if (story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
-                                      @if (story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                                      @if (story.source === 'GitHub') { <span class="source-badge gh" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                                     </span>
                                   </div>
                                 }
@@ -974,7 +1022,7 @@
                     <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                   }
                 }
-                @if (feature.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                @if (feature.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                 <span class="children-count" *ngIf="feature.userStories.length > 0">{{ feature.userStories.length }} stories</span>
               </div>
               <div class="row-status">
@@ -1006,7 +1054,7 @@
                       <div class="detail-meta-item"><span class="meta-label">Total Points</span><span class="meta-value">{{ getFeatureStoryPoints(feature) }}</span></div>
                       <div class="detail-meta-item"><span class="meta-label">Progress</span><span class="meta-value">{{ getFeatureProgress(feature) }}%</span></div>
                       @if (feature.source && feature.source !== 'Manual') {
-                        <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (feature.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (feature.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }</span></div>
+                        <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (feature.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (feature.source === 'GitHub') { <span class="source-badge gh" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }</span></div>
                       }
                       <div class="detail-actions">
                         <button class="add-item-btn" (click)="openAddStory(feature.id); $event.stopPropagation()" title="Add User Story"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>Add Story</button>
@@ -1061,7 +1109,7 @@
                           <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                         }
                       }
-                      @if (story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                      @if (story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                       @if (hasStoryWarning(story)) {
                         <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(story)" [title]="getStoryWarningMessage(story)" (click)="$event.stopPropagation()">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -1089,7 +1137,7 @@
                             <div class="detail-meta-item"><span class="meta-label">Priority</span><span class="meta-value">{{ story.priority || 'Normal' }}</span></div>
                             <div class="detail-meta-item"><span class="meta-label">Status</span><span class="meta-value">{{ getEffectiveStoryStatus(story) }}</span></div>
                             @if (story.source && story.source !== 'Manual') {
-                              <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }</span></div>
+                              <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (story.source === 'GitHub') { <span class="source-badge gh" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }</span></div>
                             }
                             @if (story.prUrl) { <div class="detail-meta-item pr-link-item"><span class="meta-label">Pull Request</span><a [href]="story.prUrl" target="_blank" rel="noopener" class="pr-link-badge"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>View PR</a></div> }
                             <div class="detail-actions">
@@ -1114,12 +1162,13 @@
           </div>
         }
 
-        <!-- Standalone stories (no feature) - story rows only -->
-        @for (item of standaloneStoriesForTree(); track item.story.id) {
-          <div class="tree-group nested-0">
-            <div 
-              class="tree-row story-row nested-2"
-              [class.selected]="isSelected(item.story.id)"
+        <!-- Standalone stories (no feature) - story rows only, like DevOps -->
+        <div class="tree-group standalone-stories">
+          @for (item of standaloneStoriesForTree(); track item.story.id) {
+            <div class="tree-group nested-0">
+              <div 
+                class="tree-row story-row standalone nested-2"
+                [class.selected]="isSelected(item.story.id)"
               [class.creating]="isCreatingSandbox(item.story.id)"
               (click)="onUserStoryClick(item.story.id)"
             >
@@ -1151,7 +1200,7 @@
                     <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                   }
                 }
-                @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                 @if (hasStoryWarning(item.story)) {
                   <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
@@ -1179,7 +1228,7 @@
                       <div class="detail-meta-item"><span class="meta-label">Priority</span><span class="meta-value">{{ item.story.priority || 'Normal' }}</span></div>
                       <div class="detail-meta-item"><span class="meta-label">Status</span><span class="meta-value">{{ getEffectiveStoryStatus(item.story) }}</span></div>
                       @if (item.story.source && item.story.source !== 'Manual') {
-                        <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (item.story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (item.story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }</span></div>
+                        <div class="detail-meta-item"><span class="meta-label">Source</span><span class="meta-value">@if (item.story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> } @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }</span></div>
                       }
                       @if (item.story.prUrl) { <div class="detail-meta-item pr-link-item"><span class="meta-label">Pull Request</span><a [href]="item.story.prUrl" target="_blank" rel="noopener" class="pr-link-badge"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><line x1="6" y1="9" x2="6" y2="21"/></svg>View PR</a></div> }
                       <div class="detail-actions">
@@ -1196,8 +1245,9 @@
                 </div>
               </div>
             }
-          </div>
-        }
+            </div>
+          }
+        </div>
       </div>
     } @else {
       <!-- Flat View - All User Stories -->
@@ -1270,7 +1320,7 @@
                     <span class="source-badge ado" title="Imported from Azure DevOps"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/></svg></span>
                   }
                 }
-                @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub">GH</span> }
+                @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="Imported from GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                 @if (hasStoryWarning(item.story)) {
                   <span class="story-warning" [attr.data-tooltip]="getStoryWarningMessage(item.story)" [title]="getStoryWarningMessage(item.story)" (click)="$event.stopPropagation()">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
@@ -1343,7 +1393,7 @@
                           <span class="meta-label">Source</span>
                           <span class="meta-value">
                             @if (item.story.source === 'AzureDevOps') { <span class="source-badge ado">Azure DevOps</span> }
-                            @if (item.story.source === 'GitHub') { <span class="source-badge gh">GitHub</span> }
+                            @if (item.story.source === 'GitHub') { <span class="source-badge gh" title="GitHub"><svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg></span> }
                           </span>
                         </div>
                       }
@@ -1992,16 +2042,16 @@
 
   <!-- GitHub Import Modal -->
   @if (showGitHubImport()) {
-    <div class="gh-modal-overlay" (click)="closeGitHubImport()">
-      <div class="gh-modal" (click)="$event.stopPropagation()">
-        <div class="gh-modal-header">
-          <div class="gh-modal-title">
+    <div class="ado-modal-overlay" (click)="closeGitHubImport()">
+      <div class="ado-modal" (click)="$event.stopPropagation()">
+        <div class="ado-modal-header">
+          <div class="ado-modal-title">
             <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
               <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
             </svg>
             <h2>Import from GitHub</h2>
           </div>
-          <button class="gh-modal-close" (click)="closeGitHubImport()">
+          <button class="ado-modal-close" (click)="closeGitHubImport()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
@@ -2009,7 +2059,7 @@
           </button>
         </div>
 
-        <div class="gh-modal-body">
+        <div class="ado-modal-body">
           @if (gitHubLoading()) {
             <div class="gh-loading">
               <span class="spinner-small"></span>
@@ -2023,29 +2073,92 @@
                 <line x1="12" y1="16" x2="12.01" y2="16"/>
               </svg>
               <p>{{ gitHubError() }}</p>
-              <button class="gh-btn secondary" (click)="fetchGitHubIssues()">Try Again</button>
+              <button class="ado-btn secondary" (click)="fetchGitHubIssues()">Try Again</button>
             </div>
           } @else if (gitHubIssues()) {
             <!-- Issues Selection -->
-            <div class="gh-issues">
-              <div class="gh-issues-header">
-                <div class="gh-issues-stats">
-                  <span class="gh-stat milestone">{{ gitHubIssues()!.milestones.length }} Milestones</span>
-                  <span class="gh-stat issue">{{ gitHubIssues()!.issues.length }} Issues</span>
-                  <span class="gh-stat unassigned">{{ gitHubIssues()!.unassignedIssues.length }} Unassigned</span>
+            <div class="ado-work-items">
+              <!-- Filters -->
+              <div class="ado-filters-bar">
+                <div class="ado-filter-status">
+                  <span class="ado-filter-label">Status</span>
+                  <div class="ado-segmented-toggle">
+                    <button 
+                      type="button" 
+                      class="ado-toggle-option" 
+                      [class.active]="!ghShowAllStatuses()"
+                      (click)="ghShowAllStatuses.set(false)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M22 11.08V12a10 10 0 11-5.93-9.14"/>
+                        <polyline points="22 4 12 14.01 9 11.01"/>
+                      </svg>
+                      Active only
+                    </button>
+                    <button 
+                      type="button" 
+                      class="ado-toggle-option" 
+                      [class.active]="ghShowAllStatuses()"
+                      (click)="ghShowAllStatuses.set(true)"
+                    >
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <circle cx="12" cy="12" r="10"/>
+                        <line x1="12" y1="16" x2="12" y2="12"/>
+                        <line x1="12" y1="8" x2="12.01" y2="8"/>
+                      </svg>
+                      All
+                    </button>
+                  </div>
                 </div>
-                <div class="gh-selection-actions">
-                  <button class="gh-link-btn" (click)="selectAllGitHubMilestones()">Select All</button>
-                  <button class="gh-link-btn" (click)="deselectAllGitHubMilestones()">Deselect All</button>
+                <div class="ado-filter-search-wrap">
+                  <span class="ado-filter-label">Filter</span>
+                  <div class="ado-filter-search">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16">
+                      <circle cx="11" cy="11" r="8"/>
+                      <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                    </svg>
+                    <input 
+                      type="text" 
+                      placeholder="Search by name..." 
+                      [ngModel]="ghNameFilter()" 
+                      (ngModelChange)="ghNameFilter.set($event)" 
+                      name="ghNameFilter"
+                    />
+                    @if (ghNameFilter()) {
+                      <button type="button" class="ado-filter-clear" (click)="ghNameFilter.set('')" title="Clear">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                          <line x1="18" y1="6" x2="6" y2="18"/>
+                          <line x1="6" y1="6" x2="18" y2="18"/>
+                        </svg>
+                      </button>
+                    }
+                  </div>
+                </div>
+              </div>
+              <div class="ado-work-items-header">
+                <div class="ado-work-items-stats">
+                  @if (getGitHubEpicsCount() > 0) {
+                    <span class="ado-stat epic">{{ getGitHubEpicsCount() }} Epics</span>
+                  }
+                  @if (getGitHubFeaturesCount() > 0) {
+                    <span class="ado-stat feature">{{ getGitHubFeaturesCount() }} Features</span>
+                  }
+                  @if (getGitHubStoriesCount() > 0) {
+                    <span class="ado-stat story">{{ getGitHubStoriesCount() }} User Stories</span>
+                  }
+                </div>
+                <div class="ado-selection-actions">
+                  <button class="ado-link-btn" (click)="selectAllGitHubItems()">Select All</button>
+                  <button class="ado-link-btn" (click)="deselectAllGitHubItems()">Deselect All</button>
                 </div>
               </div>
 
-              <p class="gh-description">
-                Select milestones to import as Epics. Issues with "feature" or "enhancement" labels become Features, other issues become User Stories.
+              <p class="ado-form-description">
+                Select items to import. Epics (milestones) select all issues. Issues with "feature" or "enhancement" labels become Features, others become User Stories.
               </p>
 
-              @if (gitHubIssues()!.milestones.length === 0 && gitHubIssues()!.unassignedIssues.length === 0) {
-                <div class="gh-empty">
+              @if (getFilteredGitHubMilestones().length === 0 && getFilteredGitHubUnassignedIssues().length === 0) {
+                <div class="ado-empty">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                     <circle cx="12" cy="12" r="10"/>
                     <line x1="8" y1="12" x2="16" y2="12"/>
@@ -2053,21 +2166,21 @@
                   <p>No issues found in this repository.</p>
                 </div>
               } @else {
-                <div class="gh-tree">
-                  <!-- Milestones -->
-                  @for (milestone of gitHubIssues()!.milestones; track milestone.number) {
-                    <div class="gh-tree-item milestone">
-                      <div class="gh-tree-row" [class.selected]="isGitHubMilestoneSelected(milestone.number)">
-                        <label class="gh-checkbox">
+                <div class="ado-tree">
+                  <!-- Epics (Milestones) -->
+                  @for (milestone of getFilteredGitHubMilestones(); track milestone.number) {
+                    <div class="ado-tree-item epic">
+                      <div class="ado-tree-row" [class.selected]="getGitHubMilestoneCheckboxState(milestone.number) !== 'unchecked'">
+                        <label class="ado-checkbox" [class.indeterminate]="getGitHubMilestoneCheckboxState(milestone.number) === 'indeterminate'">
                           <input 
                             type="checkbox" 
-                            [checked]="isGitHubMilestoneSelected(milestone.number)"
+                            [checked]="getGitHubMilestoneCheckboxState(milestone.number) === 'checked'"
                             (change)="toggleGitHubMilestoneSelection(milestone.number)"
                           />
                           <span class="checkmark"></span>
                         </label>
                         <button 
-                          class="gh-expand-btn"
+                          class="ado-expand-btn"
                           [class.expanded]="isGitHubMilestoneExpanded(milestone.number)"
                           (click)="toggleGitHubMilestoneExpand(milestone.number)"
                         >
@@ -2075,26 +2188,35 @@
                             <polyline points="9 18 15 12 9 6"/>
                           </svg>
                         </button>
-                        <span class="gh-item-type milestone">M</span>
-                        <span class="gh-item-title">{{ milestone.title }}</span>
-                        <span class="gh-issue-count">{{ getGitHubIssuesForMilestone(milestone.number).length }} issues</span>
-                        <span class="gh-item-state" [class]="getGitHubStateClass(milestone.state)">{{ milestone.state }}</span>
+                        <span class="ado-item-type epic">E</span>
+                        <span class="ado-item-title">{{ milestone.title }}</span>
+                        <span class="ado-issue-count">{{ getFilteredGitHubIssuesForMilestone(milestone.number).length }} issues</span>
+                        <span class="ado-item-state" [class]="getGitHubStateClass(milestone.state)">{{ milestone.state }}</span>
                       </div>
 
                       @if (isGitHubMilestoneExpanded(milestone.number)) {
-                        <div class="gh-tree-children">
-                          @for (issue of getGitHubIssuesForMilestone(milestone.number); track issue.number) {
-                            <div class="gh-tree-item issue">
-                              <div class="gh-tree-row">
-                                <span class="gh-item-type" [class.feature]="hasGitHubLabel(issue, 'feature') || hasGitHubLabel(issue, 'enhancement')" [class.story]="!hasGitHubLabel(issue, 'feature') && !hasGitHubLabel(issue, 'enhancement')">
+                        <div class="ado-tree-children">
+                          @for (issue of getFilteredGitHubIssuesForMilestone(milestone.number); track issue.number) {
+                            <div class="ado-tree-item issue">
+                              <div class="ado-tree-row" [class.selected]="isGitHubIssueSelected(issue.number)">
+                                <label class="ado-checkbox">
+                                  <input 
+                                    type="checkbox" 
+                                    [checked]="isGitHubIssueSelected(issue.number)"
+                                    (change)="toggleGitHubIssueSelection(issue.number)"
+                                  />
+                                  <span class="checkmark"></span>
+                                </label>
+                                <span class="ado-expand-spacer" aria-hidden="true"></span>
+                                <span class="ado-item-type" [class.feature]="hasGitHubLabel(issue, 'feature') || hasGitHubLabel(issue, 'enhancement')" [class.story]="!hasGitHubLabel(issue, 'feature') && !hasGitHubLabel(issue, 'enhancement')">
                                   {{ hasGitHubLabel(issue, 'feature') || hasGitHubLabel(issue, 'enhancement') ? 'F' : 'S' }}
                                 </span>
-                                <span class="gh-item-title">{{ issue.title }}</span>
-                                <span class="gh-issue-number">#{{ issue.number }}</span>
+                                <span class="ado-item-title">{{ issue.title }}</span>
+                                <span class="ado-issue-number">#{{ issue.number }}</span>
                                 @for (label of issue.labels.slice(0, 3); track label) {
-                                  <span class="gh-label">{{ label }}</span>
+                                  <span class="ado-label">{{ label }}</span>
                                 }
-                                <span class="gh-item-state" [class]="getGitHubStateClass(issue.state)">{{ issue.state }}</span>
+                                <span class="ado-item-state" [class]="getGitHubStateClass(issue.state)">{{ issue.state }}</span>
                               </div>
                             </div>
                           }
@@ -2103,58 +2225,36 @@
                     </div>
                   }
 
-                  <!-- Unassigned Issues -->
-                  @if (gitHubIssues()!.unassignedIssues.length > 0) {
-                    <div class="gh-tree-item unassigned">
-                      <div class="gh-tree-row" [class.selected]="includeGitHubUnassigned()">
-                        <label class="gh-checkbox">
+                  <!-- Unassigned issues (root level, no parent) -->
+                  @for (issue of getFilteredGitHubUnassignedIssues(); track issue.number) {
+                    <div class="ado-tree-item issue root-level">
+                      <div class="ado-tree-row" [class.selected]="isGitHubIssueSelected(issue.number)">
+                        <label class="ado-checkbox">
                           <input 
                             type="checkbox" 
-                            [checked]="includeGitHubUnassigned()"
-                            (change)="includeGitHubUnassigned.set(!includeGitHubUnassigned())"
+                            [checked]="isGitHubIssueSelected(issue.number)"
+                            (change)="toggleGitHubIssueSelection(issue.number)"
                           />
                           <span class="checkmark"></span>
                         </label>
-                        <button 
-                          class="gh-expand-btn"
-                          [class.expanded]="isGitHubMilestoneExpanded(-1)"
-                          (click)="toggleGitHubMilestoneExpand(-1)"
-                        >
-                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="9 18 15 12 9 6"/>
-                          </svg>
-                        </button>
-                        <span class="gh-item-type unassigned">U</span>
-                        <span class="gh-item-title">Unassigned Issues</span>
-                        <span class="gh-issue-count">{{ gitHubIssues()!.unassignedIssues.length }} issues</span>
+                        <span class="ado-expand-spacer" aria-hidden="true"></span>
+                        <span class="ado-item-type" [class.feature]="hasGitHubLabel(issue, 'feature') || hasGitHubLabel(issue, 'enhancement')" [class.story]="!hasGitHubLabel(issue, 'feature') && !hasGitHubLabel(issue, 'enhancement')">
+                          {{ hasGitHubLabel(issue, 'feature') || hasGitHubLabel(issue, 'enhancement') ? 'F' : 'S' }}
+                        </span>
+                        <span class="ado-item-title">{{ issue.title }}</span>
+                        <span class="ado-issue-number">#{{ issue.number }}</span>
+                        @for (label of issue.labels.slice(0, 3); track label) {
+                          <span class="ado-label">{{ label }}</span>
+                        }
+                        <span class="ado-item-state" [class]="getGitHubStateClass(issue.state)">{{ issue.state }}</span>
                       </div>
-
-                      @if (isGitHubMilestoneExpanded(-1)) {
-                        <div class="gh-tree-children">
-                          @for (issue of gitHubIssues()!.unassignedIssues; track issue.number) {
-                            <div class="gh-tree-item issue">
-                              <div class="gh-tree-row">
-                                <span class="gh-item-type" [class.feature]="hasGitHubLabel(issue, 'feature') || hasGitHubLabel(issue, 'enhancement')" [class.story]="!hasGitHubLabel(issue, 'feature') && !hasGitHubLabel(issue, 'enhancement')">
-                                  {{ hasGitHubLabel(issue, 'feature') || hasGitHubLabel(issue, 'enhancement') ? 'F' : 'S' }}
-                                </span>
-                                <span class="gh-item-title">{{ issue.title }}</span>
-                                <span class="gh-issue-number">#{{ issue.number }}</span>
-                                @for (label of issue.labels.slice(0, 3); track label) {
-                                  <span class="gh-label">{{ label }}</span>
-                                }
-                                <span class="gh-item-state" [class]="getGitHubStateClass(issue.state)">{{ issue.state }}</span>
-                              </div>
-                            </div>
-                          }
-                        </div>
-                      }
                     </div>
                   }
                 </div>
               }
 
               @if (gitHubError()) {
-                <div class="gh-error">
+                <div class="ado-error">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="12" cy="12" r="10"/>
                     <line x1="12" y1="8" x2="12" y2="12"/>
@@ -2163,13 +2263,17 @@
                   <span>{{ gitHubError() }}</span>
                 </div>
               }
+            </div>
+          }
 
-              <div class="gh-form-actions">
-                <button class="gh-btn secondary" (click)="closeGitHubImport()">Cancel</button>
+          @if (gitHubIssues() || gitHubError()) {
+            <div class="ado-form-actions">
+              <button class="ado-btn secondary" (click)="closeGitHubImport()">Cancel</button>
+              @if (gitHubIssues()) {
                 <button 
-                  class="gh-btn primary" 
+                  class="ado-btn primary" 
                   (click)="importSelectedGitHubItems()"
-                  [disabled]="gitHubImporting() || (selectedGitHubMilestones().size === 0 && !includeGitHubUnassigned())"
+                  [disabled]="gitHubImporting() || selectedGitHubIssues().size === 0"
                 >
                   @if (gitHubImporting()) {
                     <span class="spinner-small"></span>
@@ -2178,10 +2282,10 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M12 5v14M5 12h14"/>
                     </svg>
-                    Import Selected
+                    Import {{ selectedGitHubIssues().size }} Item(s)
                   }
                 </button>
-              </div>
+              }
             </div>
           }
         </div>

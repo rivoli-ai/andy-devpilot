@@ -306,10 +306,12 @@
   margin: 8px 0;
 }
 
-.sync-menu-item.sync-all {
+.sync-menu-item.sync-all,
+.sync-menu-item.sync-add-manual {
   color: var(--text-secondary);
 }
 
+.sync-menu-item.sync-add-manual svg,
 .sync-menu-item.sync-all svg {
   width: 32px;
   height: 32px;

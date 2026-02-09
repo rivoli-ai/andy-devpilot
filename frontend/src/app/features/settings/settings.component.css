@@ -204,6 +204,63 @@
   gap: var(--space-2);
 }
 
+/* Provider item with inline PAT form (e.g. Azure DevOps) */
+.provider-item-pat {
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.provider-item-pat .provider-info {
+  flex: 0 0 auto;
+}
+
+.provider-pat-form {
+  flex: 1 1 100%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--border-light);
+  margin-top: var(--space-2);
+}
+
+.provider-pat-form .form-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.provider-pat-form .form-group label {
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.provider-pat-form .form-group input {
+  padding: var(--space-3) var(--space-4);
+  background: var(--surface-primary);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--text-sm);
+  font-family: var(--font-sans);
+}
+
+.provider-pat-form .form-group input:focus {
+  outline: none;
+  border-color: var(--brand-primary);
+}
+
+.provider-pat-form .field-hint {
+  font-size: var(--text-xs);
+  color: var(--text-tertiary);
+  margin: 0;
+}
+
 /* Buttons */
 .btn-primary {
   padding: var(--space-2) var(--space-4);

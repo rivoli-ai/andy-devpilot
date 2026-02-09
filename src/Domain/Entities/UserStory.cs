@@ -16,6 +16,8 @@ public class UserStory : Entity
     public string Source { get; private set; } = "Manual";
     /// <summary>Azure DevOps work item ID when imported from ADO; null for manual/GitHub items</summary>
     public int? AzureDevOpsWorkItemId { get; private set; }
+    /// <summary>GitHub issue number when imported from GitHub; null for manual/ADO items</summary>
+    public int? GitHubIssueNumber { get; private set; }
 
     // Navigation properties
     public Feature Feature { get; private set; } = null!;
@@ -30,7 +32,8 @@ public class UserStory : Entity
         string? acceptanceCriteria = null,
         int? storyPoints = null,
         string? source = null,
-        int? azureDevOpsWorkItemId = null)
+        int? azureDevOpsWorkItemId = null,
+        int? githubIssueNumber = null)
     {
         Title = title ?? throw new ArgumentNullException(nameof(title));
         FeatureId = featureId;
@@ -40,6 +43,7 @@ public class UserStory : Entity
         Status = "Backlog";
         Source = source ?? "Manual";
         AzureDevOpsWorkItemId = azureDevOpsWorkItemId;
+        GitHubIssueNumber = githubIssueNumber;
     }
 
     public void SetStoryPoints(int? storyPoints)
@@ -88,6 +92,12 @@ public class UserStory : Entity
     public void SetAzureDevOpsWorkItemId(int? id)
     {
         AzureDevOpsWorkItemId = id;
+        MarkAsUpdated();
+    }
+
+    public void SetGitHubIssueNumber(int? number)
+    {
+        GitHubIssueNumber = number;
         MarkAsUpdated();
     }
 }

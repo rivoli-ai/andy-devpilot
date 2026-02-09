@@ -12,6 +12,7 @@ public class FeatureDto
     public string Status { get; set; } = string.Empty;
     public string Source { get; set; } = "Manual";
     public int? AzureDevOpsWorkItemId { get; set; }
+    public int? GitHubIssueNumber { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<UserStoryDto> UserStories { get; set; } = new();

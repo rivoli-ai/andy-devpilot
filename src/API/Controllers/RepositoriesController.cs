@@ -11,6 +11,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 /// <summary>
+/// Request body for adding a GitHub repo manually
+/// </summary>
+public class AddManualGitHubRepoRequest
+{
+    public required string RepoUrl { get; set; }
+}
+
+/// <summary>
 /// Request body for creating a pull request
 /// </summary>
 public class CreatePullRequestRequest
@@ -133,6 +141,123 @@ public class RepositoriesController : ControllerBase
         var repositories = await _mediator.Send(command, cancellationToken);
 
         return Ok(repositories);
+    }
+
+    /// <summary>
+    /// Add a GitHub repository manually by URL (e.g. https://github.com/owner/repo or owner/repo)
+    /// Requires GitHub to be connected. The user must have access to the repository.
+    /// </summary>
+    [HttpPost("add-github")]
+    [Authorize]
+    public async Task<IActionResult> AddManualGitHubRepository([FromBody] AddManualGitHubRepoRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        if (string.IsNullOrWhiteSpace(request?.RepoUrl))
+        {
+            return BadRequest(new { message = "Repository URL or owner/repo is required" });
+        }
+
+        var (owner, repo) = ParseGitHubRepoUrl(request.RepoUrl.Trim());
+        if (owner == null || repo == null)
+        {
+            return BadRequest(new { message = "Invalid GitHub URL. Use https://github.com/owner/repo or owner/repo" });
+        }
+
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.GitHub, cancellationToken);
+        var accessToken = linkedProvider?.AccessToken;
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+            accessToken = user?.GitHubAccessToken;
+        }
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first." });
+        }
+
+        var gitHubRepo = await _gitHubService.GetRepositoryAsync(accessToken, owner, repo, cancellationToken);
+        if (gitHubRepo == null)
+        {
+            return NotFound(new { message = $"Repository {owner}/{repo} not found or you don't have access to it" });
+        }
+
+        var existingRepo = await _repositoryRepository.GetByFullNameProviderAndUserIdAsync(gitHubRepo.FullName, "GitHub", userId, cancellationToken);
+        if (existingRepo != null)
+        {
+            return Ok(new
+            {
+                id = existingRepo.Id,
+                name = existingRepo.Name,
+                fullName = existingRepo.FullName,
+                provider = existingRepo.Provider,
+                organizationName = existingRepo.OrganizationName,
+                defaultBranch = existingRepo.DefaultBranch,
+                alreadyExists = true
+            });
+        }
+
+        var newRepo = new Repository(
+            name: gitHubRepo.Name,
+            fullName: gitHubRepo.FullName,
+            cloneUrl: gitHubRepo.CloneUrl,
+            provider: "GitHub",
+            organizationName: gitHubRepo.OrganizationName,
+            userId: userId,
+            description: gitHubRepo.Description,
+            isPrivate: gitHubRepo.IsPrivate,
+            defaultBranch: gitHubRepo.DefaultBranch ?? "main");
+        await _repositoryRepository.AddAsync(newRepo, cancellationToken);
+
+        _logger.LogInformation("User {UserId} manually added GitHub repository {FullName}", userId, newRepo.FullName);
+
+        return Ok(new
+        {
+            id = newRepo.Id,
+            name = newRepo.Name,
+            fullName = newRepo.FullName,
+            provider = newRepo.Provider,
+            organizationName = newRepo.OrganizationName,
+            defaultBranch = newRepo.DefaultBranch,
+            alreadyExists = false
+        });
+    }
+
+    private static (string? owner, string? repo) ParseGitHubRepoUrl(string input)
+    {
+        input = input.Trim();
+        if (string.IsNullOrEmpty(input)) return (null, null);
+
+        if (input.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = input["https://github.com/".Length..].TrimEnd('/');
+            var parts = path.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1].Replace(".git", ""));
+        }
+        else if (input.StartsWith("http://github.com/", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = input["http://github.com/".Length..].TrimEnd('/');
+            var parts = path.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1].Replace(".git", ""));
+        }
+        else if (input.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = input["git@github.com:".Length..].Replace(".git", "");
+            var parts = path.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1]);
+            if (parts.Length == 1) return (parts[0].Split(':')[0], parts[0].Split(':').LastOrDefault());
+        }
+        else if (input.Contains('/'))
+        {
+            var parts = input.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1].Replace(".git", ""));
+        }
+
+        return (null, null);
     }
 
     /// <summary>

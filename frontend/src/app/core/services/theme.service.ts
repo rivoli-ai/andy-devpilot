@@ -1,4 +1,5 @@
 import { Injectable, signal, effect } from '@angular/core';
+import { MermaidDiagramService } from './mermaid-diagram.service';
 
 export type Theme = 'light' | 'dark';
 
@@ -14,12 +15,14 @@ export class ThemeService {
 
   readonly theme = this._theme.asReadonly();
 
-  constructor() {
+  constructor(private mermaidDiagramService: MermaidDiagramService) {
     // Apply theme on initialization and changes
     effect(() => {
       const theme = this._theme();
       this.applyTheme(theme);
       localStorage.setItem(this.themeKey, theme);
+      // Re-render Mermaid diagrams with new theme (they bake colors at render time)
+      this.mermaidDiagramService.rerenderAllDiagrams();
     });
   }
 

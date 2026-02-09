@@ -21,6 +21,7 @@
     "@microsoft/signalr": "^10.0.0",
     "@ngrx/effects": "^17.2.0",
     "@ngrx/store": "^17.2.0",
+    "angular-auth-oidc-client": "^17.1.0",
     "marked": "^17.0.1",
     "marked-highlight": "^2.2.3",
     "mermaid": "^11.12.2",

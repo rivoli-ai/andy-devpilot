@@ -1,6 +1,7 @@
-import { Injectable, signal } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { Observable, tap, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
+import { AuthProviderConfig, AuthConfigResponse } from '../auth/oidc-config.loader';
 
 export interface User {
   id: string;
@@ -23,12 +24,14 @@ export interface LinkedProvider {
 }
 
 /**
- * Service for authentication supporting multiple methods:
- * - Email/Password (login and register)
- * - GitHub OAuth
- * - Microsoft OAuth
- * 
- * Manages JWT tokens and user state
+ * Generic authentication service.
+ *
+ * Supports multiple provider types:
+ * - Local (email/password)
+ * - BackendOAuth (e.g. GitHub – backend exchanges code)
+ * - FrontendOidc (e.g. Azure AD, Duende – frontend obtains token via OIDC lib)
+ *
+ * Provider configuration is fetched once from GET /api/auth/config and cached.
  */
 @Injectable({
   providedIn: 'root'
@@ -41,6 +44,19 @@ export class AuthService {
   readonly token = this.tokenSignal.asReadonly();
   readonly user = this.userSignal.asReadonly();
   readonly isAuthenticated = signal<boolean>(false);
+
+  // Provider config (fetched from backend)
+  private readonly _providerConfigs = signal<AuthProviderConfig[]>([]);
+  private _configLoaded = false;
+
+  /** All enabled providers from the backend config */
+  readonly providerConfigs = this._providerConfigs.asReadonly();
+
+  /** Only enabled providers of a given type */
+  readonly localProviders = computed(() => this._providerConfigs().filter(p => p.type === 'Local'));
+  readonly backendOAuthProviders = computed(() => this._providerConfigs().filter(p => p.type === 'BackendOAuth'));
+  readonly frontendOidcProviders = computed(() => this._providerConfigs().filter(p => p.type === 'FrontendOidc'));
+  readonly isLocalEnabled = computed(() => this.localProviders().length > 0);
 
   constructor(private apiService: ApiService) {
     // Load token from localStorage on init
@@ -60,12 +76,40 @@ export class AuthService {
   }
 
   // ============================================
-  // Email/Password Authentication
+  // Provider Config
   // ============================================
 
   /**
-   * Register a new user with email and password
+   * Fetch and cache the auth provider config from the backend.
+   * Safe to call multiple times – only fetches once.
    */
+  async loadProviderConfig(): Promise<AuthProviderConfig[]> {
+    if (this._configLoaded) return this._providerConfigs();
+
+    try {
+      const response = await firstValueFrom(
+        this.apiService.get<AuthConfigResponse>('/auth/config')
+      );
+      this._providerConfigs.set(response.providers);
+      this._configLoaded = true;
+      return response.providers;
+    } catch (err) {
+      console.error('Failed to load auth provider config', err);
+      return [];
+    }
+  }
+
+  /**
+   * Get provider config by name.
+   */
+  getProviderConfig(name: string): AuthProviderConfig | undefined {
+    return this._providerConfigs().find(p => p.name.toLowerCase() === name.toLowerCase());
+  }
+
+  // ============================================
+  // Email/Password Authentication
+  // ============================================
+
   async register(email: string, password: string, name?: string): Promise<AuthResponse> {
     const response = await firstValueFrom(
       this.apiService.post<AuthResponse>('/auth/register', { email, password, name })
@@ -74,9 +118,6 @@ export class AuthService {
     return response;
   }
 
-  /**
-   * Login with email and password
-   */
   async login(email: string, password: string): Promise<AuthResponse> {
     const response = await firstValueFrom(
       this.apiService.post<AuthResponse>('/auth/login', { email, password })
@@ -86,149 +127,102 @@ export class AuthService {
   }
 
   // ============================================
-  // GitHub OAuth
+  // Generic BackendOAuth (e.g. GitHub)
   // ============================================
 
   /**
-   * Get GitHub OAuth2 authorization URL
+   * Get the authorization URL for a BackendOAuth provider and redirect.
    */
-  getGitHubAuthorizationUrl(): Observable<{ authorizationUrl: string }> {
-    return this.apiService.get<{ authorizationUrl: string }>('/auth/github/authorize');
-  }
-
-  /**
-   * Handle GitHub OAuth2 callback
-   * Exchanges authorization code for JWT token
-   */
-  handleGitHubCallback(code: string): Observable<AuthResponse> {
-    return this.apiService.post<AuthResponse>('/auth/github/callback', { code }).pipe(
-      tap(response => this.setAuthState(response))
+  async loginWithProvider(provider: string): Promise<void> {
+    const response = await firstValueFrom(
+      this.apiService.get<{ authorizationUrl: string }>(`/auth/${provider}/authorize`)
     );
-  }
-
-  /**
-   * Initialize GitHub OAuth flow
-   * Redirects user to GitHub authorization page
-   */
-  async loginWithGitHub(): Promise<void> {
-    const response = await firstValueFrom(this.getGitHubAuthorizationUrl());
     if (response?.authorizationUrl) {
       window.location.href = response.authorizationUrl;
     }
   }
 
-  // ============================================
-  // Microsoft OAuth
-  // ============================================
-
   /**
-   * Get Microsoft OAuth2 authorization URL
+   * Handle a BackendOAuth callback (exchange code for JWT).
    */
-  getMicrosoftAuthorizationUrl(): Observable<{ authorizationUrl: string }> {
-    return this.apiService.get<{ authorizationUrl: string }>('/auth/microsoft/authorize');
-  }
-
-  /**
-   * Handle Microsoft OAuth2 callback
-   * Exchanges authorization code for JWT token
-   */
-  handleMicrosoftCallback(code: string): Observable<AuthResponse> {
-    return this.apiService.post<AuthResponse>('/auth/microsoft/callback', { code }).pipe(
+  handleProviderCallback(provider: string, code: string, redirectUri?: string): Observable<AuthResponse> {
+    return this.apiService.post<AuthResponse>(`/auth/${provider}/callback`, {
+      code,
+      redirectUri
+    }).pipe(
       tap(response => this.setAuthState(response))
     );
   }
 
   /**
-   * Initialize Microsoft OAuth flow
-   * Redirects user to Microsoft authorization page
+   * Handle a FrontendOidc login by posting the ID token (for authentication)
+   * and access token (for profile retrieval) to the backend.
    */
-  async loginWithMicrosoft(): Promise<void> {
-    const response = await firstValueFrom(this.getMicrosoftAuthorizationUrl());
-    if (response?.authorizationUrl) {
-      window.location.href = response.authorizationUrl;
-    }
+  handleOidcTokenLogin(provider: string, idToken: string, accessToken?: string): Observable<AuthResponse> {
+    return this.apiService.post<AuthResponse>(`/auth/${provider}/token`, {
+      idToken,
+      accessToken
+    }).pipe(
+      tap(response => this.setAuthState(response))
+    );
   }
 
   // ============================================
   // Linked Providers Management
   // ============================================
 
-  /**
-   * Get all linked providers for the current user
-   */
   getLinkedProviders(): Observable<LinkedProvider[]> {
     return this.apiService.get<LinkedProvider[]>('/auth/providers');
   }
 
   /**
-   * Link GitHub to current account
+   * Link a provider using a backend code exchange (BackendOAuth).
    */
-  linkGitHub(code: string, redirectUri?: string): Observable<{ message: string; username: string }> {
-    return this.apiService.post<{ message: string; username: string }>('/auth/link/github', { 
-      code, 
-      redirectUri 
+  linkProviderWithCode(provider: string, code: string, redirectUri?: string): Observable<{ message: string; username: string }> {
+    return this.apiService.post<{ message: string; username: string }>(`/auth/link/${provider}/callback`, {
+      code,
+      redirectUri
     });
   }
 
   /**
-   * Link Azure DevOps to current account
+   * Link a provider using frontend-obtained tokens (FrontendOidc).
+   * Sends ID token for auth validation and access token for profile retrieval.
    */
-  linkAzureDevOps(code: string, redirectUri?: string): Observable<{ message: string; username: string }> {
-    return this.apiService.post<{ message: string; username: string }>('/auth/link/azure-devops', { 
-      code, 
-      redirectUri 
+  linkProviderWithToken(provider: string, idToken: string, accessToken?: string): Observable<{ message: string; username: string }> {
+    return this.apiService.post<{ message: string; username: string }>(`/auth/link/${provider}/token`, {
+      idToken,
+      accessToken
     });
   }
 
   /**
-   * Unlink a provider from current account
+   * Get authorization URL for linking a BackendOAuth provider (when already logged in).
    */
+  getLinkAuthorizationUrl(provider: string): Observable<{ authorizationUrl: string }> {
+    return this.apiService.get<{ authorizationUrl: string }>(`/auth/link/${provider}/authorize`);
+  }
+
   unlinkProvider(provider: string): Observable<{ message: string }> {
     return this.apiService.delete<{ message: string }>(`/auth/unlink/${provider}`);
-  }
-
-  /**
-   * Get authorization URL for linking GitHub (when already logged in)
-   */
-  getGitHubLinkAuthorizationUrl(): Observable<{ authorizationUrl: string }> {
-    return this.apiService.get<{ authorizationUrl: string }>('/auth/link/github/authorize');
-  }
-
-  /**
-   * Get authorization URL for linking Azure DevOps
-   */
-  getAzureDevOpsLinkAuthorizationUrl(): Observable<{ authorizationUrl: string }> {
-    return this.apiService.get<{ authorizationUrl: string }>('/auth/link/azure-devops/authorize');
   }
 
   // ============================================
   // Core Auth Methods
   // ============================================
 
-  /**
-   * Get current JWT token
-   */
   getToken(): string | null {
     return this.tokenSignal();
   }
 
-  /**
-   * Get current user
-   */
   getCurrentUser(): User | null {
     return this.userSignal();
   }
 
-  /**
-   * Check if user is authenticated
-   */
   isLoggedIn(): boolean {
     return this.isAuthenticated() && this.tokenSignal() !== null;
   }
 
-  /**
-   * Logout - clear token and user
-   */
   logout(): void {
     this.tokenSignal.set(null);
     this.userSignal.set(null);
@@ -237,14 +231,10 @@ export class AuthService {
     localStorage.removeItem('auth_user');
   }
 
-  /**
-   * Private helper to set auth state
-   */
   private setAuthState(response: AuthResponse): void {
     this.tokenSignal.set(response.token);
     this.userSignal.set(response.user);
     this.isAuthenticated.set(true);
-    // Store in localStorage
     localStorage.setItem('auth_token', response.token);
     localStorage.setItem('auth_user', JSON.stringify(response.user));
   }
@@ -253,16 +243,10 @@ export class AuthService {
   // Provider Settings (PAT Management)
   // ============================================
 
-  /**
-   * Get provider settings
-   */
   getProviderSettings(): Observable<ProviderSettings> {
     return this.apiService.get<ProviderSettings>('/auth/settings/providers');
   }
 
-  /**
-   * Save Azure DevOps settings
-   */
   saveAzureDevOpsSettings(organization?: string, pat?: string): Observable<{ message: string }> {
     return this.apiService.post<{ message: string }>('/auth/settings/azure-devops', {
       organization,
@@ -270,25 +254,16 @@ export class AuthService {
     });
   }
 
-  /**
-   * Save GitHub PAT settings
-   */
   saveGitHubSettings(pat?: string): Observable<{ message: string }> {
     return this.apiService.post<{ message: string }>('/auth/settings/github', {
       personalAccessToken: pat
     });
   }
 
-  /**
-   * Clear Azure DevOps settings
-   */
   clearAzureDevOpsSettings(): Observable<{ message: string }> {
     return this.apiService.delete<{ message: string }>('/auth/settings/azure-devops');
   }
 
-  /**
-   * Clear GitHub settings
-   */
   clearGitHubSettings(): Observable<{ message: string }> {
     return this.apiService.delete<{ message: string }>('/auth/settings/github');
   }
@@ -297,23 +272,14 @@ export class AuthService {
   // AI Configuration
   // ============================================
 
-  /**
-   * Get AI settings
-   */
   getAiSettings(): Observable<AiSettings> {
     return this.apiService.get<AiSettings>('/auth/settings/ai');
   }
 
-  /**
-   * Get full AI settings with API key (for sandbox creation)
-   */
   getFullAiSettings(): Observable<AiSettingsFull> {
     return this.apiService.get<AiSettingsFull>('/auth/settings/ai/full');
   }
 
-  /**
-   * Save AI settings
-   */
   saveAiSettings(provider?: string, apiKey?: string, model?: string, baseUrl?: string): Observable<{ message: string }> {
     return this.apiService.post<{ message: string }>('/auth/settings/ai', {
       provider,
@@ -323,9 +289,6 @@ export class AuthService {
     });
   }
 
-  /**
-   * Clear AI settings
-   */
   clearAiSettings(): Observable<{ message: string }> {
     return this.apiService.delete<{ message: string }>('/auth/settings/ai');
   }

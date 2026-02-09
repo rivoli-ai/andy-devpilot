@@ -9,6 +9,7 @@ export interface Feature {
   /** "Manual" | "AzureDevOps" | "GitHub" */
   source?: string;
   azureDevOpsWorkItemId?: number;
+  githubIssueNumber?: number;
   createdAt: string;
   updatedAt?: string;
   userStories: UserStory[];

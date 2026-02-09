@@ -25,8 +25,11 @@ public class GitHubService : IGitHubService
 
         try
         {
-            // Fetch all repositories for the authenticated user
-            var repositories = await client.Repository.GetAllForCurrent();
+            // Fetch all repositories: owned + collaborator + organization member
+            // Affiliation.All = owner, collaborator, organization_member
+            var request = new RepositoryRequest { Affiliation = RepositoryAffiliation.All };
+            var options = new ApiOptions { PageSize = 100 };
+            var repositories = await client.Repository.GetAllForCurrent(request, options);
 
             return repositories.Select(r => MapToDto(r));
         }
@@ -53,6 +56,30 @@ public class GitHubService : IGitHubService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching organization repositories from GitHub for {OrganizationName}", organizationName);
+            throw;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<GitHubRepositoryDto?> GetRepositoryAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClient(accessToken);
+
+        try
+        {
+            var repository = await client.Repository.Get(owner, repo);
+            return MapToDto(repository);
+        }
+        catch (Octokit.NotFoundException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching repository {Owner}/{Repo} from GitHub", owner, repo);
             throw;
         }
     }
@@ -642,6 +669,40 @@ public class GitHubService : IGitHubService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching pull requests from GitHub for {Owner}/{Repo}", owner, repo);
+            throw;
+        }
+    }
+
+    public async System.Threading.Tasks.Task UpdateIssueAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        int issueNumber,
+        string? title = null,
+        string? body = null,
+        string? state = null,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClient(accessToken);
+
+        try
+        {
+            var update = new IssueUpdate();
+            if (title != null) update.Title = title;
+            if (body != null) update.Body = body;
+            if (state != null)
+            {
+                update.State = state.ToLowerInvariant() == "closed"
+                    ? ItemState.Closed
+                    : ItemState.Open;
+            }
+
+            await client.Issue.Update(owner, repo, issueNumber, update);
+            _logger.LogInformation("Updated GitHub issue {Owner}/{Repo}#{Number}", owner, repo, issueNumber);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error updating GitHub issue {Owner}/{Repo}#{Number}", owner, repo, issueNumber);
             throw;
         }
     }

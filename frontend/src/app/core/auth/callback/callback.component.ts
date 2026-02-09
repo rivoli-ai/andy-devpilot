@@ -1,14 +1,24 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router } from '@angular/router';
+import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { AuthService } from '../../services/auth.service';
 import { RepositoryService } from '../../services/repository.service';
-import { switchMap, catchError } from 'rxjs/operators';
-import { of } from 'rxjs';
+import { switchMap, catchError, take } from 'rxjs/operators';
+import { of, firstValueFrom } from 'rxjs';
 
 /**
- * OAuth2 callback component to handle GitHub and Microsoft OAuth redirects
- * Supports both login and provider linking flows
+ * Generic OAuth2 / OIDC callback component.
+ *
+ * Route: /auth/callback/:provider
+ *
+ * Behaviour per provider type:
+ *  - FrontendOidc (e.g. AzureAd, Duende): uses OidcSecurityService.checkAuth() to
+ *    complete the OIDC redirect, then sends the access token to the backend.
+ *  - BackendOAuth (e.g. GitHub): extracts `code` from query params, sends to
+ *    backend for code exchange.
+ *
+ * Supports both "login" and "link" flows based on the `state` query param.
  */
 @Component({
   selector: 'app-callback',
@@ -129,119 +139,183 @@ export class CallbackComponent implements OnInit {
   constructor(
     private route: ActivatedRoute,
     private router: Router,
+    private oidcSecurityService: OidcSecurityService,
     private authService: AuthService,
     private repositoryService: RepositoryService
   ) {}
 
-  ngOnInit(): void {
-    // Determine provider from route
-    const routeUrl = this.router.url;
-    const isMicrosoft = routeUrl.includes('/callback/microsoft');
-    const isAzureDevOps = routeUrl.includes('/callback/azure-devops');
-    const isLinking = routeUrl.includes('state=link');
+  async ngOnInit(): Promise<void> {
+    // Make sure provider config is loaded
+    await this.authService.loadProviderConfig();
 
-    // Get authorization code from query params
-    this.route.queryParams.subscribe(params => {
-      const code = params['code'];
-      const error = params['error'];
+    const provider = this.route.snapshot.paramMap.get('provider') ?? '';
+    const config = this.authService.getProviderConfig(provider);
+
+    if (!config) {
+      this.error.set(`Unknown provider: ${provider}`);
+      this.loading.set(false);
+      return;
+    }
+
+    // take(1) so we only process the callback once — OAuth codes are single-use;
+    // a second request would get "bad_verification_code" from GitHub.
+    this.route.queryParams.pipe(take(1)).subscribe(params => {
+      const errorParam = params['error'];
+      if (errorParam) {
+        this.error.set(`${provider} authorization failed: ${errorParam}`);
+        this.loading.set(false);
+        return;
+      }
+
       const state = params['state'];
+      const isLinking = state === 'link';
 
-      if (error) {
-        const provider = isMicrosoft ? 'Microsoft' : isAzureDevOps ? 'Azure DevOps' : 'GitHub';
-        this.error.set(`${provider} authorization failed: ${error}`);
-        this.loading.set(false);
-        return;
-      }
-
-      if (!code) {
-        this.error.set('Authorization code not found');
-        this.loading.set(false);
-        return;
-      }
-
-      // Azure DevOps is always a linking flow (not used for login)
-      if (isAzureDevOps) {
-        this.handleLinkingFlow(code, false, true);
-        return;
-      }
-
-      // Handle linking flow (when already logged in)
-      if (state === 'link' || isLinking) {
-        this.handleLinkingFlow(code, isMicrosoft, false);
-        return;
-      }
-
-      // Handle login flow
-      if (isMicrosoft) {
-        this.handleMicrosoftLogin(code);
+      if (config.type === 'FrontendOidc') {
+        this.handleOidcCallback(provider, isLinking);
+      } else       if (config.type === 'BackendOAuth') {
+        const code = params['code'];
+        if (!code) {
+          this.error.set('Authorization code not found');
+          this.loading.set(false);
+          return;
+        }
+        // Remove code from URL immediately so refresh/double-nav cannot resend it (GitHub codes are single-use).
+        if (typeof window !== 'undefined' && window.history?.replaceState) {
+          const cleanUrl = `${window.location.origin}${window.location.pathname}`;
+          window.history.replaceState({}, '', cleanUrl);
+        }
+        if (isLinking) {
+          this.handleBackendOAuthLink(provider, code);
+        } else {
+          this.handleBackendOAuthLogin(provider, code);
+        }
       } else {
-        this.handleGitHubLogin(code);
+        this.error.set(`Provider '${provider}' does not support callbacks`);
+        this.loading.set(false);
       }
     });
   }
 
-  private handleGitHubLogin(code: string): void {
-    this.statusMessage.set('Completing GitHub login...');
-    
-    this.authService.handleGitHubCallback(code).pipe(
-      switchMap(() => {
-        this.statusMessage.set('Syncing your repositories...');
-        return this.repositoryService.syncFromGitHub().pipe(
-          catchError(err => {
-            console.warn('Auto-sync failed, but login succeeded:', err);
-            return of([]);
-          })
+  /**
+   * FrontendOidc callback: use angular-auth-oidc-client to process the redirect,
+   * then send the access token to the backend.
+   */
+  private handleOidcCallback(provider: string, isLinking: boolean): void {
+    this.statusMessage.set(`Completing ${provider} sign-in...`);
+    const url = typeof window !== 'undefined' ? window.location.href : this.router.url;
+
+    // Log callback context for debugging (avoid logging full URL with code in production)
+    const hasCode = typeof window !== 'undefined' && window.location.search.includes('code=');
+    const hasState = typeof window !== 'undefined' && window.location.search.includes('state=');
+    console.debug('[Auth callback]', {
+      provider,
+      configId: provider,
+      pathname: typeof window !== 'undefined' ? window.location.pathname : '',
+      hasCode,
+      hasState,
+      hashLength: typeof window !== 'undefined' ? (window.location.hash?.length ?? 0) : 0,
+    });
+
+    this.oidcSecurityService.checkAuth(url, provider).subscribe({
+      next: (loginResponse) => {
+        if (!loginResponse.isAuthenticated || !loginResponse.accessToken) {
+          console.warn('[Auth callback] OIDC checkAuth returned unsuccessful:', {
+            isAuthenticated: loginResponse.isAuthenticated,
+            hasAccessToken: !!loginResponse.accessToken,
+            hasIdToken: !!loginResponse.idToken,
+            errorMessage: loginResponse.errorMessage ?? null,
+            configId: loginResponse.configId ?? null,
+          });
+          this.error.set(loginResponse.errorMessage || `${provider} sign-in did not return a token`);
+          this.loading.set(false);
+          return;
+        }
+
+        if (isLinking || this.authService.isLoggedIn()) {
+          // Link the provider to the current account
+          this.authService.linkProviderWithToken(provider, loginResponse.idToken, loginResponse.accessToken).subscribe({
+            next: () => {
+              this.router.navigate(['/settings'], { queryParams: { linked: provider } });
+            },
+            error: (err) => {
+              this.error.set(err.error?.message || err.message || `Failed to link ${provider} account`);
+              this.loading.set(false);
+            }
+          });
+        } else {
+          // Login with the OIDC tokens (ID token for auth, access token for profile)
+          this.authService.handleOidcTokenLogin(provider, loginResponse.idToken, loginResponse.accessToken).subscribe({
+            next: () => {
+              this.router.navigate(['/repositories']);
+            },
+            error: (err) => {
+              this.error.set(err.error?.message || err.message || `Failed to complete ${provider} login`);
+              this.loading.set(false);
+            }
+          });
+        }
+      },
+      error: (err) => {
+        console.error('[Auth callback] OIDC checkAuth failed:', err?.message ?? err);
+        console.error('[Auth callback] Full error object:', err);
+        if (err?.stack) {
+          console.debug('[Auth callback] Stack:', err.stack);
+        }
+        console.warn(
+          '[Auth callback] The angular-auth-oidc-client library logs the exact validation failure above (e.g. "authCallback incorrect state", "authCallback incorrect aud", "authCallback incorrect nonce", "Signature validation failed id_token", "authCallback incorrect iss"). Check the console for those messages.'
         );
+        this.error.set(err?.message || `Failed to complete ${provider} sign-in`);
+        this.loading.set(false);
+      }
+    });
+  }
+
+  /**
+   * BackendOAuth login: send code to backend for exchange, then navigate.
+   */
+  private handleBackendOAuthLogin(provider: string, code: string, redirectUri?: string): void {
+    this.statusMessage.set(`Completing ${provider} login...`);
+
+    this.authService.handleProviderCallback(provider, code, redirectUri).pipe(
+      switchMap(() => {
+        // Auto-sync repos for GitHub
+        if (provider.toLowerCase() === 'github') {
+          this.statusMessage.set('Syncing your repositories...');
+          return this.repositoryService.syncFromGitHub().pipe(
+            catchError(err => {
+              console.warn('Auto-sync failed, but login succeeded:', err);
+              return of([]);
+            })
+          );
+        }
+        return of(null);
       })
     ).subscribe({
       next: () => {
         this.router.navigate(['/repositories']);
       },
       error: (err) => {
-        this.error.set(err.error?.message || err.message || 'Failed to complete authentication');
+        this.error.set(err.error?.message || err.message || `Failed to complete ${provider} authentication`);
         this.loading.set(false);
       }
     });
   }
 
-  private handleMicrosoftLogin(code: string): void {
-    this.statusMessage.set('Completing Microsoft login...');
-    
-    this.authService.handleMicrosoftCallback(code).subscribe({
+  /**
+   * BackendOAuth link: send code to backend for linking.
+   */
+  private handleBackendOAuthLink(provider: string, code: string, redirectUri?: string): void {
+    this.statusMessage.set(`Linking ${provider} account...`);
+
+    this.authService.linkProviderWithCode(provider, code, redirectUri).subscribe({
       next: () => {
-        this.router.navigate(['/repositories']);
+        this.router.navigate(['/settings'], { queryParams: { linked: provider.toLowerCase() } });
       },
       error: (err) => {
-        this.error.set(err.error?.message || err.message || 'Failed to complete Microsoft authentication');
+        this.error.set(err.error?.message || err.message || `Failed to link ${provider} account`);
         this.loading.set(false);
       }
     });
-  }
-
-  private handleLinkingFlow(code: string, isMicrosoft: boolean, isAzureDevOps: boolean): void {
-    if (isAzureDevOps) {
-      this.statusMessage.set('Linking Azure DevOps account...');
-      this.authService.linkAzureDevOps(code).subscribe({
-        next: () => {
-          this.router.navigate(['/settings'], { queryParams: { linked: 'azure-devops' } });
-        },
-        error: (err) => {
-          this.error.set(err.error?.message || err.message || 'Failed to link Azure DevOps account');
-          this.loading.set(false);
-        }
-      });
-    } else {
-      this.statusMessage.set('Linking GitHub account...');
-      this.authService.linkGitHub(code).subscribe({
-        next: () => {
-          this.router.navigate(['/settings'], { queryParams: { linked: 'github' } });
-        },
-        error: (err) => {
-          this.error.set(err.error?.message || err.message || 'Failed to link GitHub account');
-          this.loading.set(false);
-        }
-      });
-    }
   }
 
   goToLogin(): void {

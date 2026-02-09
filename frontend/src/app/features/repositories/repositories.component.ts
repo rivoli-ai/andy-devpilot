@@ -47,6 +47,9 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   showSyncMenu = signal<boolean>(false);
   showAzureDevOpsOrgPrompt = signal<boolean>(false);
   azureDevOpsOrgName = signal<string>('');
+  showAddRepoModal = signal<boolean>(false);
+  addRepoUrl = signal<string>('');
+  addingRepo = signal<boolean>(false);
   viewMode = signal<'cards' | 'grid'>('cards');
   
   // Provider filter
@@ -468,6 +471,41 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   cancelAzureDevOpsOrgPrompt(): void {
     this.showAzureDevOpsOrgPrompt.set(false);
     this.azureDevOpsOrgName.set('');
+  }
+
+  openAddRepoModal(): void {
+    this.showAddRepoModal.set(true);
+    this.addRepoUrl.set('');
+    this.error.set(null);
+  }
+
+  closeAddRepoModal(): void {
+    this.showAddRepoModal.set(false);
+    this.addRepoUrl.set('');
+    this.addingRepo.set(false);
+    this.error.set(null);
+  }
+
+  submitAddRepo(): void {
+    const url = this.addRepoUrl().trim();
+    if (!url) return;
+
+    this.addingRepo.set(true);
+    this.error.set(null);
+    this.repositoryService.addManualGitHubRepo(url).subscribe({
+      next: (result) => {
+        this.addingRepo.set(false);
+        this.closeAddRepoModal();
+        this.successMessage.set(result.alreadyExists ? `${result.fullName} is already in your list` : `Added ${result.fullName}`);
+        this.loadRepositories(true);
+        setTimeout(() => this.successMessage.set(null), 4000);
+      },
+      error: (err) => {
+        this.addingRepo.set(false);
+        const msg = err.error?.message ?? err.message ?? 'Failed to add repository';
+        this.error.set(msg);
+      }
+    });
   }
 
   syncFromAllProviders(): void {

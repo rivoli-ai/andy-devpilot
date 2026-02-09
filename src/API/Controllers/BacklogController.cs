@@ -154,7 +154,8 @@ public class BacklogController : ControllerBase
             request.AcceptanceCriteria,
             request.StoryPoints,
             request.Source,
-            request.AzureDevOpsWorkItemId);
+            request.AzureDevOpsWorkItemId,
+            request.GitHubIssueNumber);
         var story = await _mediator.Send(command, cancellationToken);
         return Ok(story);
     }
@@ -179,6 +180,42 @@ public class BacklogController : ControllerBase
         var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
 
         var command = new SyncBacklogToAzureDevOpsCommand(repositoryId, userId, epicIds, featureIds, storyIds);
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.Success && result.SyncedCount == 0 && result.FailedCount == 0)
+        {
+            return BadRequest(new { success = false, message = result.Errors.FirstOrDefault(), errors = result.Errors });
+        }
+
+        return Ok(new
+        {
+            success = result.Success,
+            syncedCount = result.SyncedCount,
+            failedCount = result.FailedCount,
+            errors = result.Errors
+        });
+    }
+
+    /// <summary>
+    /// Sync backlog items imported from GitHub back to GitHub
+    /// Updates title, description, state (open/closed)
+    /// When epicIds, featureIds, storyIds are provided, only those items are synced.
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/sync-to-github")]
+    [Authorize]
+    public async Task<IActionResult> SyncToGitHub(Guid repositoryId, [FromBody] SyncToGitHubRequest? request, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        var epicIds = request?.EpicIds ?? Array.Empty<Guid>();
+        var featureIds = request?.FeatureIds ?? Array.Empty<Guid>();
+        var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
+
+        var command = new SyncBacklogToGitHubCommand(repositoryId, userId, epicIds, featureIds, storyIds);
         var result = await _mediator.Send(command, cancellationToken);
 
         if (!result.Success && result.SyncedCount == 0 && result.FailedCount == 0)
@@ -777,6 +814,13 @@ public class SyncToAzureDevOpsRequest
     public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();
 }
 
+public class SyncToGitHubRequest
+{
+    public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();
+}
+
 /// <summary>
 /// Request model for getting PR head branch (for cloning when continuing a story with existing PR)
 /// </summary>
@@ -806,6 +850,7 @@ public class AddFeatureRequest
     public string? Description { get; set; }
     public string? Source { get; set; }
     public int? AzureDevOpsWorkItemId { get; set; }
+    public int? GitHubIssueNumber { get; set; }
 }
 
 /// <summary>
@@ -819,6 +864,7 @@ public class AddUserStoryRequest
     public int? StoryPoints { get; set; }
     public string? Source { get; set; }
     public int? AzureDevOpsWorkItemId { get; set; }
+    public int? GitHubIssueNumber { get; set; }
 }
 
 /// <summary>

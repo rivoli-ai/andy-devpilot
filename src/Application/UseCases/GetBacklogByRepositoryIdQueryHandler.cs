@@ -55,6 +55,7 @@ public class GetBacklogByRepositoryIdQueryHandler : IRequestHandler<GetBacklogBy
             Status = feature.Status,
             Source = feature.Source,
             AzureDevOpsWorkItemId = feature.AzureDevOpsWorkItemId,
+            GitHubIssueNumber = feature.GitHubIssueNumber,
             CreatedAt = feature.CreatedAt,
             UpdatedAt = feature.UpdatedAt,
             UserStories = feature.UserStories.Select(us => MapUserStoryToDto(us)).ToList()
@@ -75,6 +76,7 @@ public class GetBacklogByRepositoryIdQueryHandler : IRequestHandler<GetBacklogBy
             StoryPoints = userStory.StoryPoints,
             Source = userStory.Source,
             AzureDevOpsWorkItemId = userStory.AzureDevOpsWorkItemId,
+            GitHubIssueNumber = userStory.GitHubIssueNumber,
             CreatedAt = userStory.CreatedAt,
             UpdatedAt = userStory.UpdatedAt,
             Tasks = userStory.Tasks.Select(t => MapTaskToDto(t)).ToList()
