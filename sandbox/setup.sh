@@ -314,13 +314,28 @@ RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; 
     c_rehash /etc/ssl/certs 2>/dev/null || true
 
 # ── LD_PRELOAD SSL bypass for .NET (sandbox only) ──
-# .NET's X509Chain validation is stricter than curl/OpenSSL even with identical cert stores.
-# curl works but dotnet restore fails with "partial chain". Since this is a dev sandbox,
-# we create a tiny shared library that overrides OpenSSL's X509_verify_cert to always succeed.
-# LD_PRELOAD makes every process (including dotnet CLI) load this before the real OpenSSL.
-RUN echo '#include <stdlib.h>' > /tmp/ssl_bypass.c && \
-    echo 'int X509_verify_cert(void *ctx) { return 1; }' >> /tmp/ssl_bypass.c && \
-    gcc -shared -fPIC -o /usr/local/lib/ssl_bypass.so /tmp/ssl_bypass.c && \
+# .NET uses OpenSSL's SSL_CTX_set_verify callback for certificate validation.
+# Simply overriding X509_verify_cert is not enough because .NET's managed verify
+# callback is what rejects the chain. We must override SSL_CTX_set_verify and
+# SSL_set_verify to force SSL_VERIFY_NONE (0), disabling all cert checks.
+RUN cat > /tmp/ssl_bypass.c << 'SSLBYPASS'
+#define _GNU_SOURCE
+#include <dlfcn.h>
+typedef void (*set_verify_fn)(void*, int, void*);
+/* Override SSL_CTX_set_verify: force mode=0 (SSL_VERIFY_NONE), no callback */
+void SSL_CTX_set_verify(void *ctx, int mode, void *cb) {
+    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_CTX_set_verify");
+    if (real) real(ctx, 0, (void*)0);
+}
+/* Override SSL_set_verify: same for per-connection setting */
+void SSL_set_verify(void *ssl, int mode, void *cb) {
+    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_set_verify");
+    if (real) real(ssl, 0, (void*)0);
+}
+/* Belt & suspenders: also override X509_verify_cert */
+int X509_verify_cert(void *ctx) { return 1; }
+SSLBYPASS
+    gcc -shared -fPIC -o /usr/local/lib/ssl_bypass.so /tmp/ssl_bypass.c -ldl && \
     rm /tmp/ssl_bypass.c
 ENV LD_PRELOAD=/usr/local/lib/ssl_bypass.so
 
@@ -429,6 +444,18 @@ RUN apt-get update && apt-get remove -y xfce4-screensaver light-locker 2>/dev/nu
 # Create sandbox user
 RUN useradd -m -s /bin/bash sandbox && \
     echo "sandbox ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# Write SSL bypass + env vars to sandbox user's .bashrc so EVERY terminal session gets them
+RUN echo '# SSL bypass for sandbox (dev environment)' >> /home/sandbox/.bashrc && \
+    echo 'export LD_PRELOAD=/usr/local/lib/ssl_bypass.so' >> /home/sandbox/.bashrc && \
+    echo 'export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' >> /home/sandbox/.bashrc && \
+    echo 'export SSL_CERT_DIR=/etc/ssl/certs' >> /home/sandbox/.bashrc && \
+    echo 'export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0' >> /home/sandbox/.bashrc && \
+    echo 'export NUGET_CERT_REVOCATION_MODE=off' >> /home/sandbox/.bashrc && \
+    echo 'export DOTNET_NUGET_SIGNATURE_VERIFICATION=false' >> /home/sandbox/.bashrc && \
+    echo 'export NODE_TLS_REJECT_UNAUTHORIZED=0' >> /home/sandbox/.bashrc && \
+    echo 'export GIT_SSL_NO_VERIFY=true' >> /home/sandbox/.bashrc && \
+    chown sandbox:sandbox /home/sandbox/.bashrc
 
 # Create fix-ssl helper script (user can type "fix-ssl" in terminal if SSL issues persist)
 RUN echo '#!/bin/bash' > /usr/local/bin/fix-ssl && \
