@@ -50,7 +50,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   promptMode = signal<'general' | 'custom'>('general');
   customInstructions = signal<string>('');
   customPrompt = signal<string>('');
-  showPromptOptions = signal<boolean>(false);
+  showGeneratePromptModal = signal<boolean>(false);
 
   // Add item modal state
   addModalType = signal<AddItemType | null>(null);
@@ -398,6 +398,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
       this.repositoryId.set(repoId);
       this.loadBacklog(repoId);
       this.loadRepository(repoId);
+      // Reconnect to existing backlog generation sandbox after page refresh (like code analysis)
+      this.checkForExistingBacklogSandbox();
     } else {
       this.error.set('Repository ID is required');
     }
@@ -410,7 +412,31 @@ export class BacklogComponent implements OnInit, OnDestroy {
         .filter(v => v.implementationContext?.storyId)
         .map(v => v.implementationContext!.storyId);
       this.openSandboxStoryIds.set(storyIds);
+      // When viewers are restored after refresh, try to reconnect to backlog sandbox
+      this.checkForExistingBacklogSandbox();
     });
+  }
+
+  /**
+   * Check for an existing backlog generation sandbox (e.g. after page refresh).
+   * If found, reconnect and resume polling for the backlog response.
+   */
+  private checkForExistingBacklogSandbox(): void {
+    if (this.generationState() !== 'idle' && this.generationState() !== 'error') return;
+    const currentRepoId = this.repositoryId();
+    if (!currentRepoId) return;
+
+    const viewers = this.vncViewerService.getViewers();
+    const backlogViewer = viewers.find(
+      v => v.implementationContext?.storyId === `backlog-${currentRepoId}` && v.implementationContext?.repositoryId === currentRepoId
+    );
+
+    if (backlogViewer?.bridgePort) {
+      console.log('Found existing backlog sandbox for this repo, reconnecting...', backlogViewer.id);
+      this.generationError.set(null);
+      this.generationState.set('waiting_response');
+      this.startPollingForResponse(backlogViewer.bridgePort);
+    }
   }
 
   loadBacklog(repositoryId: string): void {
@@ -477,10 +503,16 @@ export class BacklogComponent implements OnInit, OnDestroy {
   loadRepository(repositoryId: string): void {
     this.repositoryService.getRepositories().subscribe({
       next: (repos) => {
-        const repo = repos.find(r => r.id === repositoryId);
+        const repo = repos.find(r => String(r.id) === String(repositoryId));
         if (repo) {
           this.repository.set(repo);
           this.repositoryName.set(repo.name);
+        } else {
+          const fromCache = this.repositoryService.getRepositoryById(repositoryId);
+          if (fromCache) {
+            this.repository.set(fromCache);
+            this.repositoryName.set(fromCache.name);
+          }
         }
       }
     });
@@ -1116,6 +1148,11 @@ Start by exploring the codebase and then provide your implementation plan.`;
     this.destroy$.complete();
   }
 
+  confirmStartGeneration(): void {
+    this.showGeneratePromptModal.set(false);
+    this.generateBacklog();
+  }
+
   generateBacklog(): void {
     const repo = this.repository();
     if (!repo) {
@@ -1203,10 +1240,17 @@ Start by exploring the codebase and then provide your implementation plan.`;
               useIframe: true
             },
             sandbox.id,
-            `${repo.name}`,
-            sandbox.bridge_port!
+            `${repo.name} - Backlog`,
+            sandbox.bridge_port!,
+            {
+              repositoryId: repo.id,
+              repositoryFullName: repo.fullName || repo.name,
+              defaultBranch: repo.defaultBranch || 'main',
+              storyTitle: 'Backlog Generation',
+              storyId: `backlog-${repo.id}`
+            }
           );
-          
+
           this.generationState.set('waiting_sandbox');
           // Send backlog prompt after Zed is ready
           setTimeout(() => {
@@ -1356,6 +1400,26 @@ ${jsonFormatRequirement}`;
   }
 
   private parseAndSaveBacklog(response: string): void {
+    const repoId = this.repositoryId();
+    if (!repoId) {
+      this.generationError.set('Repository ID not found');
+      this.generationState.set('error');
+      return;
+    }
+
+    // If we already have backlog items (e.g. reconnected after refresh and response was already saved),
+    // do not parse/save again to avoid duplicates.
+    if (this.epics().length > 0) {
+      this.generationState.set('complete');
+      this.loadBacklog(repoId);
+      setTimeout(() => {
+        this.generationState.set('idle');
+        this.latestResponse.set(null);
+        this.lastConversationId = null;
+      }, 2000);
+      return;
+    }
+
     this.generationState.set('parsing');
 
     try {
@@ -1367,11 +1431,6 @@ ${jsonFormatRequirement}`;
       }
 
       const backlog = JSON.parse(jsonStr);
-      const repoId = this.repositoryId();
-
-      if (!repoId) {
-        throw new Error('Repository ID not found');
-      }
 
       this.generationState.set('saving');
 
@@ -1657,6 +1716,28 @@ ${jsonFormatRequirement}`;
     return this.selectedSyncToAzureStories().has(storyId);
   }
 
+  /** Build GitHub issue URL when repo is GitHub and story has issue number */
+  getGitHubIssueUrl(story: UserStory): string | null {
+    const repo = this.repository() ?? this.repositoryService.getRepositoryById(this.repositoryId()) ?? null;
+    if (!repo?.fullName) return null;
+    const provider = (repo.provider ?? '').toLowerCase();
+    if (provider !== 'github') return null;
+    const issueNumber = story?.gitHubIssueNumber;
+    if (issueNumber == null) return null;
+    return `https://github.com/${repo.fullName}/issues/${issueNumber}`;
+  }
+
+  /** Build GitHub issue URL for a feature when repo is GitHub and feature has issue number */
+  getGitHubFeatureIssueUrl(feature: Feature): string | null {
+    const repo = this.repository() ?? this.repositoryService.getRepositoryById(this.repositoryId()) ?? null;
+    if (!repo?.fullName) return null;
+    const provider = (repo.provider ?? '').toLowerCase();
+    if (provider !== 'github') return null;
+    const issueNumber = feature?.gitHubIssueNumber;
+    if (issueNumber == null) return null;
+    return `https://github.com/${repo.fullName}/issues/${issueNumber}`;
+  }
+
   /** Build Azure DevOps work item URL when org and project are available */
   getAzureDevOpsWorkItemUrl(workItemId: number): string | null {
     const repo = this.repository();
@@ -1731,11 +1812,11 @@ ${jsonFormatRequirement}`;
     this.syncToGitHubError.set(null);
     this.syncToGitHubSuccess.set(null);
     const epics = this.epics();
-    const epicIds = Array.from(this.selectedSyncToAzureEpics()).filter(() => false); // Epics don't have githubIssueNumber in our import
+    const epicIds = Array.from(this.selectedSyncToAzureEpics()).filter(() => false); // Epics don't have gitHubIssueNumber in our import
     const featureIds = Array.from(this.selectedSyncToAzureFeatures()).filter(id => {
       for (const e of epics) {
         const f = e.features?.find(x => x.id === id);
-        if (f) return f.source === 'GitHub' && f.githubIssueNumber != null;
+        if (f) return f.source === 'GitHub' && f.gitHubIssueNumber != null;
       }
       return false;
     });
@@ -1743,7 +1824,7 @@ ${jsonFormatRequirement}`;
       for (const e of epics) {
         for (const f of e.features || []) {
           const s = f.userStories?.find(x => x.id === id);
-          if (s) return s.source === 'GitHub' && s.githubIssueNumber != null;
+          if (s) return s.source === 'GitHub' && s.gitHubIssueNumber != null;
         }
       }
       return false;

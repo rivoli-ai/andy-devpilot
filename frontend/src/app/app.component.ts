@@ -95,30 +95,41 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Restore running sandboxes from the API and open viewers so they survive page refresh
+   * Restore running sandboxes from the API and open viewers so they survive page refresh.
+   * Only restores sandboxes that have stored context (opened in this session before refresh).
+   * Sandboxes the user closed had their context removed, so they are not restored (avoids ghost viewers).
    */
   private restoreRunningSandboxes(): void {
     this.sandboxService.listSandboxes().subscribe({
       next: (sandboxes: Sandbox[]) => {
         if (sandboxes.length === 0) return;
-        console.log('Restoring', sandboxes.length, 'running sandbox(es)');
+        console.log('Restoring running sandbox(es), checking stored context...');
         sandboxes.forEach(sandbox => {
           const stored = this.vncViewerService.getStoredContext(sandbox.id);
+          // Only restore if we have stored context (user had this viewer open before refresh).
+          // If user closed the viewer we removed context, so skip to avoid ghost sandbox.
+          if (!stored) {
+            console.log('Skipping sandbox (no stored context, likely closed by user):', sandbox.id.slice(0, 8));
+            this.sandboxService.deleteSandbox(sandbox.id).subscribe({
+              next: (ok) => { if (ok) console.log('Cleaned up orphan sandbox:', sandbox.id.slice(0, 8)); },
+              error: () => {}
+            });
+            return;
+          }
           const config = {
             url: getVncHtmlUrl(sandbox.port),
             autoConnect: true,
             scalingMode: 'local' as const,
             useIframe: true
           };
-          const title = stored?.title ?? `Sandbox ${sandbox.id.slice(0, 6)}`;
-          // Use stored bridgePort so chat/LLM panel works after refresh (list API may not return bridge_port)
-          const bridgePort = stored?.bridgePort ?? sandbox.bridge_port;
+          const title = stored.title ?? `Sandbox ${sandbox.id.slice(0, 6)}`;
+          const bridgePort = stored.bridgePort ?? sandbox.bridge_port;
           this.vncViewerService.open(
             config,
             sandbox.id,
             title,
             bridgePort,
-            stored?.implementationContext ?? undefined
+            stored.implementationContext ?? undefined
           );
         });
       },

@@ -2,9 +2,10 @@ import { Component, OnInit, OnDestroy, AfterViewInit, signal, computed, HostList
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject } from 'rxjs';
-import { debounceTime, distinctUntilChanged, takeUntil } from 'rxjs/operators';
+import { debounceTime, distinctUntilChanged, takeUntil, switchMap } from 'rxjs/operators';
+import { of } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
-import { RepositoryService, SyncSource, PagedRepositoriesResult } from '../../core/services/repository.service';
+import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem } from '../../core/services/repository.service';
 import { AnalysisService } from '../../core/services/analysis.service';
 import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
@@ -51,9 +52,29 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   addRepoUrl = signal<string>('');
   addingRepo = signal<boolean>(false);
   viewMode = signal<'cards' | 'grid'>('cards');
+
+  // Sync selection modal (choose which repos to sync)
+  showSyncSelectModal = signal<boolean>(false);
+  syncSelectProvider = signal<'GitHub' | 'AzureDevOps' | null>(null);
+  availableReposForSync = signal<AvailableRepoItem[]>([]);
+  selectedReposForSync = signal<Set<string>>(new Set());
+  loadingAvailableRepos = signal<boolean>(false);
+  syncSelectOrg = signal<string>('');
+
+  // Share repository modal
+  showShareModal = signal<boolean>(false);
+  shareRepo = signal<Repository | null>(null);
+  shareModalSharedWith = signal<{ userId: string; email: string; name?: string }[]>([]);
+  shareModalEmail = signal<string>('');
+  shareModalLoading = signal<boolean>(false);
+  shareModalAdding = signal<boolean>(false);
+  shareModalSuggestions = signal<{ userId: string; email: string; name?: string }[]>([]);
+  private shareSuggestQuery$ = new Subject<string>();
   
   // Provider filter
   activeProviderTab = signal<'all' | 'GitHub' | 'AzureDevOps'>('all');
+  // Visibility filter: all repos, only mine, or only shared with me
+  visibilityFilter = signal<'all' | 'mine' | 'shared'>('all');
 
   // AI Config status
   isAIConfigured = computed(() => this.aiConfigService.isConfigured());
@@ -61,7 +82,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   // Computed: check if any provider is linked
   hasLinkedProvider = computed(() => this.syncSources().some(s => s.isLinked));
   
-  // Computed: filtered repositories based on active tab (client-side filter for provider tab)
+  // Computed: filtered repositories based on provider tab (visibility filter is applied by API)
   filteredRepositories = computed(() => {
     const repos = this.repositories();
     const tab = this.activeProviderTab();
@@ -241,6 +262,17 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
       takeUntil(this.destroy$)
     ).subscribe(() => this.loadRepositories(true));
 
+    // User suggestions for share modal
+    this.shareSuggestQuery$.pipe(
+      debounceTime(300),
+      distinctUntilChanged(),
+      switchMap(q => (q?.trim().length ?? 0) < 2 ? of([]) : this.repositoryService.suggestUsers(q.trim(), 10)),
+      takeUntil(this.destroy$)
+    ).subscribe(suggestions => {
+      const sharedIds = new Set(this.shareModalSharedWith().map(u => u.userId));
+      this.shareModalSuggestions.set(suggestions.filter(s => !sharedIds.has(s.userId)));
+    });
+
     this.loadRepositories();
   }
 
@@ -310,8 +342,10 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     const search = this.searchQuery().trim() || undefined;
     const page = this.page();
 
+    const filter = this.visibilityFilter();
     this.repositoryService.getRepositoriesPaginated({
       search,
+      filter: filter !== 'all' ? filter : undefined,
       page,
       pageSize: this.pageSize
     }).subscribe({
@@ -382,82 +416,30 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   syncFromGitHub(): void {
-    this.syncing.set(true);
-    this.syncingProvider.set('GitHub');
-    this.error.set(null);
     this.closeSyncMenu();
-
-    this.repositoryService.syncFromGitHub().subscribe({
-      next: () => {
-        this.loadRepositories(true);
-        this.syncing.set(false);
-        this.syncingProvider.set(null);
-        this.successMessage.set('Repositories synced from GitHub');
-        setTimeout(() => this.successMessage.set(null), 3000);
-      },
-      error: (err) => {
-        this.error.set(err.error?.message || err.message || 'Failed to sync repositories from GitHub');
-        this.syncing.set(false);
-        this.syncingProvider.set(null);
-      }
-    });
+    this.syncSelectProvider.set('GitHub');
+    this.syncSelectOrg.set('');
+    this.availableReposForSync.set([]);
+    this.selectedReposForSync.set(new Set());
+    this.showSyncSelectModal.set(true);
+    this.error.set(null);
+    this.loadAvailableRepos();
   }
 
   syncFromAzureDevOps(organizationName?: string): void {
-    // If no organization provided, show prompt
+    // If no organization provided, show prompt first
     if (!organizationName) {
       this.showAzureDevOpsOrgPrompt.set(true);
       return;
     }
-    
-    this.syncing.set(true);
-    this.syncingProvider.set('AzureDevOps');
-    this.error.set(null);
     this.closeSyncMenu();
-
-    this.repositoryService.syncFromAzureDevOps(organizationName).subscribe({
-      next: (response: any) => {
-        // Check if response indicates we need organization name
-        if (response?.requiresOrganization) {
-          this.syncing.set(false);
-          this.syncingProvider.set(null);
-          this.showAzureDevOpsOrgPrompt.set(true);
-          return;
-        }
-        
-        const repos = Array.isArray(response) ? response : response?.repositories || [];
-        if (repos.length > 0) {
-          this.loadRepositories(true);
-          this.successMessage.set(`Synced ${repos.length} repositories from Azure DevOps`);
-          setTimeout(() => this.successMessage.set(null), 3000);
-        } else if (!organizationName) {
-          // No repos found and no organization specified - prompt for org name
-          this.showAzureDevOpsOrgPrompt.set(true);
-        } else {
-          this.successMessage.set('No repositories found in the specified organization');
-          setTimeout(() => this.successMessage.set(null), 3000);
-        }
-        this.syncing.set(false);
-        this.syncingProvider.set(null);
-      },
-      error: (err) => {
-        const errorMsg = err.error?.message || err.message || 'Failed to sync repositories from Azure DevOps';
-        
-        // If authentication failed, prompt for config
-        if (errorMsg.includes('authentication failed')) {
-          this.syncing.set(false);
-          this.syncingProvider.set(null);
-          if (organizationName) this.azureDevOpsOrgName.set(organizationName);
-          this.error.set('Authentication failed. Please configure Azure DevOps in Settings with a valid PAT.');
-          this.showAzureDevOpsOrgPrompt.set(true);
-          return;
-        }
-        
-        this.error.set(errorMsg);
-        this.syncing.set(false);
-        this.syncingProvider.set(null);
-      }
-    });
+    this.syncSelectProvider.set('AzureDevOps');
+    this.syncSelectOrg.set(organizationName);
+    this.availableReposForSync.set([]);
+    this.selectedReposForSync.set(new Set());
+    this.showSyncSelectModal.set(true);
+    this.error.set(null);
+    this.loadAvailableRepos();
   }
 
   submitAzureDevOpsOrg(): void {
@@ -465,12 +447,212 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     if (orgName.trim()) {
       this.showAzureDevOpsOrgPrompt.set(false);
       this.syncFromAzureDevOps(orgName.trim());
+      this.azureDevOpsOrgName.set('');
     }
   }
 
   cancelAzureDevOpsOrgPrompt(): void {
     this.showAzureDevOpsOrgPrompt.set(false);
     this.azureDevOpsOrgName.set('');
+  }
+
+  loadAvailableRepos(): void {
+    const provider = this.syncSelectProvider();
+    if (!provider) return;
+    this.loadingAvailableRepos.set(true);
+    this.error.set(null);
+    const req = provider === 'GitHub'
+      ? this.repositoryService.getAvailableGitHubRepositories()
+      : this.repositoryService.getAvailableAzureDevOpsRepositories(this.syncSelectOrg() || undefined);
+    req.subscribe({
+      next: (list) => {
+        this.availableReposForSync.set(list);
+        this.loadingAvailableRepos.set(false);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message || err.message || 'Failed to load repositories');
+        this.loadingAvailableRepos.set(false);
+      }
+    });
+  }
+
+  closeSyncSelectModal(): void {
+    this.showSyncSelectModal.set(false);
+    this.syncSelectProvider.set(null);
+    this.availableReposForSync.set([]);
+    this.selectedReposForSync.set(new Set());
+    this.syncSelectOrg.set('');
+    this.error.set(null);
+  }
+
+  selectableRepos(): AvailableRepoItem[] {
+    return this.availableReposForSync().filter(r => !r.alreadyInApp);
+  }
+
+  toggleRepoSelection(fullName: string): void {
+    const item = this.availableReposForSync().find(r => r.fullName === fullName);
+    if (item?.alreadyInApp) return;
+    this.selectedReposForSync.update(set => {
+      const next = new Set(set);
+      if (next.has(fullName)) next.delete(fullName);
+      else next.add(fullName);
+      return next;
+    });
+  }
+
+  selectAllRepos(): void {
+    const selectable = this.selectableRepos().map(r => r.fullName);
+    this.selectedReposForSync.set(new Set(selectable));
+  }
+
+  unselectAllRepos(): void {
+    this.selectedReposForSync.set(new Set());
+  }
+
+  isRepoSelected(fullName: string): boolean {
+    return this.selectedReposForSync().has(fullName);
+  }
+
+  confirmSyncSelected(): void {
+    const provider = this.syncSelectProvider();
+    const selected = Array.from(this.selectedReposForSync());
+    if (!provider || selected.length === 0) {
+      this.closeSyncSelectModal();
+      return;
+    }
+    this.syncing.set(true);
+    this.syncingProvider.set(provider);
+    this.error.set(null);
+    const req = provider === 'GitHub'
+      ? this.repositoryService.syncSelectedGitHubRepositories(selected)
+      : this.repositoryService.syncSelectedAzureDevOpsRepositories(this.syncSelectOrg(), selected);
+    req.subscribe({
+      next: (res) => {
+        this.syncing.set(false);
+        this.syncingProvider.set(null);
+        this.closeSyncSelectModal();
+        this.loadRepositories(true);
+        this.successMessage.set(res.added === 0 ? 'No new repositories to add' : `Added ${res.added} repository(ies)`);
+        setTimeout(() => this.successMessage.set(null), 3000);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message || err.message || 'Failed to sync selected repositories');
+        this.syncing.set(false);
+        this.syncingProvider.set(null);
+      }
+    });
+  }
+
+  deleteRepository(repo: Repository): void {
+    if (!confirm(`Delete "${repo.name}"? This will remove the repository and its backlog from the app.`)) return;
+    this.repositoryService.deleteRepository(repo.id).subscribe({
+      next: () => {
+        this.loadRepositories(true);
+        this.successMessage.set('Repository removed');
+        setTimeout(() => this.successMessage.set(null), 3000);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message || err.message || 'Failed to delete repository');
+      }
+    });
+  }
+
+  openShareModal(repo: Repository): void {
+    this.shareRepo.set(repo);
+    this.shareModalEmail.set('');
+    this.shareModalSuggestions.set([]);
+    this.error.set(null);
+    this.showShareModal.set(true);
+    this.loadShareModalData();
+  }
+
+  closeShareModal(): void {
+    this.showShareModal.set(false);
+    this.shareRepo.set(null);
+    this.shareModalSharedWith.set([]);
+    this.shareModalEmail.set('');
+    this.shareModalLoading.set(false);
+    this.shareModalAdding.set(false);
+    this.shareModalSuggestions.set([]);
+    this.error.set(null);
+  }
+
+  onShareEmailInput(value: string): void {
+    this.shareModalEmail.set(value);
+    this.shareSuggestQuery$.next(value);
+  }
+
+  selectShareSuggestion(suggestion: { userId: string; email: string; name?: string }): void {
+    const repo = this.shareRepo();
+    if (!repo) return;
+    this.shareModalSuggestions.set([]);
+    this.shareModalAdding.set(true);
+    this.error.set(null);
+    this.repositoryService.shareRepository(repo.id, suggestion.email).subscribe({
+      next: () => {
+        this.shareModalEmail.set('');
+        this.shareModalAdding.set(false);
+        this.loadShareModalData();
+        this.successMessage.set('Repository shared with ' + (suggestion.name || suggestion.email));
+        setTimeout(() => this.successMessage.set(null), 3000);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message || err.message || 'Failed to share');
+        this.shareModalAdding.set(false);
+      }
+    });
+  }
+
+  loadShareModalData(): void {
+    const repo = this.shareRepo();
+    if (!repo) return;
+    this.shareModalLoading.set(true);
+    this.repositoryService.getSharedWith(repo.id).subscribe({
+      next: (res) => {
+        this.shareModalSharedWith.set(res.sharedWith ?? []);
+        this.shareModalLoading.set(false);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message || err.message || 'Failed to load shared users');
+        this.shareModalLoading.set(false);
+      }
+    });
+  }
+
+  addShareByEmail(): void {
+    const repo = this.shareRepo();
+    const email = this.shareModalEmail().trim();
+    if (!repo || !email) return;
+    this.shareModalAdding.set(true);
+    this.error.set(null);
+    this.repositoryService.shareRepository(repo.id, email).subscribe({
+      next: () => {
+        this.shareModalEmail.set('');
+        this.shareModalAdding.set(false);
+        this.loadShareModalData();
+        this.successMessage.set('Repository shared with ' + email);
+        setTimeout(() => this.successMessage.set(null), 3000);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message || err.message || 'Failed to share');
+        this.shareModalAdding.set(false);
+      }
+    });
+  }
+
+  removeShare(sharedWithUserId: string): void {
+    const repo = this.shareRepo();
+    if (!repo) return;
+    this.repositoryService.unshareRepository(repo.id, sharedWithUserId).subscribe({
+      next: () => {
+        this.loadShareModalData();
+        this.successMessage.set('Access removed');
+        setTimeout(() => this.successMessage.set(null), 3000);
+      },
+      error: (err) => {
+        this.error.set(err.error?.message || err.message || 'Failed to remove access');
+      }
+    });
   }
 
   openAddRepoModal(): void {
@@ -536,6 +718,12 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
 
   setProviderTab(tab: 'all' | 'GitHub' | 'AzureDevOps'): void {
     this.activeProviderTab.set(tab);
+  }
+
+  toggleSharedFilter(): void {
+    const next = this.visibilityFilter() === 'shared' ? 'all' : 'shared';
+    this.visibilityFilter.set(next);
+    this.loadRepositories(true);
   }
 
   /**

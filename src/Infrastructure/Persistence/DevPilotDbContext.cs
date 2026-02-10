@@ -22,6 +22,7 @@ public class DevPilotDbContext : DbContext
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<CodeAnalysis> CodeAnalyses => Set<CodeAnalysis>();
     public DbSet<FileAnalysis> FileAnalyses => Set<FileAnalysis>();
+    public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -93,6 +94,20 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.DefaultBranch).HasColumnName("default_branch").HasMaxLength(128);
             entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<RepositoryShare>(entity =>
+        {
+            entity.ToTable("repository_shares");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
+            entity.Property(e => e.SharedWithUserId).HasColumnName("shared_with_user_id");
+            entity.HasOne<Repository>().WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.SharedWithUserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.RepositoryId, e.SharedWithUserId }).IsUnique();
         });
 
         modelBuilder.Entity<Epic>(entity =>

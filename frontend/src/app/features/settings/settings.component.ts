@@ -5,7 +5,6 @@ import { Router, ActivatedRoute } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { AuthService, LinkedProvider, User, ProviderSettings } from '../../core/services/auth.service';
 import { AuthProviderConfig } from '../../core/auth/oidc-config.loader';
-import { CardComponent } from '../../shared/components';
 import { firstValueFrom } from 'rxjs';
 
 /**
@@ -15,7 +14,7 @@ import { firstValueFrom } from 'rxjs';
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule, CardComponent],
+  imports: [CommonModule, FormsModule],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.css'
 })

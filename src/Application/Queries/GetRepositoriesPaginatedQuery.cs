@@ -10,13 +10,15 @@ public class GetRepositoriesPaginatedQuery : IRequest<PagedRepositoriesResult>
 {
     public Guid UserId { get; }
     public string? Search { get; }
+    public string? Filter { get; }
     public int Page { get; }
     public int PageSize { get; }
 
-    public GetRepositoriesPaginatedQuery(Guid userId, string? search = null, int page = 1, int pageSize = 20)
+    public GetRepositoriesPaginatedQuery(Guid userId, string? search = null, string? filter = null, int page = 1, int pageSize = 20)
     {
         UserId = userId;
         Search = search;
+        Filter = filter;
         Page = Math.Max(1, page);
         PageSize = Math.Clamp(pageSize, 1, 100);
     }

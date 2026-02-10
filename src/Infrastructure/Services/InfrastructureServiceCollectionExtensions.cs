@@ -33,6 +33,7 @@ public static class InfrastructureServiceCollectionExtensions
         });
 
         // Register PostgreSQL repository implementations
+        services.AddScoped<IRepositoryShareRepository, PostgresRepositoryShareRepository>();
         services.AddScoped<IRepositoryRepository, PostgresRepositoryRepository>();
         services.AddScoped<IEpicRepository, PostgresEpicRepository>();
         services.AddScoped<IFeatureRepository, PostgresFeatureRepository>();

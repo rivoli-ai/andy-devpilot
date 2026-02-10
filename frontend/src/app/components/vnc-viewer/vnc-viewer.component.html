@@ -18,7 +18,7 @@
         <span>Push PR</span>
       </div>
     }
-    <div class="minimized-icon" [class.has-story]="implementationContext() && !isAnalysisSandbox()" [class.has-analysis]="isAnalysisSandbox()" [class.pr-ready]="readyForPr()">
+    <div class="minimized-icon" [class.has-story]="implementationContext() && !isAnalysisSandbox() && !isBacklogSandbox()" [class.has-analysis]="isAnalysisSandbox()" [class.has-backlog]="isBacklogSandbox()" [class.pr-ready]="readyForPr()">
       @if (readyForPr()) {
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="18" cy="18" r="3"/>
@@ -30,6 +30,11 @@
         <!-- Lightning bolt icon for analysis sandboxes -->
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </svg>
+      } @else if (isBacklogSandbox()) {
+        <!-- Backlog / list icon for AI backlog generation -->
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
         </svg>
       } @else if (implementationContext()) {
         <span class="story-badge">S</span>

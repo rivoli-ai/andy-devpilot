@@ -101,6 +101,12 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     return ctx?.storyId?.startsWith('analysis-') ?? false;
   });
 
+  // Check if this is a backlog generation sandbox (AI generating backlog)
+  isBacklogSandbox = computed(() => {
+    const ctx = this.implementationContext();
+    return ctx?.storyId?.startsWith('backlog-') ?? false;
+  });
+
   // VNC iframe URL
   private vncIframeUrlRaw = signal<string>('');
 

@@ -140,25 +140,7 @@
   font-size: 1rem;
 }
 
-/* Prompt Options - Dropdown (no layout shift) */
-.prompt-options-trigger {
-  position: relative;
-}
-
-.prompt-options-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  min-width: 420px;
-  max-width: 480px;
-  background: var(--surface-card);
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(0, 0, 0, 0.05);
-  z-index: 100;
-  overflow: hidden;
-}
-
+/* Prompt panel (used in Generate with AI modal) */
 .prompt-panel-header {
   display: flex;
   justify-content: space-between;
@@ -271,6 +253,65 @@
   font-size: 0.8rem;
   color: var(--text-muted);
   line-height: 1.4;
+}
+
+/* Generate with AI – Prompt confirmation modal */
+.prompt-modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.7);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: fadeIn 0.2s ease;
+}
+
+.prompt-modal {
+  background: var(--surface-card);
+  border: 1px solid var(--border-default);
+  border-radius: 16px;
+  width: 90%;
+  max-width: 520px;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  animation: slideUp 0.3s ease;
+}
+
+.prompt-modal .prompt-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 1.25rem;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(139, 92, 246, 0.05) 100%);
+  border-bottom: 1px solid var(--border-default);
+  border-radius: 16px 16px 0 0;
+}
+
+.prompt-modal-body {
+  padding: 0 1.25rem 1.25rem;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.prompt-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-3);
+  padding: 1rem 1.25rem 1.25rem;
+  border-top: 1px solid var(--border-default);
+}
+
+.prompt-modal-actions .action-btn.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 /* Stats Bar */
@@ -1466,6 +1507,16 @@ a.source-badge.ado:hover {
   color: #24292f;
 }
 
+a.source-badge.gh {
+  text-decoration: none;
+  cursor: pointer;
+}
+
+a.source-badge.gh:hover {
+  opacity: 1;
+  background: rgba(36, 41, 47, 0.22);
+}
+
 .source-badge.gh svg {
   display: block;
   flex-shrink: 0;
@@ -1474,6 +1525,10 @@ a.source-badge.ado:hover {
 :host-context([data-theme="dark"]) .source-badge.gh {
   background: rgba(255, 255, 255, 0.12);
   color: #c9d1d9;
+}
+
+:host-context([data-theme="dark"]) a.source-badge.gh:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .tree-row.story-row .source-badge {

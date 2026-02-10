@@ -226,6 +226,22 @@
         <span>Azure DevOps</span>
         <span class="tab-count">{{ azureDevOpsCount() }}</span>
       </button>
+
+      <span class="visibility-filter-sep"></span>
+      <button 
+        class="provider-tab shared-tab" 
+        [class.active]="visibilityFilter() === 'shared'"
+        (click)="toggleSharedFilter()"
+        title="Show only repositories shared with you">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="18" cy="5" r="3"/>
+          <circle cx="6" cy="12" r="3"/>
+          <circle cx="18" cy="19" r="3"/>
+          <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+          <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+        </svg>
+        <span>Shared</span>
+      </button>
     </div>
   }
 
@@ -330,6 +346,34 @@
                     <span>{{ repo.provider }}</span>
                   }
                 </div>
+                @if (repo.isOwner !== false) {
+                  <span class="repo-share-wrap">
+                    <button type="button" class="repo-share-icon" (click)="openShareModal(repo); $event.stopPropagation()" [title]="(repo.sharedWithCount ?? 0) > 0 ? 'Shared with ' + repo.sharedWithCount + ' user(s)' : 'Share repository'">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="18" cy="5" r="3"/>
+                        <circle cx="6" cy="12" r="3"/>
+                        <circle cx="18" cy="19" r="3"/>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+                      </svg>
+                    </button>
+                    @if ((repo.sharedWithCount ?? 0) > 0) {
+                      <span class="repo-share-count">{{ repo.sharedWithCount }}</span>
+                    }
+                  </span>
+                  <button type="button" class="repo-delete-icon" (click)="deleteRepository(repo); $event.stopPropagation()" title="Delete repository">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <polyline points="3 6 5 6 21 6"/>
+                      <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                      <line x1="10" y1="11" x2="10" y2="17"/>
+                      <line x1="14" y1="11" x2="14" y2="17"/>
+                    </svg>
+                  </button>
+                } @else {
+                  <span class="repo-shared-badge" [title]="repo.ownerEmail || 'Shared with you'">
+                    {{ repo.ownerName || repo.ownerEmail ? ('Shared by ' + (repo.ownerName || repo.ownerEmail)) : 'Shared with you' }}
+                  </span>
+                }
               </div>
 
               <!-- Card Actions -->
@@ -496,6 +540,190 @@
         <button class="btn-primary" (click)="submitAzureDevOpsOrg()" [disabled]="!azureDevOpsOrgName().trim()">
           Sync Repositories
         </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Sync selection modal: choose which repositories to add -->
+@if (showSyncSelectModal()) {
+  <div class="modal-overlay" (click)="closeSyncSelectModal()">
+    <div class="modal-content sync-modal" (click)="$event.stopPropagation()" [class.sync-modal--github]="syncSelectProvider() === 'GitHub'" [class.sync-modal--azure]="syncSelectProvider() === 'AzureDevOps'">
+      <div class="sync-modal__header">
+        <div class="sync-modal__title-row">
+          <div class="sync-modal__provider-icon" [class.github]="syncSelectProvider() === 'GitHub'" [class.azure]="syncSelectProvider() === 'AzureDevOps'">
+            @if (syncSelectProvider() === 'GitHub') {
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+            } @else {
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
+              </svg>
+            }
+          </div>
+          <div class="sync-modal__title-wrap">
+            <h3 class="sync-modal__title">Sync from {{ syncSelectProvider() === 'GitHub' ? 'GitHub' : 'Azure DevOps' }}</h3>
+            <p class="sync-modal__subtitle">Choose which repositories to add to your list</p>
+          </div>
+        </div>
+        <button type="button" class="sync-modal__close" (click)="closeSyncSelectModal()" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="sync-modal__body">
+        @if (error()) {
+          <div class="sync-modal__error">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            <span>{{ error() }}</span>
+          </div>
+        }
+        @if (loadingAvailableRepos()) {
+          <div class="sync-modal__loading">
+            <div class="sync-modal__spinner"></div>
+            <p class="sync-modal__loading-text">Loading your repositories…</p>
+          </div>
+        } @else {
+          <div class="sync-modal__toolbar">
+            <button type="button" class="sync-modal__toolbar-btn" (click)="selectAllRepos()">Select all</button>
+            <button type="button" class="sync-modal__toolbar-btn" (click)="unselectAllRepos()">Unselect all</button>
+            <span class="sync-modal__count">{{ selectedReposForSync().size }} selected</span>
+          </div>
+          <div class="sync-modal__list">
+            @for (item of availableReposForSync(); track item.fullName) {
+              <label class="sync-modal__row" [class.sync-modal__row--disabled]="item.alreadyInApp">
+                <span class="sync-modal__checkbox-wrap">
+                  <input
+                    type="checkbox"
+                    class="sync-modal__checkbox"
+                    [checked]="isRepoSelected(item.fullName)"
+                    [disabled]="item.alreadyInApp"
+                    (change)="toggleRepoSelection(item.fullName)"
+                  />
+                  <span class="sync-modal__checkmark"></span>
+                </span>
+                <span class="sync-modal__repo-name">{{ item.fullName }}</span>
+                @if (item.alreadyInApp) {
+                  <span class="sync-modal__badge">Already added</span>
+                }
+              </label>
+            }
+          </div>
+          @if (availableReposForSync().length === 0 && !loadingAvailableRepos()) {
+            <div class="sync-modal__empty">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+              </svg>
+              <p>No repositories found</p>
+            </div>
+          }
+        }
+      </div>
+      <div class="sync-modal__footer">
+        <button type="button" class="sync-modal__cancel" (click)="closeSyncSelectModal()">Cancel</button>
+        <button
+          type="button"
+          class="sync-modal__submit"
+          (click)="confirmSyncSelected()"
+          [disabled]="loadingAvailableRepos() || syncing() || selectedReposForSync().size === 0">
+          @if (syncing()) {
+            <span class="sync-modal__submit-spinner"></span>
+            Syncing…
+          }           @else {
+            Sync {{ selectedReposForSync().size }} {{ selectedReposForSync().size === 1 ? 'repository' : 'repositories' }}
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
+<!-- Share repository modal -->
+@if (showShareModal()) {
+  <div class="modal-overlay" (click)="closeShareModal()">
+    <div class="modal-content share-modal" (click)="$event.stopPropagation()">
+      <div class="share-modal__header">
+        <h3 class="share-modal__title">Share repository</h3>
+        <button type="button" class="share-modal__close" (click)="closeShareModal()" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="share-modal__body">
+        @if (shareRepo(); as repo) {
+          <p class="share-modal__repo-name">{{ repo.name }}</p>
+        }
+        @if (error()) {
+          <div class="share-modal__error">{{ error() }}</div>
+        }
+        <div class="share-modal__add-wrap">
+          <div class="share-modal__add">
+            <input
+              type="text"
+              class="share-modal__input"
+              placeholder="Search by email or name…"
+              [value]="shareModalEmail()"
+              (input)="onShareEmailInput($any($event.target).value)"
+              (keydown.enter)="shareModalSuggestions().length ? selectShareSuggestion(shareModalSuggestions()[0]) : addShareByEmail()"
+              autocomplete="off"
+            />
+            <button
+              type="button"
+              class="share-modal__add-btn"
+              (click)="addShareByEmail()"
+              [disabled]="!shareModalEmail().trim() || shareModalAdding()">
+              @if (shareModalAdding()) {
+                <span class="share-modal__spinner"></span>
+                Add…
+              } @else {
+                Add
+              }
+            </button>
+          </div>
+          @if (shareModalSuggestions().length > 0) {
+            <ul class="share-modal__suggestions">
+              @for (u of shareModalSuggestions(); track u.userId) {
+                <li class="share-modal__suggestion-row" (click)="selectShareSuggestion(u)">
+                  <span class="share-modal__suggestion-name">{{ u.name || u.email }}</span>
+                  @if (u.name && u.email !== u.name) {
+                    <span class="share-modal__suggestion-email">{{ u.email }}</span>
+                  }
+                </li>
+              }
+            </ul>
+          }
+        </div>
+        <p class="share-modal__hint">Suggestions are users in the app. You can also type an email and click Add.</p>
+        <div class="share-modal__list-wrap">
+          <h4 class="share-modal__list-title">Shared with</h4>
+          @if (shareModalLoading()) {
+            <p class="share-modal__loading">Loading…</p>
+          } @else if (shareModalSharedWith().length === 0) {
+            <p class="share-modal__empty">Not shared with anyone yet.</p>
+          } @else {
+            <ul class="share-modal__list">
+              @for (u of shareModalSharedWith(); track u.userId) {
+                <li class="share-modal__row">
+                  <span class="share-modal__user">{{ u.name || u.email }}</span>
+                  <span class="share-modal__email">{{ u.email }}</span>
+                  <button type="button" class="share-modal__remove" (click)="removeShare(u.userId)" title="Remove access">Remove</button>
+                </li>
+              }
+            </ul>
+          }
+        </div>
+      </div>
+      <div class="share-modal__footer">
+        <button type="button" class="share-modal__done" (click)="closeShareModal()">Done</button>
       </div>
     </div>
   </div>

@@ -591,7 +591,7 @@ public class AuthController : ControllerBase
         var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
         if (user == null) return NotFound("User not found");
 
-        user.UpdateAzureDevOpsSettings(null, null);
+        user.ClearAzureDevOpsSettings();
         await _userRepository.UpdateAsync(user, cancellationToken);
 
         return Ok(new { message = "Azure DevOps settings cleared" });

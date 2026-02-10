@@ -105,6 +105,14 @@ public class User : Entity
         MarkAsUpdated();
     }
 
+    public void ClearAzureDevOpsSettings()
+    {
+        AzureDevOpsOrganization = null;
+        AzureDevOpsAccessToken = null;
+        AzureDevOpsTokenExpiresAt = null;
+        MarkAsUpdated();
+    }
+
     public void UpdateAiSettings(string? provider, string? apiKey, string? model, string? baseUrl)
     {
         AiProvider = provider;
