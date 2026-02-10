@@ -259,6 +259,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Update SSL certificates and set environment variables for SSL
 RUN update-ca-certificates
 
+# Install .NET SDK 8, 9, and 10 (Microsoft package repo)
+# Uses retry and fallback to handle SSL/network issues (same pattern as Firefox)
+RUN (wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb || \
+     wget --no-check-certificate -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb || \
+     curl -fsSL -k https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -o /tmp/packages-microsoft-prod.deb) && \
+    dpkg -i /tmp/packages-microsoft-prod.deb && rm -f /tmp/packages-microsoft-prod.deb && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends \
+    dotnet-sdk-8.0 \
+    dotnet-sdk-9.0 \
+    dotnet-sdk-10.0 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Node.js (NodeSource LTS - Node 22.x)
+# Uses retry and fallback to handle SSL/network issues (same pattern as Firefox)
+RUN (curl -fsSL --retry 3 --retry-delay 5 https://deb.nodesource.com/setup_22.x -o /tmp/nodesetup.sh || \
+     curl -fsSL --retry 3 --retry-delay 5 -k https://deb.nodesource.com/setup_22.x -o /tmp/nodesetup.sh || \
+     wget --no-check-certificate -q -O /tmp/nodesetup.sh https://deb.nodesource.com/setup_22.x) && \
+    bash /tmp/nodesetup.sh && \
+    apt-get install -y --no-install-recommends nodejs && \
+    rm -f /tmp/nodesetup.sh && \
+    rm -rf /var/lib/apt/lists/*
+
 # SSL environment variables for various applications
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
 ENV SSL_CERT_DIR=/etc/ssl/certs
