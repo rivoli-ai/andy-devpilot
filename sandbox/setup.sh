@@ -296,6 +296,8 @@ RUN update-ca-certificates && \
 # Phase 2: Extract LIVE certificate chains from actual servers using openssl s_client.
 # This captures the EXACT certs the servers present (including any corporate proxy certs).
 # openssl s_client connects without validating, so it works even when the cert store is incomplete.
+# We both install via update-ca-certificates AND append directly to the bundle file
+# because .NET's X509Chain reads from SSL_CERT_FILE differently than curl/OpenSSL.
 RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do \
         echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
             awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' \
@@ -303,9 +305,12 @@ RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; 
         FILESIZE=$(stat -c%s /usr/local/share/ca-certificates/live-${HOST}.crt 2>/dev/null || echo 0); \
         if [ "$FILESIZE" -lt 100 ]; then \
             rm -f /usr/local/share/ca-certificates/live-${HOST}.crt; \
+        else \
+            cat /usr/local/share/ca-certificates/live-${HOST}.crt >> /etc/ssl/certs/ca-certificates.crt; \
         fi; \
     done && \
-    update-ca-certificates
+    update-ca-certificates && \
+    c_rehash /etc/ssl/certs 2>/dev/null || true
 
 # ── Temporary SSL bypass for install scripts ──
 # dotnet-install.sh and NodeSource's setup script call curl/wget internally;
@@ -412,6 +417,24 @@ RUN apt-get update && apt-get remove -y xfce4-screensaver light-locker 2>/dev/nu
 # Create sandbox user
 RUN useradd -m -s /bin/bash sandbox && \
     echo "sandbox ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# Create fix-ssl helper script (user can type "fix-ssl" in terminal if SSL issues persist)
+RUN echo '#!/bin/bash' > /usr/local/bin/fix-ssl && \
+    echo 'echo "Extracting live SSL certificates..."' >> /usr/local/bin/fix-ssl && \
+    echo 'for H in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do' >> /usr/local/bin/fix-ssl && \
+    echo '  C=$(echo | openssl s_client -showcerts -connect $H:443 -servername $H 2>/dev/null | awk "/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}")' >> /usr/local/bin/fix-ssl && \
+    echo '  if [ -n "$C" ]; then' >> /usr/local/bin/fix-ssl && \
+    echo '    echo "$C" | sudo tee /usr/local/share/ca-certificates/live-$H.crt >/dev/null' >> /usr/local/bin/fix-ssl && \
+    echo '    echo "$C" | sudo tee -a /etc/ssl/certs/ca-certificates.crt >/dev/null' >> /usr/local/bin/fix-ssl && \
+    echo '    echo "  OK: $H"' >> /usr/local/bin/fix-ssl && \
+    echo '  else' >> /usr/local/bin/fix-ssl && \
+    echo '    echo "  FAIL: $H"' >> /usr/local/bin/fix-ssl && \
+    echo '  fi' >> /usr/local/bin/fix-ssl && \
+    echo 'done' >> /usr/local/bin/fix-ssl && \
+    echo 'sudo update-ca-certificates 2>/dev/null' >> /usr/local/bin/fix-ssl && \
+    echo 'sudo c_rehash /etc/ssl/certs 2>/dev/null' >> /usr/local/bin/fix-ssl && \
+    echo 'echo "Done. Try dotnet restore again."' >> /usr/local/bin/fix-ssl && \
+    chmod +x /usr/local/bin/fix-ssl
 
 # Configure nginx for noVNC proxy (port 6080)
 RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
@@ -2208,23 +2231,33 @@ echo "[SSL] npm strict-ssl disabled" >> /tmp/sandbox-debug.log
 echo 'insecure' > /home/sandbox/.curlrc 2>/dev/null || true
 echo 'check_certificate = off' > /home/sandbox/.wgetrc 2>/dev/null || true
 
-# Extract LIVE certificate chains from servers using openssl s_client
-# This captures the EXACT certs presented by the server (including any corporate proxy certs).
-# Uses sudo tee because start.sh runs as sandbox user but /usr/local/share/ca-certificates/ is root-owned.
+# ── SSL certificate extraction for .NET ──
+# .NET uses its own X509Chain validation (stricter than curl/OpenSSL).
+# curl can work fine while dotnet restore fails with "partial chain".
+# Fix: extract LIVE certs via openssl s_client, then:
+#   1) Install via update-ca-certificates (standard approach)
+#   2) ALSO append directly to the CA bundle file .NET reads (belt & suspenders)
+#   3) Run c_rehash to create hash-linked symlinks for OpenSSL directory lookup
 echo "[SSL] Extracting live certificate chains at startup..." >> /tmp/sandbox-debug.log
 CERT_HOSTS="api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org"
 for HOST in $CERT_HOSTS; do
     CERT_DATA=$(echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
         awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}')
     if [ -n "$CERT_DATA" ]; then
+        # Install in ca-certificates directory (for update-ca-certificates)
         echo "$CERT_DATA" | sudo tee /usr/local/share/ca-certificates/live-${HOST}.crt > /dev/null 2>/dev/null
+        # ALSO append directly to the bundle file .NET/OpenSSL reads
+        echo "$CERT_DATA" | sudo tee -a /etc/ssl/certs/ca-certificates.crt > /dev/null 2>/dev/null
         echo "[SSL] Extracted cert chain for ${HOST}" >> /tmp/sandbox-debug.log
     else
         echo "[SSL] WARNING: Could not extract cert for ${HOST}" >> /tmp/sandbox-debug.log
     fi
 done
+# Run update-ca-certificates to properly register certs
 sudo update-ca-certificates 2>> /tmp/sandbox-debug.log || true
-echo "[SSL] Certificate store updated" >> /tmp/sandbox-debug.log
+# Rehash cert directory so OpenSSL can find certs by hash (used by .NET's X509Chain)
+sudo c_rehash /etc/ssl/certs 2>/dev/null || true
+echo "[SSL] Certificate store updated and rehashed" >> /tmp/sandbox-debug.log
 
 # .NET / NuGet SSL settings (do NOT modify NuGet.Config - enterprise standard)
 export DOTNET_NUGET_SIGNATURE_VERIFICATION=false
