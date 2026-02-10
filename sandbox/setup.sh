@@ -341,7 +341,8 @@ ENV PYTHONHTTPSVERIFY=0
 ENV DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 ENV NUGET_CERT_REVOCATION_MODE=off
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-# Note: we do NOT override OPENSSL_CONF - the default openssl.cnf has CA paths that .NET needs
+# npm: disable strict SSL validation
+ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -2189,15 +2190,31 @@ export PYTHONHTTPSVERIFY=0
 export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 export NUGET_CERT_REVOCATION_MODE=off
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
-# Do NOT set OPENSSL_CONF - default config has CA paths .NET/OpenSSL needs
+# npm: disable SSL validation
+export NODE_TLS_REJECT_UNAUTHORIZED=0
 
 # Configure git to disable SSL verification
 git config --global http.sslVerify false 2>/dev/null || true
 echo "[SSL] Git SSL verification disabled" >> /tmp/sandbox-debug.log
 
+# npm: disable strict-ssl globally
+npm config set strict-ssl false 2>/dev/null || true
+echo "[SSL] npm strict-ssl disabled" >> /tmp/sandbox-debug.log
+
 # Ensure curl/wget skip SSL in sandbox (for dotnet restore, npm install, etc.)
 echo 'insecure' > /home/sandbox/.curlrc 2>/dev/null || true
 echo 'check_certificate = off' > /home/sandbox/.wgetrc 2>/dev/null || true
+
+# Extract REAL certificate chains from servers using openssl s_client
+# (openssl can connect without validating, so this always works)
+echo "[SSL] Extracting live certificate chains..." >> /tmp/sandbox-debug.log
+for HOST in api.nuget.org registry.npmjs.org; do
+    echo | openssl s_client -showcerts -connect ${HOST}:443 2>/dev/null | \
+        awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' \
+        > /usr/local/share/ca-certificates/${HOST}.crt 2>/dev/null || true
+done
+sudo update-ca-certificates 2>/dev/null || true
+echo "[SSL] Certificate chains installed" >> /tmp/sandbox-debug.log
 
 # NuGet: create user-level config for sandbox user to disable cert verification
 mkdir -p /home/sandbox/.nuget/NuGet 2>/dev/null || true
