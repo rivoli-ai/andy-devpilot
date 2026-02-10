@@ -299,6 +299,10 @@ ENV NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 ENV SSL_VERIFY=false
 ENV GIT_SSL_NO_VERIFY=true
 ENV PYTHONHTTPSVERIFY=0
+# .NET / NuGet SSL bypass
+ENV DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
+ENV NUGET_CERT_REVOCATION_MODE=off
+ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -352,6 +356,20 @@ RUN apt-get update && apt-get remove -y xfce4-screensaver light-locker 2>/dev/nu
 # Create sandbox user
 RUN useradd -m -s /bin/bash sandbox && \
     echo "sandbox ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+
+# NuGet config: disable HTTPS certificate validation for nuget.org (SSL issues in Docker)
+RUN mkdir -p /home/sandbox/.nuget/NuGet && \
+    echo '<?xml version="1.0" encoding="utf-8"?>\n\
+<configuration>\n\
+  <packageSources>\n\
+    <clear />\n\
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />\n\
+  </packageSources>\n\
+  <config>\n\
+    <add key="signatureValidationMode" value="accept" />\n\
+  </config>\n\
+</configuration>' > /home/sandbox/.nuget/NuGet/NuGet.Config && \
+    chown -R sandbox:sandbox /home/sandbox/.nuget
 
 # Configure nginx to proxy noVNC - remove all iframe-blocking headers
 RUN echo 'server { \
@@ -2128,10 +2146,18 @@ export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 export SSL_VERIFY=false
 export GIT_SSL_NO_VERIFY=true
 export PYTHONHTTPSVERIFY=0
+# .NET / NuGet SSL bypass
+export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
+export NUGET_CERT_REVOCATION_MODE=off
+export DOTNET_CLI_TELEMETRY_OPTOUT=1
 
 # Configure git to disable SSL verification
 git config --global http.sslVerify false 2>/dev/null || true
 echo "[SSL] Git SSL verification disabled" >> /tmp/sandbox-debug.log
+
+# Ensure curl/wget skip SSL in sandbox (for dotnet restore, npm install, etc.)
+echo 'insecure' > /home/sandbox/.curlrc 2>/dev/null || true
+echo 'check_certificate = off' > /home/sandbox/.wgetrc 2>/dev/null || true
 
 # Log version and environment variables for debugging
 echo "=== DevPilot Sandbox v2.1.0 ===" > /tmp/sandbox-debug.log
