@@ -256,33 +256,41 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Update SSL certificates + download intermediate certs that Docker images often miss
-# (fixes "partial chain" errors for nuget.org, microsoft.com, etc.)
+# Update SSL certificates + download root AND intermediate certs for nuget.org / Microsoft
+# The "partial chain" error means intermediates are missing, not just roots.
+# Microsoft/Azure services use DigiCert + Microsoft Azure TLS intermediates.
+# Download in PEM format, convert DER to PEM where needed, then update trust store.
 RUN update-ca-certificates && \
     curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt \
         https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem || true && \
     curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootCA.crt \
         https://cacerts.digicert.com/DigiCertGlobalRootCA.crt.pem || true && \
-    curl -ksL -o /usr/local/share/ca-certificates/MicrosoftRSARootCA2017.crt \
-        https://www.microsoft.com/pkiops/certs/Microsoft%20RSA%20Root%20Certificate%20Authority%202017.crt || true && \
-    curl -ksL -o /usr/local/share/ca-certificates/MicrosoftECCRootCA2017.crt \
-        https://www.microsoft.com/pkiops/certs/Microsoft%20ECC%20Root%20Certificate%20Authority%202017.crt || true && \
+    curl -ksL -o /tmp/DigiCertSHA2ExtendedValidationServerCA.crt.der \
+        https://cacerts.digicert.com/DigiCertSHA2ExtendedValidationServerCA.crt && \
+    openssl x509 -inform DER -in /tmp/DigiCertSHA2ExtendedValidationServerCA.crt.der \
+        -out /usr/local/share/ca-certificates/DigiCertSHA2ExtendedValidationServerCA.crt 2>/dev/null || true && \
+    curl -ksL -o /tmp/DigiCertTLSRSASHA2562020CA1-1.crt.der \
+        https://cacerts.digicert.com/DigiCertTLSRSASHA2562020CA1-1.crt && \
+    openssl x509 -inform DER -in /tmp/DigiCertTLSRSASHA2562020CA1-1.crt.der \
+        -out /usr/local/share/ca-certificates/DigiCertTLSRSASHA2562020CA1.crt 2>/dev/null || true && \
+    curl -ksL -o /tmp/MicrosoftAzureTLSIssuingCA01.der \
+        https://www.microsoft.com/pkiops/certs/Microsoft%20Azure%20TLS%20Issuing%20CA%2001%20-%20xsign.crt && \
+    openssl x509 -inform DER -in /tmp/MicrosoftAzureTLSIssuingCA01.der \
+        -out /usr/local/share/ca-certificates/MicrosoftAzureTLSIssuingCA01.crt 2>/dev/null || true && \
+    curl -ksL -o /tmp/MicrosoftAzureTLSIssuingCA02.der \
+        https://www.microsoft.com/pkiops/certs/Microsoft%20Azure%20TLS%20Issuing%20CA%2002%20-%20xsign.crt && \
+    openssl x509 -inform DER -in /tmp/MicrosoftAzureTLSIssuingCA02.der \
+        -out /usr/local/share/ca-certificates/MicrosoftAzureTLSIssuingCA02.crt 2>/dev/null || true && \
+    curl -ksL -o /tmp/MicrosoftRSATLS.der \
+        https://www.microsoft.com/pkiops/certs/Microsoft%20RSA%20TLS%20CA%2001.crt && \
+    openssl x509 -inform DER -in /tmp/MicrosoftRSATLS.der \
+        -out /usr/local/share/ca-certificates/MicrosoftRSATLSCA01.crt 2>/dev/null || true && \
+    curl -ksL -o /tmp/MicrosoftRSATLS02.der \
+        https://www.microsoft.com/pkiops/certs/Microsoft%20RSA%20TLS%20CA%2002.crt && \
+    openssl x509 -inform DER -in /tmp/MicrosoftRSATLS02.der \
+        -out /usr/local/share/ca-certificates/MicrosoftRSATLSCA02.crt 2>/dev/null || true && \
+    rm -f /tmp/*.der && \
     update-ca-certificates
-
-# Create a minimal OpenSSL override config that lowers security level
-# (written as separate file so we don't corrupt the default openssl.cnf)
-RUN echo 'openssl_conf = openssl_init'           > /etc/ssl/openssl-sandbox.cnf && \
-    echo ''                                      >> /etc/ssl/openssl-sandbox.cnf && \
-    echo '[openssl_init]'                        >> /etc/ssl/openssl-sandbox.cnf && \
-    echo 'ssl_conf = ssl_sect'                   >> /etc/ssl/openssl-sandbox.cnf && \
-    echo ''                                      >> /etc/ssl/openssl-sandbox.cnf && \
-    echo '[ssl_sect]'                            >> /etc/ssl/openssl-sandbox.cnf && \
-    echo 'system_default = system_default_sect'  >> /etc/ssl/openssl-sandbox.cnf && \
-    echo ''                                      >> /etc/ssl/openssl-sandbox.cnf && \
-    echo '[system_default_sect]'                 >> /etc/ssl/openssl-sandbox.cnf && \
-    echo 'CipherString = DEFAULT:@SECLEVEL=0'    >> /etc/ssl/openssl-sandbox.cnf && \
-    echo 'MinProtocol = TLSv1'                   >> /etc/ssl/openssl-sandbox.cnf
-ENV OPENSSL_CONF=/etc/ssl/openssl-sandbox.cnf
 
 # ── Temporary SSL bypass for install scripts ──
 # dotnet-install.sh and NodeSource's setup script call curl/wget internally;
@@ -333,7 +341,7 @@ ENV PYTHONHTTPSVERIFY=0
 ENV DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 ENV NUGET_CERT_REVOCATION_MODE=off
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-# OPENSSL_CONF already set above to /etc/ssl/openssl-sandbox.cnf
+# Note: we do NOT override OPENSSL_CONF - the default openssl.cnf has CA paths that .NET needs
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -2181,7 +2189,7 @@ export PYTHONHTTPSVERIFY=0
 export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 export NUGET_CERT_REVOCATION_MODE=off
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
-export OPENSSL_CONF=/etc/ssl/openssl-sandbox.cnf
+# Do NOT set OPENSSL_CONF - default config has CA paths .NET/OpenSSL needs
 
 # Configure git to disable SSL verification
 git config --global http.sslVerify false 2>/dev/null || true
