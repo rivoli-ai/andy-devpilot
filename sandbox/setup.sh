@@ -293,14 +293,17 @@ RUN (curl -fsSL --retry 3 --retry-delay 5 https://dot.net/v1/dotnet-install.sh -
 ENV DOTNET_ROOT=/usr/share/dotnet
 ENV PATH="${DOTNET_ROOT}:${PATH}"
 
-# Install Node.js + npm (NodeSource LTS - Node 22.x)
-# NOTE: do NOT use --no-install-recommends here — npm is a recommended dependency
-RUN (curl -fsSL --retry 3 --retry-delay 5 https://deb.nodesource.com/setup_22.x -o /tmp/nodesetup.sh || \
-     wget -q -O /tmp/nodesetup.sh https://deb.nodesource.com/setup_22.x) && \
-    bash /tmp/nodesetup.sh && \
-    apt-get install -y nodejs && \
-    rm -f /tmp/nodesetup.sh && \
-    rm -rf /var/lib/apt/lists/* && \
+# Install Node.js + npm directly from official tarball (same pattern as Firefox/Zed)
+# Avoids NodeSource setup script which can fail with SSL issues in Docker
+RUN ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then NODE_ARCH="arm64"; else NODE_ARCH="x64"; fi && \
+    NODE_VERSION="22.13.1" && \
+    NODE_URL="https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-${NODE_ARCH}.tar.xz" && \
+    (curl -fsSL --retry 3 --retry-delay 5 "$NODE_URL" -o /tmp/node.tar.xz || \
+     curl -fsSL --retry 3 --retry-delay 5 -k "$NODE_URL" -o /tmp/node.tar.xz || \
+     wget --no-check-certificate -q -O /tmp/node.tar.xz "$NODE_URL") && \
+    tar -xJf /tmp/node.tar.xz -C /usr/local --strip-components=1 && \
+    rm -f /tmp/node.tar.xz && \
     node --version && npm --version
 
 # ── Remove temporary SSL bypass ──
