@@ -256,10 +256,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Update SSL certificates + download root AND intermediate certs for nuget.org / Microsoft
-# The "partial chain" error means intermediates are missing, not just roots.
-# Microsoft/Azure services use DigiCert + Microsoft Azure TLS intermediates.
-# Download in PEM format, convert DER to PEM where needed, then update trust store.
+# ── SSL certificate fix (build-time) ──
+# Two-phase approach:
+# Phase 1: Download known DigiCert/Microsoft root and intermediate certs
+# Phase 2: Extract LIVE certificate chains via openssl s_client (most reliable)
+# This runs as root so file permissions are not an issue.
 RUN update-ca-certificates && \
     curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt \
         https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem || true && \
@@ -290,6 +291,20 @@ RUN update-ca-certificates && \
     openssl x509 -inform DER -in /tmp/MicrosoftRSATLS02.der \
         -out /usr/local/share/ca-certificates/MicrosoftRSATLSCA02.crt 2>/dev/null || true && \
     rm -f /tmp/*.der && \
+    update-ca-certificates
+
+# Phase 2: Extract LIVE certificate chains from actual servers using openssl s_client.
+# This captures the EXACT certs the servers present (including any corporate proxy certs).
+# openssl s_client connects without validating, so it works even when the cert store is incomplete.
+RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do \
+        echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
+            awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' \
+            > /usr/local/share/ca-certificates/live-${HOST}.crt 2>/dev/null; \
+        FILESIZE=$(stat -c%s /usr/local/share/ca-certificates/live-${HOST}.crt 2>/dev/null || echo 0); \
+        if [ "$FILESIZE" -lt 100 ]; then \
+            rm -f /usr/local/share/ca-certificates/live-${HOST}.crt; \
+        fi; \
+    done && \
     update-ca-certificates
 
 # ── Temporary SSL bypass for install scripts ──
@@ -341,6 +356,7 @@ ENV PYTHONHTTPSVERIFY=0
 ENV DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 ENV NUGET_CERT_REVOCATION_MODE=off
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+ENV DOTNET_NUGET_SIGNATURE_VERIFICATION=false
 # npm: disable strict SSL validation
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 
@@ -397,38 +413,24 @@ RUN apt-get update && apt-get remove -y xfce4-screensaver light-locker 2>/dev/nu
 RUN useradd -m -s /bin/bash sandbox && \
     echo "sandbox ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
-# NuGet config: disable HTTPS certificate validation for nuget.org (SSL issues in Docker)
-RUN mkdir -p /home/sandbox/.nuget/NuGet && \
-    echo '<?xml version="1.0" encoding="utf-8"?>\n\
-<configuration>\n\
-  <packageSources>\n\
-    <clear />\n\
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />\n\
-  </packageSources>\n\
-  <config>\n\
-    <add key="signatureValidationMode" value="accept" />\n\
-  </config>\n\
-</configuration>' > /home/sandbox/.nuget/NuGet/NuGet.Config && \
-    chown -R sandbox:sandbox /home/sandbox/.nuget
-
-# Configure nginx to proxy noVNC - remove all iframe-blocking headers
-RUN echo 'server { \
-    listen 6080; \
-    location / { \
-        proxy_pass http://127.0.0.1:6081; \
-        proxy_http_version 1.1; \
-        proxy_set_header Upgrade $http_upgrade; \
-        proxy_set_header Connection "upgrade"; \
-        proxy_set_header Host $host; \
-        proxy_set_header X-Real-IP $remote_addr; \
-        proxy_hide_header X-Frame-Options; \
-        proxy_hide_header Content-Security-Policy; \
-        proxy_hide_header X-Content-Type-Options; \
-        add_header Access-Control-Allow-Origin "*" always; \
-        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always; \
-        add_header Access-Control-Allow-Headers "*" always; \
-    } \
-}' > /etc/nginx/sites-available/novnc && \
+# Configure nginx for noVNC proxy (port 6080)
+RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
+    echo '    listen 6080;' >> /etc/nginx/sites-available/novnc && \
+    echo '    location / {' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_pass http://127.0.0.1:6081;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_http_version 1.1;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_set_header Upgrade $http_upgrade;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_set_header Connection "upgrade";' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_set_header Host $host;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_hide_header X-Frame-Options;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_hide_header Content-Security-Policy;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_hide_header X-Content-Type-Options;' >> /etc/nginx/sites-available/novnc && \
+    echo '        add_header Access-Control-Allow-Origin "*" always;' >> /etc/nginx/sites-available/novnc && \
+    echo '        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;' >> /etc/nginx/sites-available/novnc && \
+    echo '        add_header Access-Control-Allow-Headers "*" always;' >> /etc/nginx/sites-available/novnc && \
+    echo '    }' >> /etc/nginx/sites-available/novnc && \
+    echo '}' >> /etc/nginx/sites-available/novnc && \
     ln -sf /etc/nginx/sites-available/novnc /etc/nginx/sites-enabled/novnc && \
     rm -f /etc/nginx/sites-enabled/default
 
@@ -2190,6 +2192,7 @@ export PYTHONHTTPSVERIFY=0
 export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 export NUGET_CERT_REVOCATION_MODE=off
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export DOTNET_NUGET_SIGNATURE_VERIFICATION=false
 # npm: disable SSL validation
 export NODE_TLS_REJECT_UNAUTHORIZED=0
 
@@ -2205,31 +2208,26 @@ echo "[SSL] npm strict-ssl disabled" >> /tmp/sandbox-debug.log
 echo 'insecure' > /home/sandbox/.curlrc 2>/dev/null || true
 echo 'check_certificate = off' > /home/sandbox/.wgetrc 2>/dev/null || true
 
-# Extract REAL certificate chains from servers using openssl s_client
-# (openssl can connect without validating, so this always works)
-echo "[SSL] Extracting live certificate chains..." >> /tmp/sandbox-debug.log
-for HOST in api.nuget.org registry.npmjs.org; do
-    echo | openssl s_client -showcerts -connect ${HOST}:443 2>/dev/null | \
-        awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' \
-        > /usr/local/share/ca-certificates/${HOST}.crt 2>/dev/null || true
+# Extract LIVE certificate chains from servers using openssl s_client
+# This captures the EXACT certs presented by the server (including any corporate proxy certs).
+# Uses sudo tee because start.sh runs as sandbox user but /usr/local/share/ca-certificates/ is root-owned.
+echo "[SSL] Extracting live certificate chains at startup..." >> /tmp/sandbox-debug.log
+CERT_HOSTS="api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org"
+for HOST in $CERT_HOSTS; do
+    CERT_DATA=$(echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
+        awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}')
+    if [ -n "$CERT_DATA" ]; then
+        echo "$CERT_DATA" | sudo tee /usr/local/share/ca-certificates/live-${HOST}.crt > /dev/null 2>/dev/null
+        echo "[SSL] Extracted cert chain for ${HOST}" >> /tmp/sandbox-debug.log
+    else
+        echo "[SSL] WARNING: Could not extract cert for ${HOST}" >> /tmp/sandbox-debug.log
+    fi
 done
-sudo update-ca-certificates 2>/dev/null || true
-echo "[SSL] Certificate chains installed" >> /tmp/sandbox-debug.log
+sudo update-ca-certificates 2>> /tmp/sandbox-debug.log || true
+echo "[SSL] Certificate store updated" >> /tmp/sandbox-debug.log
 
-# NuGet: create user-level config for sandbox user to disable cert verification
-mkdir -p /home/sandbox/.nuget/NuGet 2>/dev/null || true
-cat > /home/sandbox/.nuget/NuGet/NuGet.Config << 'NUGETCFG'
-<?xml version="1.0" encoding="utf-8"?>
-<configuration>
-  <packageSources>
-    <clear />
-    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
-  </packageSources>
-  <config>
-    <add key="signatureValidationMode" value="accept" />
-  </config>
-</configuration>
-NUGETCFG
+# .NET / NuGet SSL settings (do NOT modify NuGet.Config - enterprise standard)
+export DOTNET_NUGET_SIGNATURE_VERIFICATION=false
 
 # Log version and environment variables for debugging
 echo "=== DevPilot Sandbox v2.1.0 ===" > /tmp/sandbox-debug.log
