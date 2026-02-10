@@ -315,26 +315,20 @@ RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; 
 
 # ── LD_PRELOAD SSL bypass for .NET (sandbox only) ──
 # .NET uses OpenSSL's SSL_CTX_set_verify callback for certificate validation.
-# Simply overriding X509_verify_cert is not enough because .NET's managed verify
-# callback is what rejects the chain. We must override SSL_CTX_set_verify and
-# SSL_set_verify to force SSL_VERIFY_NONE (0), disabling all cert checks.
-RUN cat > /tmp/ssl_bypass.c << 'SSLBYPASS'
-#define _GNU_SOURCE
-#include <dlfcn.h>
-typedef void (*set_verify_fn)(void*, int, void*);
-/* Override SSL_CTX_set_verify: force mode=0 (SSL_VERIFY_NONE), no callback */
-void SSL_CTX_set_verify(void *ctx, int mode, void *cb) {
-    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_CTX_set_verify");
-    if (real) real(ctx, 0, (void*)0);
-}
-/* Override SSL_set_verify: same for per-connection setting */
-void SSL_set_verify(void *ssl, int mode, void *cb) {
-    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_set_verify");
-    if (real) real(ssl, 0, (void*)0);
-}
-/* Belt & suspenders: also override X509_verify_cert */
-int X509_verify_cert(void *ctx) { return 1; }
-SSLBYPASS
+# We override SSL_CTX_set_verify and SSL_set_verify to force SSL_VERIFY_NONE (0),
+# plus X509_verify_cert as belt & suspenders.
+RUN echo '#define _GNU_SOURCE' > /tmp/ssl_bypass.c && \
+    echo '#include <dlfcn.h>' >> /tmp/ssl_bypass.c && \
+    echo 'typedef void (*set_verify_fn)(void*, int, void*);' >> /tmp/ssl_bypass.c && \
+    echo 'void SSL_CTX_set_verify(void *ctx, int mode, void *cb) {' >> /tmp/ssl_bypass.c && \
+    echo '    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_CTX_set_verify");' >> /tmp/ssl_bypass.c && \
+    echo '    if (real) real(ctx, 0, (void*)0);' >> /tmp/ssl_bypass.c && \
+    echo '}' >> /tmp/ssl_bypass.c && \
+    echo 'void SSL_set_verify(void *ssl, int mode, void *cb) {' >> /tmp/ssl_bypass.c && \
+    echo '    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_set_verify");' >> /tmp/ssl_bypass.c && \
+    echo '    if (real) real(ssl, 0, (void*)0);' >> /tmp/ssl_bypass.c && \
+    echo '}' >> /tmp/ssl_bypass.c && \
+    echo 'int X509_verify_cert(void *ctx) { return 1; }' >> /tmp/ssl_bypass.c && \
     gcc -shared -fPIC -o /usr/local/lib/ssl_bypass.so /tmp/ssl_bypass.c -ldl && \
     rm /tmp/ssl_bypass.c
 ENV LD_PRELOAD=/usr/local/lib/ssl_bypass.so
