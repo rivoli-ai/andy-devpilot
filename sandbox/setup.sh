@@ -259,18 +259,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Update SSL certificates and set environment variables for SSL
 RUN update-ca-certificates
 
-# Install .NET SDK 8, 9, and 10 (Microsoft package repo)
-# Uses retry and fallback to handle SSL/network issues (same pattern as Firefox)
-RUN (wget -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb || \
-     wget --no-check-certificate -q https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb || \
-     curl -fsSL -k https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -o /tmp/packages-microsoft-prod.deb) && \
-    dpkg -i /tmp/packages-microsoft-prod.deb && rm -f /tmp/packages-microsoft-prod.deb && \
-    apt-get update && \
-    apt-get install -y --no-install-recommends \
-    dotnet-sdk-8.0 \
-    dotnet-sdk-9.0 \
-    dotnet-sdk-10.0 \
-    && rm -rf /var/lib/apt/lists/*
+# Install .NET SDK 8, 9, and 10 via dotnet-install.sh (works for all versions)
+# Uses retry and SSL fallback (same pattern as Firefox)
+RUN (curl -fsSL --retry 3 --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh || \
+     curl -fsSL --retry 3 --retry-delay 5 -k https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh || \
+     wget --no-check-certificate -q -O /tmp/dotnet-install.sh https://dot.net/v1/dotnet-install.sh) && \
+    chmod +x /tmp/dotnet-install.sh && \
+    /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && \
+    /tmp/dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet && \
+    /tmp/dotnet-install.sh --channel 10.0 --quality preview --install-dir /usr/share/dotnet && \
+    rm -f /tmp/dotnet-install.sh && \
+    ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+ENV DOTNET_ROOT=/usr/share/dotnet
+ENV PATH="${DOTNET_ROOT}:${PATH}"
 
 # Install Node.js (NodeSource LTS - Node 22.x)
 # Uses retry and fallback to handle SSL/network issues (same pattern as Firefox)
