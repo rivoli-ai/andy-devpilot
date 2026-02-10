@@ -254,7 +254,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-desktop-portal xdg-desktop-portal-gtk \
     xdg-utils bzip2 xz-utils \
     gnome-keyring libsecret-1-0 \
-    gcc libc6-dev libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # ── SSL certificate fix (build-time) ──
@@ -295,34 +294,17 @@ RUN update-ca-certificates && \
     update-ca-certificates
 
 # Phase 2: Extract LIVE certificate chains from actual servers using openssl s_client.
-# This captures the EXACT certs the servers present (including any corporate proxy certs).
-# openssl s_client connects without validating, so it works even when the cert store is incomplete.
-# We both install via update-ca-certificates AND append directly to the bundle file
-# because .NET's X509Chain reads from SSL_CERT_FILE differently than curl/OpenSSL.
+# CRITICAL FIX: Split each cert into its OWN file. When multiple certs are in one file,
+# c_rehash only indexes the FIRST cert. The root CA (last in chain) gets missed,
+# causing .NET's X509Chain to fail with "partial chain" even though curl works.
 RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do \
         echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
-            awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}' \
-            > /usr/local/share/ca-certificates/live-${HOST}.crt 2>/dev/null; \
-        FILESIZE=$(stat -c%s /usr/local/share/ca-certificates/live-${HOST}.crt 2>/dev/null || echo 0); \
-        if [ "$FILESIZE" -lt 100 ]; then \
-            rm -f /usr/local/share/ca-certificates/live-${HOST}.crt; \
-        else \
-            cat /usr/local/share/ca-certificates/live-${HOST}.crt >> /etc/ssl/certs/ca-certificates.crt; \
-        fi; \
+            awk -v host=${HOST} \
+                'BEGIN{n=0} /BEGIN CERTIFICATE/{n++; fname="/usr/local/share/ca-certificates/live-"host"-"n".crt"} \
+                 /BEGIN CERTIFICATE/,/END CERTIFICATE/{print > fname}' 2>/dev/null; \
     done && \
     update-ca-certificates && \
     c_rehash /etc/ssl/certs 2>/dev/null || true
-
-# ── LD_PRELOAD SSL bypass for .NET (sandbox only) ──
-# .NET calls SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, callback) to enable cert checks.
-# If our override does NOTHING, the SSL context stays at its default: SSL_VERIFY_NONE.
-# No dlsym needed — just empty functions. Simple and zero dependencies.
-RUN echo 'void SSL_CTX_set_verify(void *a, int b, void *c) {}' > /tmp/ssl_bypass.c && \
-    echo 'void SSL_set_verify(void *a, int b, void *c) {}' >> /tmp/ssl_bypass.c && \
-    echo 'int X509_verify_cert(void *a) { return 1; }' >> /tmp/ssl_bypass.c && \
-    gcc -shared -fPIC -o /usr/local/lib/ssl_bypass.so /tmp/ssl_bypass.c && \
-    rm /tmp/ssl_bypass.c
-ENV LD_PRELOAD=/usr/local/lib/ssl_bypass.so
 
 # ── Temporary SSL bypass for install scripts ──
 # dotnet-install.sh and NodeSource's setup script call curl/wget internally;
@@ -432,7 +414,6 @@ RUN useradd -m -s /bin/bash sandbox && \
 
 # Write SSL bypass + env vars to sandbox user's .bashrc so EVERY terminal session gets them
 RUN echo '# SSL bypass for sandbox (dev environment)' >> /home/sandbox/.bashrc && \
-    echo 'export LD_PRELOAD=/usr/local/lib/ssl_bypass.so' >> /home/sandbox/.bashrc && \
     echo 'export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' >> /home/sandbox/.bashrc && \
     echo 'export SSL_CERT_DIR=/etc/ssl/certs' >> /home/sandbox/.bashrc && \
     echo 'export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0' >> /home/sandbox/.bashrc && \
@@ -443,17 +424,16 @@ RUN echo '# SSL bypass for sandbox (dev environment)' >> /home/sandbox/.bashrc &
     chown sandbox:sandbox /home/sandbox/.bashrc
 
 # Create fix-ssl helper script (user can type "fix-ssl" in terminal if SSL issues persist)
+# Splits each cert into individual files so c_rehash indexes ALL of them
 RUN echo '#!/bin/bash' > /usr/local/bin/fix-ssl && \
-    echo 'echo "Extracting live SSL certificates..."' >> /usr/local/bin/fix-ssl && \
+    echo 'echo "Extracting SSL certs (individual files)..."' >> /usr/local/bin/fix-ssl && \
     echo 'for H in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do' >> /usr/local/bin/fix-ssl && \
-    echo '  C=$(echo | openssl s_client -showcerts -connect $H:443 -servername $H 2>/dev/null | awk "/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}")' >> /usr/local/bin/fix-ssl && \
-    echo '  if [ -n "$C" ]; then' >> /usr/local/bin/fix-ssl && \
-    echo '    echo "$C" | sudo tee /usr/local/share/ca-certificates/live-$H.crt >/dev/null' >> /usr/local/bin/fix-ssl && \
-    echo '    echo "$C" | sudo tee -a /etc/ssl/certs/ca-certificates.crt >/dev/null' >> /usr/local/bin/fix-ssl && \
-    echo '    echo "  OK: $H"' >> /usr/local/bin/fix-ssl && \
-    echo '  else' >> /usr/local/bin/fix-ssl && \
-    echo '    echo "  FAIL: $H"' >> /usr/local/bin/fix-ssl && \
-    echo '  fi' >> /usr/local/bin/fix-ssl && \
+    echo '  echo | openssl s_client -showcerts -connect $H:443 -servername $H 2>/dev/null | \'  >> /usr/local/bin/fix-ssl && \
+    echo '    awk -v h=$H "BEGIN{n=0}/BEGIN CERT/{n++;f=\"/tmp/c-\"h\"-\"n\".pem\"}/BEGIN CERT/,/END CERT/{print>f}" 2>/dev/null' >> /usr/local/bin/fix-ssl && \
+    echo '  for F in /tmp/c-$H-*.pem; do' >> /usr/local/bin/fix-ssl && \
+    echo '    [ -f "$F" ] && sudo cp "$F" /usr/local/share/ca-certificates/$(basename $F .pem).crt && rm -f "$F"' >> /usr/local/bin/fix-ssl && \
+    echo '  done' >> /usr/local/bin/fix-ssl && \
+    echo '  echo "  $H: done"' >> /usr/local/bin/fix-ssl && \
     echo 'done' >> /usr/local/bin/fix-ssl && \
     echo 'sudo update-ca-certificates 2>/dev/null' >> /usr/local/bin/fix-ssl && \
     echo 'sudo c_rehash /etc/ssl/certs 2>/dev/null' >> /usr/local/bin/fix-ssl && \
@@ -2235,8 +2215,7 @@ export NODE_EXTRA_CA_CERTS=/etc/ssl/certs/ca-certificates.crt
 export SSL_VERIFY=false
 export GIT_SSL_NO_VERIFY=true
 export PYTHONHTTPSVERIFY=0
-# .NET / NuGet SSL bypass via LD_PRELOAD (overrides OpenSSL's X509_verify_cert)
-export LD_PRELOAD=/usr/local/lib/ssl_bypass.so
+# .NET / NuGet SSL bypass
 export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 export NUGET_CERT_REVOCATION_MODE=off
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
@@ -2257,30 +2236,33 @@ echo 'insecure' > /home/sandbox/.curlrc 2>/dev/null || true
 echo 'check_certificate = off' > /home/sandbox/.wgetrc 2>/dev/null || true
 
 # ── SSL certificate extraction for .NET ──
-# .NET uses its own X509Chain validation (stricter than curl/OpenSSL).
-# curl can work fine while dotnet restore fails with "partial chain".
-# Fix: extract LIVE certs via openssl s_client, then:
-#   1) Install via update-ca-certificates (standard approach)
-#   2) ALSO append directly to the CA bundle file .NET reads (belt & suspenders)
-#   3) Run c_rehash to create hash-linked symlinks for OpenSSL directory lookup
+# CRITICAL: Split each cert into its OWN file. When multiple certs are in one file,
+# c_rehash only indexes the FIRST cert. The root CA (last in chain) gets missed,
+# causing .NET's X509Chain to fail with "partial chain" even though curl works fine.
 echo "[SSL] Extracting live certificate chains at startup..." >> /tmp/sandbox-debug.log
 CERT_HOSTS="api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org"
 for HOST in $CERT_HOSTS; do
-    CERT_DATA=$(echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
-        awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/{print}')
-    if [ -n "$CERT_DATA" ]; then
-        # Install in ca-certificates directory (for update-ca-certificates)
-        echo "$CERT_DATA" | sudo tee /usr/local/share/ca-certificates/live-${HOST}.crt > /dev/null 2>/dev/null
-        # ALSO append directly to the bundle file .NET/OpenSSL reads
-        echo "$CERT_DATA" | sudo tee -a /etc/ssl/certs/ca-certificates.crt > /dev/null 2>/dev/null
-        echo "[SSL] Extracted cert chain for ${HOST}" >> /tmp/sandbox-debug.log
+    CHAIN=$(echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null)
+    if [ -n "$CHAIN" ]; then
+        # Split chain into individual cert files (one per cert)
+        echo "$CHAIN" | awk -v host=${HOST} \
+            'BEGIN{n=0} /BEGIN CERTIFICATE/{n++; fname="/tmp/cert-"host"-"n".pem"} \
+             /BEGIN CERTIFICATE/,/END CERTIFICATE/{print > fname}' 2>/dev/null
+        # Install each individual cert
+        for CERTFILE in /tmp/cert-${HOST}-*.pem; do
+            if [ -f "$CERTFILE" ]; then
+                BASENAME=$(basename "$CERTFILE" .pem)
+                sudo cp "$CERTFILE" /usr/local/share/ca-certificates/${BASENAME}.crt 2>/dev/null
+                sudo cat "$CERTFILE" >> /etc/ssl/certs/ca-certificates.crt 2>/dev/null
+                rm -f "$CERTFILE"
+            fi
+        done
+        echo "[SSL] Extracted individual certs for ${HOST}" >> /tmp/sandbox-debug.log
     else
-        echo "[SSL] WARNING: Could not extract cert for ${HOST}" >> /tmp/sandbox-debug.log
+        echo "[SSL] WARNING: Could not connect to ${HOST}" >> /tmp/sandbox-debug.log
     fi
 done
-# Run update-ca-certificates to properly register certs
 sudo update-ca-certificates 2>> /tmp/sandbox-debug.log || true
-# Rehash cert directory so OpenSSL can find certs by hash (used by .NET's X509Chain)
 sudo c_rehash /etc/ssl/certs 2>/dev/null || true
 echo "[SSL] Certificate store updated and rehashed" >> /tmp/sandbox-debug.log
 
@@ -2785,8 +2767,6 @@ export GDK_BACKEND=x11
 export QT_QPA_PLATFORM=xcb
 unset WAYLAND_DISPLAY
 
-# Clear any LD_PRELOAD that might interfere
-export LD_PRELOAD=
 
 # D-Bus setup
 source /tmp/dbus-env.sh 2>/dev/null || true
