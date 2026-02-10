@@ -257,10 +257,39 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── SSL certificate fix (build-time) ──
-# Two-phase approach:
-# Phase 1: Download known DigiCert/Microsoft root and intermediate certs
-# Phase 2: Extract LIVE certificate chains via openssl s_client (most reliable)
-# This runs as root so file permissions are not an issue.
+# Enterprise uses Zscaler SSL inspection which replaces all HTTPS certs
+# with Zscaler-signed ones. Install Zscaler Root CA + known DigiCert/Microsoft certs.
+# Phase 1: Install Zscaler Root CA (embedded - can't download if Zscaler intercepts!)
+RUN echo '-----BEGIN CERTIFICATE-----' > /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'MIIE0zCCA7ugAwIBAgIJANu+mC2Jt3uTMA0GCSqGSIb3DQEBCwUAMIGhMQswCQYD' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'VQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTERMA8GA1UEBxMIU2FuIEpvc2Ux' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'FTATBgNVBAoTDFpzY2FsZXIgSW5jLjEVMBMGA1UECxMMWnNjYWxlciBJbmMuMRgw' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'FgYDVQQDEw9ac2NhbGVyIFJvb3QgQ0ExIjAgBgkqhkiG9w0BCQEWE3N1cHBvcnRA' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'enNjYWxlci5jb20wHhcNMTQxMjE5MDAyNzU1WhcNNDIwNTA2MDAyNzU1WjCBoTEL' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'MAkGA1UEBhMCVVMxEzARBgNVBAgTCkNhbGlmb3JuaWExETAPBgNVBAcTCFNhbiBK' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'b3NlMRUwEwYDVQQKEwxac2NhbGVyIEluYy4xFTATBgNVBAsTDFpzY2FsZXIgSW5j' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'LjEYMBYGA1UEAxMPWnNjYWxlciBSb290IENBMSIwIAYJKoZIhvcNAQkBFhNzdXBw' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'b3J0QHpzY2FsZXIuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'qT7STSxZRTgEFFf6doHajSc1vk5jmzmM6BWuOo044EsaTc9eVEV/HjH/1DWzZtcr' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'fTj+ni205apMTlKBW3UYR+lyLHQ9FoZiDXYXK8poKSV5+Tm0Vls/5Kb8mkhVVqv7' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'LgYEmvEY7HPY+i1nEGZCa46ZXCOohJ0mBEtB9JVlpDIO+nN0hUMAYYdZ1KZWCMNf' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo '5J/aTZiShsorN2A38iSOhdd+mcRM4iNL3gsLu99XhKnRqKoHeH83lVdfu1XBeoQz' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'z5V6gA3kbRvhDwoIlTBeMa5l4yRdJAfdpkbFzqiwSgNdhbxTHnYYorDzKfr2rEFM' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'dsMU0DHdeAZf711+1CunuQIDAQABo4IBCjCCAQYwHQYDVR0OBBYEFLm33UrNww4M' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'hp1d3+wcBGnFTpjfMIHWBgNVHSMEgc4wgcuAFLm33UrNww4Mhp1d3+wcBGnFTpjf' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'oYGnpIGkMIGhMQswCQYDVQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTERMA8G' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'A1UEBxMIU2FuIEpvc2UxFTATBgNVBAoTDFpzY2FsZXIgSW5jLjEVMBMGA1UECxMM' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'WnNjYWxlciBJbmMuMRgwFgYDVQQDEw9ac2NhbGVyIFJvb3QgQ0ExIjAgBgkqhkiG' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo '9w0BCQEWE3N1cHBvcnRAenNjYWxlci5jb22CCQDbvpgtibd7kzAMBgNVHRMEBTAD' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'AQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAw0NdJh8w3NsJu4KHuVZUrmZgIohnTm0j+' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'RTmYQ9IKA/pvxAcA6K1i/LO+Bt+tCX+C0yxqB8qzuo+4vAzoY5JEBhyhBhf1uK+P' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo '/WVWFZN/+hTgpSbZgzUEnWQG2gOVd24msex+0Sr7hyr9vn6OueH+jj+vCMiAm5+u' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'kd7lLvJsBu3AO3jGWVLyPkS3i6Gf+rwAp1OsRrv3WnbkYcFf9xjuaf4z0hRCrLN2' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'xFNjavxrHmsH8jPHVvgc1VD0Opja0l/BRVauTrUaoW6tE+wFG5rEcPGS80jjHK4S' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo 'pB5iDj2mUZH1T8lzYtuZy0ZPirxmtsk3135+CKNa2OCAhhFjE0xd' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
+    echo '-----END CERTIFICATE-----' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt
+
+# Phase 2: Download known DigiCert/Microsoft root and intermediate certs
 RUN update-ca-certificates && \
     curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt \
         https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem || true && \
