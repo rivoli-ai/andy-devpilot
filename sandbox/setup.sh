@@ -269,10 +269,20 @@ RUN update-ca-certificates && \
         https://www.microsoft.com/pkiops/certs/Microsoft%20ECC%20Root%20Certificate%20Authority%202017.crt || true && \
     update-ca-certificates
 
-# Create a custom OpenSSL config that lowers security level to accept more cert chains
-RUN cp /etc/ssl/openssl.cnf /etc/ssl/openssl.cnf.bak && \
-    sed -i 's/^\(CipherString\s*=.*\)/# \1/' /etc/ssl/openssl.cnf && \
-    echo -e '\n[system_default_sect]\nCipherString = DEFAULT:@SECLEVEL=0\nMinProtocol = TLSv1\nOptions = UnsafeLegacyRenegotiation' >> /etc/ssl/openssl.cnf
+# Create a minimal OpenSSL override config that lowers security level
+# (written as separate file so we don't corrupt the default openssl.cnf)
+RUN echo 'openssl_conf = openssl_init'           > /etc/ssl/openssl-sandbox.cnf && \
+    echo ''                                      >> /etc/ssl/openssl-sandbox.cnf && \
+    echo '[openssl_init]'                        >> /etc/ssl/openssl-sandbox.cnf && \
+    echo 'ssl_conf = ssl_sect'                   >> /etc/ssl/openssl-sandbox.cnf && \
+    echo ''                                      >> /etc/ssl/openssl-sandbox.cnf && \
+    echo '[ssl_sect]'                            >> /etc/ssl/openssl-sandbox.cnf && \
+    echo 'system_default = system_default_sect'  >> /etc/ssl/openssl-sandbox.cnf && \
+    echo ''                                      >> /etc/ssl/openssl-sandbox.cnf && \
+    echo '[system_default_sect]'                 >> /etc/ssl/openssl-sandbox.cnf && \
+    echo 'CipherString = DEFAULT:@SECLEVEL=0'    >> /etc/ssl/openssl-sandbox.cnf && \
+    echo 'MinProtocol = TLSv1'                   >> /etc/ssl/openssl-sandbox.cnf
+ENV OPENSSL_CONF=/etc/ssl/openssl-sandbox.cnf
 
 # ── Temporary SSL bypass for install scripts ──
 # dotnet-install.sh and NodeSource's setup script call curl/wget internally;
@@ -323,9 +333,7 @@ ENV PYTHONHTTPSVERIFY=0
 ENV DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 ENV NUGET_CERT_REVOCATION_MODE=off
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
-# Tell OpenSSL where the cert bundle lives (fixes "partial chain" for .NET on Linux)
-ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
-ENV OPENSSL_CONF=/etc/ssl/openssl.cnf
+# OPENSSL_CONF already set above to /etc/ssl/openssl-sandbox.cnf
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -2173,7 +2181,7 @@ export PYTHONHTTPSVERIFY=0
 export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 export NUGET_CERT_REVOCATION_MODE=off
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
-export OPENSSL_CONF=/etc/ssl/openssl.cnf
+export OPENSSL_CONF=/etc/ssl/openssl-sandbox.cnf
 
 # Configure git to disable SSL verification
 git config --global http.sslVerify false 2>/dev/null || true
