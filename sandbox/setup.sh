@@ -293,13 +293,15 @@ RUN (curl -fsSL --retry 3 --retry-delay 5 https://dot.net/v1/dotnet-install.sh -
 ENV DOTNET_ROOT=/usr/share/dotnet
 ENV PATH="${DOTNET_ROOT}:${PATH}"
 
-# Install Node.js (NodeSource LTS - Node 22.x)
+# Install Node.js + npm (NodeSource LTS - Node 22.x)
+# NOTE: do NOT use --no-install-recommends here — npm is a recommended dependency
 RUN (curl -fsSL --retry 3 --retry-delay 5 https://deb.nodesource.com/setup_22.x -o /tmp/nodesetup.sh || \
      wget -q -O /tmp/nodesetup.sh https://deb.nodesource.com/setup_22.x) && \
     bash /tmp/nodesetup.sh && \
-    apt-get install -y --no-install-recommends nodejs && \
+    apt-get install -y nodejs && \
     rm -f /tmp/nodesetup.sh && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && \
+    node --version && npm --version
 
 # ── Remove temporary SSL bypass ──
 RUN rm -f /root/.curlrc /root/.wgetrc
