@@ -256,8 +256,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Update SSL certificates and set environment variables for SSL
-RUN update-ca-certificates
+# Update SSL certificates + download intermediate certs that Docker images often miss
+# (fixes "partial chain" errors for nuget.org, microsoft.com, etc.)
+RUN update-ca-certificates && \
+    curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt \
+        https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem || true && \
+    curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootCA.crt \
+        https://cacerts.digicert.com/DigiCertGlobalRootCA.crt.pem || true && \
+    curl -ksL -o /usr/local/share/ca-certificates/MicrosoftRSARootCA2017.crt \
+        https://www.microsoft.com/pkiops/certs/Microsoft%20RSA%20Root%20Certificate%20Authority%202017.crt || true && \
+    curl -ksL -o /usr/local/share/ca-certificates/MicrosoftECCRootCA2017.crt \
+        https://www.microsoft.com/pkiops/certs/Microsoft%20ECC%20Root%20Certificate%20Authority%202017.crt || true && \
+    update-ca-certificates
+
+# Create a custom OpenSSL config that lowers security level to accept more cert chains
+RUN cp /etc/ssl/openssl.cnf /etc/ssl/openssl.cnf.bak && \
+    sed -i 's/^\(CipherString\s*=.*\)/# \1/' /etc/ssl/openssl.cnf && \
+    echo -e '\n[system_default_sect]\nCipherString = DEFAULT:@SECLEVEL=0\nMinProtocol = TLSv1\nOptions = UnsafeLegacyRenegotiation' >> /etc/ssl/openssl.cnf
 
 # ── Temporary SSL bypass for install scripts ──
 # dotnet-install.sh and NodeSource's setup script call curl/wget internally;
@@ -303,6 +318,9 @@ ENV PYTHONHTTPSVERIFY=0
 ENV DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 ENV NUGET_CERT_REVOCATION_MODE=off
 ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
+# Tell OpenSSL where the cert bundle lives (fixes "partial chain" for .NET on Linux)
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
+ENV OPENSSL_CONF=/etc/ssl/openssl.cnf
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
@@ -2150,6 +2168,7 @@ export PYTHONHTTPSVERIFY=0
 export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0
 export NUGET_CERT_REVOCATION_MODE=off
 export DOTNET_CLI_TELEMETRY_OPTOUT=1
+export OPENSSL_CONF=/etc/ssl/openssl.cnf
 
 # Configure git to disable SSL verification
 git config --global http.sslVerify false 2>/dev/null || true
@@ -2158,6 +2177,21 @@ echo "[SSL] Git SSL verification disabled" >> /tmp/sandbox-debug.log
 # Ensure curl/wget skip SSL in sandbox (for dotnet restore, npm install, etc.)
 echo 'insecure' > /home/sandbox/.curlrc 2>/dev/null || true
 echo 'check_certificate = off' > /home/sandbox/.wgetrc 2>/dev/null || true
+
+# NuGet: create user-level config for sandbox user to disable cert verification
+mkdir -p /home/sandbox/.nuget/NuGet 2>/dev/null || true
+cat > /home/sandbox/.nuget/NuGet/NuGet.Config << 'NUGETCFG'
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <packageSources>
+    <clear />
+    <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+  </packageSources>
+  <config>
+    <add key="signatureValidationMode" value="accept" />
+  </config>
+</configuration>
+NUGETCFG
 
 # Log version and environment variables for debugging
 echo "=== DevPilot Sandbox v2.1.0 ===" > /tmp/sandbox-debug.log
