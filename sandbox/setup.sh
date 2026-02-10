@@ -259,11 +259,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Update SSL certificates and set environment variables for SSL
 RUN update-ca-certificates
 
+# ── Temporary SSL bypass for install scripts ──
+# dotnet-install.sh and NodeSource's setup script call curl/wget internally;
+# we make ALL curl/wget calls skip SSL verification during these installs,
+# same approach as Firefox and Zed (handle broken/missing certs in Docker).
+RUN echo 'insecure' > /root/.curlrc && \
+    echo 'check_certificate = off' > /root/.wgetrc
+
 # Install .NET SDK 8, 9, and 10 via dotnet-install.sh (works for all versions)
-# Uses retry and SSL fallback (same pattern as Firefox)
 RUN (curl -fsSL --retry 3 --retry-delay 5 https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh || \
-     curl -fsSL --retry 3 --retry-delay 5 -k https://dot.net/v1/dotnet-install.sh -o /tmp/dotnet-install.sh || \
-     wget --no-check-certificate -q -O /tmp/dotnet-install.sh https://dot.net/v1/dotnet-install.sh) && \
+     wget -q -O /tmp/dotnet-install.sh https://dot.net/v1/dotnet-install.sh) && \
     chmod +x /tmp/dotnet-install.sh && \
     /tmp/dotnet-install.sh --channel 8.0 --install-dir /usr/share/dotnet && \
     /tmp/dotnet-install.sh --channel 9.0 --install-dir /usr/share/dotnet && \
@@ -274,14 +279,15 @@ ENV DOTNET_ROOT=/usr/share/dotnet
 ENV PATH="${DOTNET_ROOT}:${PATH}"
 
 # Install Node.js (NodeSource LTS - Node 22.x)
-# Uses retry and fallback to handle SSL/network issues (same pattern as Firefox)
 RUN (curl -fsSL --retry 3 --retry-delay 5 https://deb.nodesource.com/setup_22.x -o /tmp/nodesetup.sh || \
-     curl -fsSL --retry 3 --retry-delay 5 -k https://deb.nodesource.com/setup_22.x -o /tmp/nodesetup.sh || \
-     wget --no-check-certificate -q -O /tmp/nodesetup.sh https://deb.nodesource.com/setup_22.x) && \
+     wget -q -O /tmp/nodesetup.sh https://deb.nodesource.com/setup_22.x) && \
     bash /tmp/nodesetup.sh && \
     apt-get install -y --no-install-recommends nodejs && \
     rm -f /tmp/nodesetup.sh && \
     rm -rf /var/lib/apt/lists/*
+
+# ── Remove temporary SSL bypass ──
+RUN rm -f /root/.curlrc /root/.wgetrc
 
 # SSL environment variables for various applications
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt
