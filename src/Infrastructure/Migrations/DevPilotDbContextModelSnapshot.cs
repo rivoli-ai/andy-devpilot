@@ -162,6 +162,10 @@ namespace DevPilot.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("epic_id");
 
+                    b.Property<int?>("GitHubIssueNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("github_issue_number");
+
                     b.Property<string>("Source")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -386,6 +390,39 @@ namespace DevPilot.Infrastructure.Migrations
                     b.ToTable("repositories", (string)null);
                 });
 
+            modelBuilder.Entity("DevPilot.Domain.Entities.RepositoryShare", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_at");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("repository_id");
+
+                    b.Property<Guid>("SharedWithUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("shared_with_user_id");
+
+                    b.Property<DateTime?>("UpdatedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("updated_at");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SharedWithUserId");
+
+                    b.HasIndex("RepositoryId", "SharedWithUserId")
+                        .IsUnique();
+
+                    b.ToTable("repository_shares", (string)null);
+                });
+
             modelBuilder.Entity("DevPilot.Domain.Entities.Task", b =>
                 {
                     b.Property<Guid>("Id")
@@ -555,6 +592,10 @@ namespace DevPilot.Infrastructure.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("feature_id");
 
+                    b.Property<int?>("GitHubIssueNumber")
+                        .HasColumnType("integer")
+                        .HasColumnName("github_issue_number");
+
                     b.Property<string>("PrUrl")
                         .HasColumnType("text");
 
@@ -653,6 +694,21 @@ namespace DevPilot.Infrastructure.Migrations
                         .WithMany()
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("DevPilot.Domain.Entities.RepositoryShare", b =>
+                {
+                    b.HasOne("DevPilot.Domain.Entities.Repository", null)
+                        .WithMany()
+                        .HasForeignKey("RepositoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("DevPilot.Domain.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("SharedWithUserId")
+                        .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
                 });
 

@@ -30,6 +30,23 @@ public class PostgresUserRepository : IUserRepository
             .FirstOrDefaultAsync(u => u.Email == email, cancellationToken);
     }
 
+    public async Task<IReadOnlyList<User>> SearchSuggestionsAsync(string query, int limit, Guid? excludeUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query) || limit <= 0)
+            return Array.Empty<User>();
+
+        var term = query.Trim().ToLower();
+        var q = _context.Users.AsNoTracking()
+            .Where(u => (u.Email != null && u.Email.ToLower().Contains(term))
+                || (u.Name != null && u.Name.ToLower().Contains(term)));
+        if (excludeUserId.HasValue)
+            q = q.Where(u => u.Id != excludeUserId.Value);
+        return await q
+            .OrderBy(u => u.Email)
+            .Take(limit)
+            .ToListAsync(cancellationToken);
+    }
+
     public async Task<User> AddAsync(User user, CancellationToken cancellationToken = default)
     {
         _context.Users.Add(user);

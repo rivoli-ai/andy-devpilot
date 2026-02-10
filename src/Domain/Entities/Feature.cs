@@ -13,6 +13,8 @@ public class Feature : Entity
     public string Source { get; private set; } = "Manual";
     /// <summary>Azure DevOps work item ID when imported from ADO; null for manual/GitHub items</summary>
     public int? AzureDevOpsWorkItemId { get; private set; }
+    /// <summary>GitHub issue number when imported from GitHub; null for manual/ADO items</summary>
+    public int? GitHubIssueNumber { get; private set; }
 
     // Navigation properties
     public Epic Epic { get; private set; } = null!;
@@ -20,7 +22,7 @@ public class Feature : Entity
 
     private Feature() { }
 
-    public Feature(string title, Guid epicId, string? description = null, string? source = null, int? azureDevOpsWorkItemId = null)
+    public Feature(string title, Guid epicId, string? description = null, string? source = null, int? azureDevOpsWorkItemId = null, int? githubIssueNumber = null)
     {
         Title = title ?? throw new ArgumentNullException(nameof(title));
         EpicId = epicId;
@@ -28,6 +30,7 @@ public class Feature : Entity
         Status = "Backlog";
         Source = source ?? "Manual";
         AzureDevOpsWorkItemId = azureDevOpsWorkItemId;
+        GitHubIssueNumber = githubIssueNumber;
     }
 
     public void UpdateTitle(string title)
@@ -54,6 +57,12 @@ public class Feature : Entity
     public void SetAzureDevOpsWorkItemId(int? id)
     {
         AzureDevOpsWorkItemId = id;
+        MarkAsUpdated();
+    }
+
+    public void SetGitHubIssueNumber(int? number)
+    {
+        GitHubIssueNumber = number;
         MarkAsUpdated();
     }
 }

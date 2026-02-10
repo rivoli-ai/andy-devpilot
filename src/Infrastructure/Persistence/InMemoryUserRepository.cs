@@ -24,6 +24,21 @@ public class InMemoryUserRepository : IUserRepository
         return System.Threading.Tasks.Task.FromResult<User?>(user);
     }
 
+    public System.Threading.Tasks.Task<IReadOnlyList<User>> SearchSuggestionsAsync(string query, int limit, Guid? excludeUserId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(query) || limit <= 0)
+            return System.Threading.Tasks.Task.FromResult<IReadOnlyList<User>>(Array.Empty<User>());
+        var term = query.Trim().ToLowerInvariant();
+        var matches = _users.Values
+            .Where(u => (!excludeUserId.HasValue || u.Id != excludeUserId.Value)
+                && ((u.Email != null && u.Email.ToLowerInvariant().Contains(term))
+                    || (u.Name != null && u.Name.ToLowerInvariant().Contains(term))))
+            .OrderBy(u => u.Email)
+            .Take(limit)
+            .ToList();
+        return System.Threading.Tasks.Task.FromResult<IReadOnlyList<User>>(matches);
+    }
+
     public System.Threading.Tasks.Task<User> AddAsync(User user, CancellationToken cancellationToken = default)
     {
         _users[user.Id] = user;

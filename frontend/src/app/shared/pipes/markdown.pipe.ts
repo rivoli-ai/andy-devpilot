@@ -1,6 +1,7 @@
 import { Pipe, PipeTransform } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked, MarkedExtension } from 'marked';
+import { MermaidDiagramService } from '../../core/services/mermaid-diagram.service';
 import { markedHighlight } from 'marked-highlight';
 import Prism from 'prismjs';
 import mermaid from 'mermaid';
@@ -100,7 +101,10 @@ let mermaidIdCounter = 0;
 export class MarkdownPipe implements PipeTransform {
   private static initialized = false;
 
-  constructor(private sanitizer: DomSanitizer) {
+  constructor(
+    private sanitizer: DomSanitizer,
+    private mermaidDiagramService: MermaidDiagramService
+  ) {
     if (!MarkdownPipe.initialized) {
       // Configure marked with highlight extension
       marked.use(
@@ -222,7 +226,11 @@ export class MarkdownPipe implements PipeTransform {
             const element = document.getElementById(id);
             if (element && !element.hasAttribute('data-processed')) {
               try {
-                mermaid.run({ nodes: [element] });
+                mermaid.run({ nodes: [element] }).then(() => {
+                  this.mermaidDiagramService.postProcessLabelContainers();
+                }).catch((e) => {
+                  console.warn('Mermaid rendering failed for', id, e);
+                });
               } catch (e) {
                 console.warn('Mermaid rendering failed for', id, e);
               }

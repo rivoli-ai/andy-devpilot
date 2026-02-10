@@ -13,6 +13,7 @@ export interface UserStory {
   /** "Manual" | "AzureDevOps" | "GitHub" */
   source?: string;
   azureDevOpsWorkItemId?: number;
+  gitHubIssueNumber?: number;
   createdAt: string;
   updatedAt?: string;
   tasks: Task[];

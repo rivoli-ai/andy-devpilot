@@ -10,6 +10,12 @@ using DevPilot.Domain.Interfaces;
 public class InMemoryRepositoryRepository : IRepositoryRepository
 {
     private readonly Dictionary<Guid, Repository> _repositories = new();
+    private readonly IRepositoryShareRepository? _shareRepository;
+
+    public InMemoryRepositoryRepository(IRepositoryShareRepository? shareRepository = null)
+    {
+        _shareRepository = shareRepository;
+    }
 
     public System.Threading.Tasks.Task<Repository?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
@@ -24,6 +30,66 @@ public class InMemoryRepositoryRepository : IRepositoryRepository
             .ToList();
 
         return System.Threading.Tasks.Task.FromResult<IEnumerable<Repository>>(repositories);
+    }
+
+    public async System.Threading.Tasks.Task<IEnumerable<Repository>> GetAccessibleByUserIdAsync(Guid userId, System.Threading.CancellationToken cancellationToken = default)
+    {
+        var sharedIds = _shareRepository != null
+            ? await _shareRepository.GetRepositoryIdsSharedWithUserAsync(userId, cancellationToken)
+            : Array.Empty<Guid>();
+        var set = sharedIds.ToHashSet();
+        var list = _repositories.Values
+            .Where(r => r.UserId == userId || set.Contains(r.Id))
+            .ToList();
+        return list;
+    }
+
+    public async System.Threading.Tasks.Task<(IEnumerable<Repository> Items, int TotalCount)> GetAccessibleByUserIdPaginatedAsync(
+        Guid userId,
+        string? search = null,
+        string? filter = null,
+        int page = 1,
+        int pageSize = 20,
+        System.Threading.CancellationToken cancellationToken = default)
+    {
+        var sharedIds = _shareRepository != null
+            ? await _shareRepository.GetRepositoryIdsSharedWithUserAsync(userId, cancellationToken)
+            : Array.Empty<Guid>();
+        var set = sharedIds.ToHashSet();
+        var filtered = _repositories.Values
+            .Where(r => r.UserId == userId || set.Contains(r.Id));
+
+        if (string.Equals(filter, "mine", StringComparison.OrdinalIgnoreCase))
+            filtered = filtered.Where(r => r.UserId == userId);
+        else if (string.Equals(filter, "shared", StringComparison.OrdinalIgnoreCase))
+            filtered = filtered.Where(r => r.UserId != userId);
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLowerInvariant();
+            filtered = filtered.Where(r =>
+                r.Name.ToLowerInvariant().Contains(term) ||
+                r.FullName.ToLowerInvariant().Contains(term) ||
+                (r.OrganizationName != null && r.OrganizationName.ToLowerInvariant().Contains(term)));
+        }
+
+        var totalCount = filtered.Count();
+        var items = filtered
+            .OrderBy(r => r.FullName)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToList();
+
+        return (items, totalCount);
+    }
+
+    public async System.Threading.Tasks.Task<Repository?> GetByIdIfAccessibleAsync(Guid id, Guid userId, System.Threading.CancellationToken cancellationToken = default)
+    {
+        if (!_repositories.TryGetValue(id, out var repo)) return null;
+        if (repo.UserId == userId) return repo;
+        if (_shareRepository != null && await _shareRepository.ExistsAsync(id, userId, cancellationToken))
+            return repo;
+        return null;
     }
 
     public System.Threading.Tasks.Task<(IEnumerable<Repository> Items, int TotalCount)> GetByUserIdPaginatedAsync(
@@ -82,6 +148,13 @@ public class InMemoryRepositoryRepository : IRepositoryRepository
             _repositories[repository.Id] = repository;
         }
         return System.Threading.Tasks.Task.CompletedTask;
+    }
+
+
+    public System.Threading.Tasks.Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var removed = _repositories.Remove(id);
+        return System.Threading.Tasks.Task.FromResult(removed);
     }
 
     public System.Threading.Tasks.Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default)

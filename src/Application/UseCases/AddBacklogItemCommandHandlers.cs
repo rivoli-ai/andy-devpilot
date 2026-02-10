@@ -52,7 +52,7 @@ public class AddEpicCommandHandler : IRequestHandler<AddEpicCommand, EpicDto>
 }
 
 // Add Feature
-public record AddFeatureCommand(Guid EpicId, string Title, string? Description = null, string? Source = null, int? AzureDevOpsWorkItemId = null) : IRequest<FeatureDto>;
+public record AddFeatureCommand(Guid EpicId, string Title, string? Description = null, string? Source = null, int? AzureDevOpsWorkItemId = null, int? GitHubIssueNumber = null) : IRequest<FeatureDto>;
 
 public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, FeatureDto>
 {
@@ -89,6 +89,7 @@ public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, Featu
             Status = feature.Status,
             Source = feature.Source,
             AzureDevOpsWorkItemId = feature.AzureDevOpsWorkItemId,
+            GitHubIssueNumber = feature.GitHubIssueNumber,
             CreatedAt = feature.CreatedAt,
             UpdatedAt = feature.UpdatedAt,
             UserStories = []
@@ -97,7 +98,7 @@ public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, Featu
 }
 
 // Add User Story
-public record AddUserStoryCommand(Guid FeatureId, string Title, string? Description = null, string? AcceptanceCriteria = null, int? StoryPoints = null, string? Source = null, int? AzureDevOpsWorkItemId = null) : IRequest<UserStoryDto>;
+public record AddUserStoryCommand(Guid FeatureId, string Title, string? Description = null, string? AcceptanceCriteria = null, int? StoryPoints = null, string? Source = null, int? AzureDevOpsWorkItemId = null, int? GitHubIssueNumber = null) : IRequest<UserStoryDto>;
 
 public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, UserStoryDto>
 {
@@ -121,7 +122,7 @@ public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, U
         if (feature == null)
             throw new InvalidOperationException($"Feature {command.FeatureId} not found");
 
-        var userStory = new UserStory(command.Title, command.FeatureId, command.Description, command.AcceptanceCriteria, command.StoryPoints, command.Source, command.AzureDevOpsWorkItemId);
+        var userStory = new UserStory(command.Title, command.FeatureId, command.Description, command.AcceptanceCriteria, command.StoryPoints, command.Source, command.AzureDevOpsWorkItemId, command.GitHubIssueNumber);
         userStory = await _userStoryRepository.AddAsync(userStory, cancellationToken);
         _logger.LogInformation("Added UserStory {StoryId}: {Title} to Feature {FeatureId}", userStory.Id, userStory.Title, command.FeatureId);
 
@@ -136,6 +137,7 @@ public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, U
             StoryPoints = userStory.StoryPoints,
             Source = userStory.Source,
             AzureDevOpsWorkItemId = userStory.AzureDevOpsWorkItemId,
+            GitHubIssueNumber = userStory.GitHubIssueNumber,
             CreatedAt = userStory.CreatedAt,
             UpdatedAt = userStory.UpdatedAt,
             Tasks = []

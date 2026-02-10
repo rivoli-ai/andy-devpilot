@@ -1,5 +1,6 @@
 namespace DevPilot.Infrastructure.Services;
 
+using DevPilot.Application.Options;
 using DevPilot.Application.Services;
 using DevPilot.Domain.Interfaces;
 using DevPilot.Infrastructure.AI;
@@ -32,6 +33,7 @@ public static class InfrastructureServiceCollectionExtensions
         });
 
         // Register PostgreSQL repository implementations
+        services.AddScoped<IRepositoryShareRepository, PostgresRepositoryShareRepository>();
         services.AddScoped<IRepositoryRepository, PostgresRepositoryRepository>();
         services.AddScoped<IEpicRepository, PostgresEpicRepository>();
         services.AddScoped<IFeatureRepository, PostgresFeatureRepository>();
@@ -43,6 +45,32 @@ public static class InfrastructureServiceCollectionExtensions
 
         // Register authentication service
         services.AddScoped<AuthenticationService>();
+
+        // ------------------------------------------------------------------
+        // Auth provider registry (configuration-driven)
+        // ------------------------------------------------------------------
+        if (configuration != null)
+        {
+            // Bind the AuthProviders config section
+            services.Configure<AuthProvidersOptions>(opts =>
+            {
+                var section = configuration.GetSection(AuthProvidersOptions.SectionName);
+                // Bind the section children as the dictionary
+                opts.Providers = new Dictionary<string, ProviderConfig>(StringComparer.OrdinalIgnoreCase);
+                foreach (var child in section.GetChildren())
+                {
+                    var pc = new ProviderConfig();
+                    child.Bind(pc);
+                    opts.Providers[child.Key] = pc;
+                }
+            });
+        }
+
+        // Ensure an HttpClient is available for auth providers
+        services.AddHttpClient("AuthProviders");
+
+        // Register the provider registry as singleton
+        services.AddSingleton<AuthProviderRegistry>();
 
         // Register GitHub service
         services.AddScoped<IGitHubService, GitHubService>();

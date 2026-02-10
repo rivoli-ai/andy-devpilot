@@ -173,6 +173,7 @@ export class VncViewerService {
    */
   closeAll(): void {
     const viewerIds = this.viewersSubject.value.map(v => v.id);
+    viewerIds.forEach(id => this.removeStoredContext(id));
     this.viewersSubject.next([]);
     // Emit for each sandbox cleanup
     viewerIds.forEach(id => this.viewerClosedSubject.next(id));

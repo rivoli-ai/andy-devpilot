@@ -22,6 +22,7 @@ public class DevPilotDbContext : DbContext
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<CodeAnalysis> CodeAnalyses => Set<CodeAnalysis>();
     public DbSet<FileAnalysis> FileAnalyses => Set<FileAnalysis>();
+    public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -95,6 +96,20 @@ public class DevPilotDbContext : DbContext
             entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<RepositoryShare>(entity =>
+        {
+            entity.ToTable("repository_shares");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
+            entity.Property(e => e.SharedWithUserId).HasColumnName("shared_with_user_id");
+            entity.HasOne<Repository>().WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.SharedWithUserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.RepositoryId, e.SharedWithUserId }).IsUnique();
+        });
+
         modelBuilder.Entity<Epic>(entity =>
         {
             entity.ToTable("epics");
@@ -125,6 +140,7 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.Status).HasColumnName("status").HasMaxLength(64);
             entity.Property(e => e.Source).HasColumnName("source").HasMaxLength(32).HasDefaultValue("Manual");
             entity.Property(e => e.AzureDevOpsWorkItemId).HasColumnName("azure_devops_work_item_id");
+            entity.Property(e => e.GitHubIssueNumber).HasColumnName("github_issue_number");
             entity.HasOne(e => e.Epic).WithMany(ep => ep.Features).HasForeignKey(e => e.EpicId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.UserStories).WithOne(us => us.Feature).HasForeignKey(us => us.FeatureId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -143,6 +159,7 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.AcceptanceCriteria).HasColumnName("acceptance_criteria");
             entity.Property(e => e.Source).HasColumnName("source").HasMaxLength(32).HasDefaultValue("Manual");
             entity.Property(e => e.AzureDevOpsWorkItemId).HasColumnName("azure_devops_work_item_id");
+            entity.Property(e => e.GitHubIssueNumber).HasColumnName("github_issue_number");
             entity.HasOne(e => e.Feature).WithMany(f => f.UserStories).HasForeignKey(e => e.FeatureId).OnDelete(DeleteBehavior.Cascade);
             entity.HasMany(e => e.Tasks).WithOne(t => t.UserStory).HasForeignKey(t => t.UserStoryId).OnDelete(DeleteBehavior.Cascade);
         });

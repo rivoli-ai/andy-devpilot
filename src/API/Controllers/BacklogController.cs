@@ -28,6 +28,7 @@ public class BacklogController : ControllerBase
     private readonly IFeatureRepository _featureRepository;
     private readonly ILinkedProviderRepository _linkedProviderRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IRepositoryRepository _repositoryRepository;
     private readonly IConfiguration _configuration;
 
     public BacklogController(
@@ -39,6 +40,7 @@ public class BacklogController : ControllerBase
         IFeatureRepository featureRepository,
         ILinkedProviderRepository linkedProviderRepository,
         IUserRepository userRepository,
+        IRepositoryRepository repositoryRepository,
         IConfiguration configuration)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
@@ -49,6 +51,7 @@ public class BacklogController : ControllerBase
         _featureRepository = featureRepository ?? throw new ArgumentNullException(nameof(featureRepository));
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+        _repositoryRepository = repositoryRepository ?? throw new ArgumentNullException(nameof(repositoryRepository));
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
@@ -57,8 +60,15 @@ public class BacklogController : ControllerBase
     /// </summary>
     /// <param name="repositoryId">The ID of the repository</param>
     [HttpGet("repository/{repositoryId}")]
+    [Authorize]
     public async Task<IActionResult> GetBacklog(Guid repositoryId, CancellationToken cancellationToken)
     {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
         var query = new GetBacklogByRepositoryIdQuery(repositoryId);
         var epics = await _mediator.Send(query, cancellationToken);
 
@@ -71,11 +81,18 @@ public class BacklogController : ControllerBase
     /// <param name="repositoryId">The ID of the repository</param>
     /// <param name="request">The generated backlog data</param>
     [HttpPost("repository/{repositoryId}")]
+    [Authorize]
     public async Task<IActionResult> CreateBacklog(
         Guid repositoryId, 
         [FromBody] CreateBacklogRequest request, 
         CancellationToken cancellationToken)
     {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
         _logger.LogInformation("Creating backlog for repository {RepositoryId} with {EpicCount} epics", 
             repositoryId, request.Epics?.Count ?? 0);
 
@@ -114,11 +131,18 @@ public class BacklogController : ControllerBase
     /// Add a new Epic to a repository
     /// </summary>
     [HttpPost("repository/{repositoryId}/epic")]
+    [Authorize]
     public async Task<IActionResult> AddEpic(
         Guid repositoryId,
         [FromBody] AddEpicRequest request,
         CancellationToken cancellationToken)
     {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
         var command = new AddEpicCommand(repositoryId, request.Title, request.Description, request.Source, request.AzureDevOpsWorkItemId);
         var epic = await _mediator.Send(command, cancellationToken);
         return Ok(epic);
@@ -154,7 +178,8 @@ public class BacklogController : ControllerBase
             request.AcceptanceCriteria,
             request.StoryPoints,
             request.Source,
-            request.AzureDevOpsWorkItemId);
+            request.AzureDevOpsWorkItemId,
+            request.GitHubIssueNumber);
         var story = await _mediator.Send(command, cancellationToken);
         return Ok(story);
     }
@@ -173,12 +198,52 @@ public class BacklogController : ControllerBase
         {
             return Unauthorized("User ID not found in token");
         }
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
 
         var epicIds = request?.EpicIds ?? Array.Empty<Guid>();
         var featureIds = request?.FeatureIds ?? Array.Empty<Guid>();
         var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
 
         var command = new SyncBacklogToAzureDevOpsCommand(repositoryId, userId, epicIds, featureIds, storyIds);
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (!result.Success && result.SyncedCount == 0 && result.FailedCount == 0)
+        {
+            return BadRequest(new { success = false, message = result.Errors.FirstOrDefault(), errors = result.Errors });
+        }
+
+        return Ok(new
+        {
+            success = result.Success,
+            syncedCount = result.SyncedCount,
+            failedCount = result.FailedCount,
+            errors = result.Errors
+        });
+    }
+
+    /// <summary>
+    /// Sync backlog items imported from GitHub back to GitHub
+    /// Updates title, description, state (open/closed)
+    /// When epicIds, featureIds, storyIds are provided, only those items are synced.
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/sync-to-github")]
+    [Authorize]
+    public async Task<IActionResult> SyncToGitHub(Guid repositoryId, [FromBody] SyncToGitHubRequest? request, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
+        var epicIds = request?.EpicIds ?? Array.Empty<Guid>();
+        var featureIds = request?.FeatureIds ?? Array.Empty<Guid>();
+        var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
+
+        var command = new SyncBacklogToGitHubCommand(repositoryId, userId, epicIds, featureIds, storyIds);
         var result = await _mediator.Send(command, cancellationToken);
 
         if (!result.Success && result.SyncedCount == 0 && result.FailedCount == 0)
@@ -349,6 +414,8 @@ public class BacklogController : ControllerBase
         {
             return Unauthorized(new { error = "Invalid user token" });
         }
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
 
         // Get GitHub access token from database
         var accessToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
@@ -777,6 +844,13 @@ public class SyncToAzureDevOpsRequest
     public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();
 }
 
+public class SyncToGitHubRequest
+{
+    public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();
+}
+
 /// <summary>
 /// Request model for getting PR head branch (for cloning when continuing a story with existing PR)
 /// </summary>
@@ -806,6 +880,7 @@ public class AddFeatureRequest
     public string? Description { get; set; }
     public string? Source { get; set; }
     public int? AzureDevOpsWorkItemId { get; set; }
+    public int? GitHubIssueNumber { get; set; }
 }
 
 /// <summary>
@@ -819,6 +894,7 @@ public class AddUserStoryRequest
     public int? StoryPoints { get; set; }
     public string? Source { get; set; }
     public int? AzureDevOpsWorkItemId { get; set; }
+    public int? GitHubIssueNumber { get; set; }
 }
 
 /// <summary>

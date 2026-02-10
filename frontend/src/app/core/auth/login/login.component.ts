@@ -1,15 +1,15 @@
-import { Component, OnInit, signal } from '@angular/core';
+import { Component, OnInit, signal, computed, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
+import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { AuthService } from '../../services/auth.service';
+import { AuthProviderConfig } from '../../auth/oidc-config.loader';
 import { CardComponent } from '../../../shared/components';
 
 /**
- * Login component supporting multiple authentication methods:
- * - Email/Password (login and register)
- * - GitHub OAuth
- * - Microsoft OAuth
+ * Login component supporting multiple authentication methods.
+ * Providers are discovered dynamically from the backend config.
  */
 @Component({
   selector: 'app-login',
@@ -19,39 +19,53 @@ import { CardComponent } from '../../../shared/components';
   styleUrl: './login.component.css'
 })
 export class LoginComponent implements OnInit {
+  private oidcSecurityService = inject(OidcSecurityService);
+
   // UI State
   loading = signal<boolean>(false);
   error = signal<string | null>(null);
   isRegisterMode = signal<boolean>(false);
-  
+  configLoaded = signal<boolean>(false);
+
   // Form fields
   email = '';
   password = '';
   name = '';
   confirmPassword = '';
 
+  // Provider config from AuthService
+  readonly isLocalEnabled = computed(() => this.authService.isLocalEnabled());
+  readonly backendOAuthProviders = computed(() => this.authService.backendOAuthProviders());
+  readonly frontendOidcProviders = computed(() => this.authService.frontendOidcProviders());
+  readonly hasExternalProviders = computed(() =>
+    this.backendOAuthProviders().length > 0 || this.frontendOidcProviders().length > 0
+  );
+
   constructor(
     private authService: AuthService,
     private router: Router
   ) {}
 
-  ngOnInit(): void {
+  async ngOnInit(): Promise<void> {
     // If already authenticated, redirect to repositories
     if (this.authService.isLoggedIn()) {
       this.router.navigate(['/repositories']);
+      return;
     }
+
+    // Load provider config from backend
+    await this.authService.loadProviderConfig();
+    this.configLoaded.set(true);
   }
 
   toggleMode(): void {
     this.isRegisterMode.update(value => !value);
     this.error.set(null);
-    // Clear form when toggling
     this.password = '';
     this.confirmPassword = '';
   }
 
   async submitForm(): Promise<void> {
-    // Validation
     if (!this.email || !this.password) {
       this.error.set('Email and password are required');
       return;
@@ -85,23 +99,45 @@ export class LoginComponent implements OnInit {
     }
   }
 
-  loginWithGitHub(): void {
+  /**
+   * Login with a BackendOAuth provider (e.g. GitHub).
+   * The backend provides the authorization URL, and we redirect.
+   */
+  loginWithBackendOAuth(provider: AuthProviderConfig): void {
     this.loading.set(true);
     this.error.set(null);
 
-    this.authService.loginWithGitHub().catch(err => {
-      this.error.set(err.message || 'Failed to initiate GitHub login');
+    this.authService.loginWithProvider(provider.name).catch(err => {
+      this.error.set(err.message || `Failed to initiate ${provider.name} login`);
       this.loading.set(false);
     });
   }
 
-  loginWithMicrosoft(): void {
+  /**
+   * Login with a FrontendOidc provider (e.g. AzureAd, Duende).
+   * The angular-auth-oidc-client library handles the redirect.
+   */
+  loginWithOidc(provider: AuthProviderConfig): void {
     this.loading.set(true);
     this.error.set(null);
 
-    this.authService.loginWithMicrosoft().catch(err => {
-      this.error.set(err.message || 'Failed to initiate Microsoft login');
+    try {
+      this.oidcSecurityService.authorize(provider.name);
+    } catch (err: any) {
+      this.error.set(err.message || `Failed to initiate ${provider.name} login`);
       this.loading.set(false);
-    });
+    }
+  }
+
+  /**
+   * Get a display-friendly name for a provider.
+   */
+  getProviderDisplayName(provider: AuthProviderConfig): string {
+    const nameMap: Record<string, string> = {
+      'github': 'GitHub',
+      'azuread': 'Microsoft',
+      'duende': 'Duende',
+    };
+    return nameMap[provider.name.toLowerCase()] ?? provider.name;
   }
 }

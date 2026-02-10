@@ -541,3 +541,178 @@ pre code {
 .language-python .token.builtin {
   color: #79c0ff !important;
 }
+
+/* Light mode - Code blocks and Prism syntax (e.g. Analysis tab) */
+[data-theme="light"] .markdown-content pre.code-block,
+[data-theme="light"] .markdown-content .code-block-wrapper .code-block,
+[data-theme="light"] pre.code-block {
+  background: #f6f8fa !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+[data-theme="light"] .markdown-content pre.code-block code,
+[data-theme="light"] .markdown-content .code-block code,
+[data-theme="light"] pre.code-block code,
+[data-theme="light"] pre code {
+  color: #24292f !important;
+}
+
+[data-theme="light"] .markdown-content .code-block-wrapper,
+[data-theme="light"] .code-block-wrapper {
+  background: #f6f8fa !important;
+  border-color: rgba(0, 0, 0, 0.1) !important;
+}
+
+[data-theme="light"] .markdown-content .code-block-header,
+[data-theme="light"] .code-block-header {
+  background: #eaeef2 !important;
+  border-bottom-color: rgba(0, 0, 0, 0.12) !important;
+}
+
+[data-theme="light"] .markdown-content .code-lang,
+[data-theme="light"] .code-lang {
+  color: #57606a !important;
+}
+
+[data-theme="light"] .markdown-content .inline-code,
+[data-theme="light"] .inline-code {
+  background: rgba(139, 92, 246, 0.1) !important;
+  border-color: rgba(139, 92, 246, 0.2) !important;
+  color: #7c3aed !important;
+}
+
+/* Prism tokens - GitHub Light theme colors */
+[data-theme="light"] .token.comment,
+[data-theme="light"] .token.prolog,
+[data-theme="light"] .token.doctype,
+[data-theme="light"] .token.cdata {
+  color: #6e7781 !important;
+}
+
+[data-theme="light"] .token.punctuation {
+  color: #24292f !important;
+}
+
+[data-theme="light"] .token.property {
+  color: #0550ae !important;
+}
+
+[data-theme="light"] .token.tag,
+[data-theme="light"] .token.constant,
+[data-theme="light"] .token.symbol,
+[data-theme="light"] .token.deleted {
+  color: #cf222e !important;
+}
+
+[data-theme="light"] .token.boolean,
+[data-theme="light"] .token.number {
+  color: #0550ae !important;
+}
+
+[data-theme="light"] .token.selector,
+[data-theme="light"] .token.attr-name,
+[data-theme="light"] .token.char,
+[data-theme="light"] .token.builtin,
+[data-theme="light"] .token.inserted {
+  color: #0a3069 !important;
+}
+
+[data-theme="light"] .token.string {
+  color: #0a3069 !important;
+}
+
+[data-theme="light"] .token.operator,
+[data-theme="light"] .token.entity,
+[data-theme="light"] .token.url,
+[data-theme="light"] .language-css .token.string,
+[data-theme="light"] .style .token.string,
+[data-theme="light"] .token.variable {
+  color: #0550ae !important;
+}
+
+[data-theme="light"] .token.atrule,
+[data-theme="light"] .token.attr-value,
+[data-theme="light"] .token.function {
+  color: #8250df !important;
+}
+
+[data-theme="light"] .token.class-name {
+  color: #116329 !important;
+}
+
+[data-theme="light"] .token.keyword {
+  color: #cf222e !important;
+}
+
+[data-theme="light"] .token.regex,
+[data-theme="light"] .token.important {
+  color: #116329 !important;
+}
+
+[data-theme="light"] .language-json .token.property {
+  color: #0550ae !important;
+}
+
+[data-theme="light"] .language-json .token.string {
+  color: #0a3069 !important;
+}
+
+[data-theme="light"] .language-json .token.number {
+  color: #0550ae !important;
+}
+
+[data-theme="light"] .language-json .token.boolean,
+[data-theme="light"] .language-json .token.null {
+  color: #cf222e !important;
+}
+
+[data-theme="light"] .language-json .token.punctuation {
+  color: #24292f !important;
+}
+
+[data-theme="light"] .language-typescript .token.keyword,
+[data-theme="light"] .language-javascript .token.keyword {
+  color: #cf222e !important;
+}
+
+[data-theme="light"] .language-typescript .token.function,
+[data-theme="light"] .language-javascript .token.function {
+  color: #8250df !important;
+}
+
+[data-theme="light"] .language-typescript .token.string,
+[data-theme="light"] .language-javascript .token.string {
+  color: #0a3069 !important;
+}
+
+[data-theme="light"] .language-python .token.keyword {
+  color: #cf222e !important;
+}
+
+[data-theme="light"] .language-python .token.function {
+  color: #8250df !important;
+}
+
+[data-theme="light"] .language-python .token.string {
+  color: #0a3069 !important;
+}
+
+[data-theme="light"] .language-python .token.builtin {
+  color: #0550ae !important;
+}
+
+/* Dark mode - Mermaid: force text visibility on colored shapes */
+[data-theme="dark"] .mermaid svg .node .label,
+[data-theme="dark"] .mermaid svg .nodeLabel,
+[data-theme="dark"] .mermaid svg .node text,
+[data-theme="dark"] .mermaid svg text,
+[data-theme="dark"] .mermaid svg .edgeLabel text {
+  fill: #e6edf3 !important;
+  color: #e6edf3 !important;
+}
+
+/* Dark mode - Mermaid: label-container fill for dark theme */
+[data-theme="dark"] .mermaid svg .label-container,
+[data-theme="dark"] .mermaid svg .label-container rect {
+  fill: #21262d !important;
+}

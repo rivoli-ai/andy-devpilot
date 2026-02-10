@@ -15,6 +15,7 @@ public class UserStoryDto
     public int? StoryPoints { get; set; } // Estimation in story points
     public string Source { get; set; } = "Manual";
     public int? AzureDevOpsWorkItemId { get; set; }
+    public int? GitHubIssueNumber { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<TaskDto> Tasks { get; set; } = new();

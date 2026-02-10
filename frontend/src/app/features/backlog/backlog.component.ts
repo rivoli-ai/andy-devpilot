@@ -50,7 +50,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   promptMode = signal<'general' | 'custom'>('general');
   customInstructions = signal<string>('');
   customPrompt = signal<string>('');
-  showPromptOptions = signal<boolean>(false);
+  showGeneratePromptModal = signal<boolean>(false);
 
   // Add item modal state
   addModalType = signal<AddItemType | null>(null);
@@ -86,6 +86,10 @@ export class BacklogComponent implements OnInit, OnDestroy {
   syncToAzureDevOpsLoading = signal<boolean>(false);
   syncToAzureDevOpsError = signal<string | null>(null);
   syncToAzureDevOpsSuccess = signal<{ syncedCount: number; failedCount: number } | null>(null);
+  // Sync to GitHub state
+  syncToGitHubLoading = signal<boolean>(false);
+  syncToGitHubError = signal<string | null>(null);
+  syncToGitHubSuccess = signal<{ syncedCount: number; failedCount: number } | null>(null);
   selectedSyncToAzureEpics = signal<Set<string>>(new Set());
   selectedSyncToAzureFeatures = signal<Set<string>>(new Set());
   selectedSyncToAzureStories = signal<Set<string>>(new Set());
@@ -95,10 +99,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
   gitHubLoading = signal<boolean>(false);
   gitHubError = signal<string | null>(null);
   gitHubIssues = signal<GitHubIssuesHierarchy | null>(null);
-  selectedGitHubMilestones = signal<Set<number>>(new Set());
+  selectedGitHubIssues = signal<Set<number>>(new Set()); // Individual issue selection (like ADO)
   expandedGitHubMilestones = signal<Set<number>>(new Set());
-  includeGitHubUnassigned = signal<boolean>(false);
   gitHubImporting = signal<boolean>(false);
+  ghNameFilter = signal<string>('');
+  ghShowAllStatuses = signal<boolean>(false); // false = Active only (open) by default, true = All
 
   private destroy$ = new Subject<void>();
   private lastConversationId: string | null = null;
@@ -115,8 +120,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
   creatingSandboxForStory = signal<string | null>(null);
   openSandboxStoryIds = signal<string[]>([]);
 
-  // Computed stats
-  totalEpics = computed(() => this.epics().length);
+  // Computed stats (exclude Standalone epic from count – it's not shown as an epic row)
+  totalEpics = computed(() => this.filteredEpicsForTree().length);
   totalFeatures = computed(() => 
     this.epics().reduce((sum, epic) => sum + epic.features.length, 0)
   );
@@ -148,6 +153,20 @@ export class BacklogComponent implements OnInit, OnDestroy {
         if (feature.source === 'AzureDevOps' && feature.azureDevOpsWorkItemId) return true;
         for (const story of feature.userStories || []) {
           if (story.source === 'AzureDevOps' && story.azureDevOpsWorkItemId) return true;
+        }
+      }
+    }
+    return false;
+  });
+
+  /** True when backlog has any item with source GitHub (used to enable Sync to GitHub button). */
+  hasGitHubImportedItems = computed(() => {
+    const epics = this.epics();
+    for (const epic of epics) {
+      for (const feature of epic.features || []) {
+        if (feature.source === 'GitHub') return true;
+        for (const story of feature.userStories || []) {
+          if (story.source === 'GitHub') return true;
         }
       }
     }
@@ -264,6 +283,13 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.filteredEpics().filter(e => e.title !== STANDALONE_EPIC_TITLE)
   );
 
+  /** True when there is any content to show (tree epics, or standalone features/stories). Used for empty state. */
+  hasAnyBacklogItems = computed(() =>
+    this.filteredEpicsForTree().length > 0 ||
+    this.standaloneFeaturesForTree().length > 0 ||
+    this.standaloneStoriesForTree().length > 0
+  );
+
   // Standalone epic (used for deleteFeature parent - never displayed)
   standaloneEpic = computed(() =>
     this.epics().find(e => e.title === STANDALONE_EPIC_TITLE)
@@ -372,6 +398,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
       this.repositoryId.set(repoId);
       this.loadBacklog(repoId);
       this.loadRepository(repoId);
+      // Reconnect to existing backlog generation sandbox after page refresh (like code analysis)
+      this.checkForExistingBacklogSandbox();
     } else {
       this.error.set('Repository ID is required');
     }
@@ -384,7 +412,31 @@ export class BacklogComponent implements OnInit, OnDestroy {
         .filter(v => v.implementationContext?.storyId)
         .map(v => v.implementationContext!.storyId);
       this.openSandboxStoryIds.set(storyIds);
+      // When viewers are restored after refresh, try to reconnect to backlog sandbox
+      this.checkForExistingBacklogSandbox();
     });
+  }
+
+  /**
+   * Check for an existing backlog generation sandbox (e.g. after page refresh).
+   * If found, reconnect and resume polling for the backlog response.
+   */
+  private checkForExistingBacklogSandbox(): void {
+    if (this.generationState() !== 'idle' && this.generationState() !== 'error') return;
+    const currentRepoId = this.repositoryId();
+    if (!currentRepoId) return;
+
+    const viewers = this.vncViewerService.getViewers();
+    const backlogViewer = viewers.find(
+      v => v.implementationContext?.storyId === `backlog-${currentRepoId}` && v.implementationContext?.repositoryId === currentRepoId
+    );
+
+    if (backlogViewer?.bridgePort) {
+      console.log('Found existing backlog sandbox for this repo, reconnecting...', backlogViewer.id);
+      this.generationError.set(null);
+      this.generationState.set('waiting_response');
+      this.startPollingForResponse(backlogViewer.bridgePort);
+    }
   }
 
   loadBacklog(repositoryId: string): void {
@@ -451,10 +503,16 @@ export class BacklogComponent implements OnInit, OnDestroy {
   loadRepository(repositoryId: string): void {
     this.repositoryService.getRepositories().subscribe({
       next: (repos) => {
-        const repo = repos.find(r => r.id === repositoryId);
+        const repo = repos.find(r => String(r.id) === String(repositoryId));
         if (repo) {
           this.repository.set(repo);
           this.repositoryName.set(repo.name);
+        } else {
+          const fromCache = this.repositoryService.getRepositoryById(repositoryId);
+          if (fromCache) {
+            this.repository.set(fromCache);
+            this.repositoryName.set(fromCache.name);
+          }
         }
       }
     });
@@ -1090,6 +1148,11 @@ Start by exploring the codebase and then provide your implementation plan.`;
     this.destroy$.complete();
   }
 
+  confirmStartGeneration(): void {
+    this.showGeneratePromptModal.set(false);
+    this.generateBacklog();
+  }
+
   generateBacklog(): void {
     const repo = this.repository();
     if (!repo) {
@@ -1177,10 +1240,17 @@ Start by exploring the codebase and then provide your implementation plan.`;
               useIframe: true
             },
             sandbox.id,
-            `${repo.name}`,
-            sandbox.bridge_port!
+            `${repo.name} - Backlog`,
+            sandbox.bridge_port!,
+            {
+              repositoryId: repo.id,
+              repositoryFullName: repo.fullName || repo.name,
+              defaultBranch: repo.defaultBranch || 'main',
+              storyTitle: 'Backlog Generation',
+              storyId: `backlog-${repo.id}`
+            }
           );
-          
+
           this.generationState.set('waiting_sandbox');
           // Send backlog prompt after Zed is ready
           setTimeout(() => {
@@ -1330,6 +1400,26 @@ ${jsonFormatRequirement}`;
   }
 
   private parseAndSaveBacklog(response: string): void {
+    const repoId = this.repositoryId();
+    if (!repoId) {
+      this.generationError.set('Repository ID not found');
+      this.generationState.set('error');
+      return;
+    }
+
+    // If we already have backlog items (e.g. reconnected after refresh and response was already saved),
+    // do not parse/save again to avoid duplicates.
+    if (this.epics().length > 0) {
+      this.generationState.set('complete');
+      this.loadBacklog(repoId);
+      setTimeout(() => {
+        this.generationState.set('idle');
+        this.latestResponse.set(null);
+        this.lastConversationId = null;
+      }, 2000);
+      return;
+    }
+
     this.generationState.set('parsing');
 
     try {
@@ -1341,11 +1431,6 @@ ${jsonFormatRequirement}`;
       }
 
       const backlog = JSON.parse(jsonStr);
-      const repoId = this.repositoryId();
-
-      if (!repoId) {
-        throw new Error('Repository ID not found');
-      }
 
       this.generationState.set('saving');
 
@@ -1631,6 +1716,28 @@ ${jsonFormatRequirement}`;
     return this.selectedSyncToAzureStories().has(storyId);
   }
 
+  /** Build GitHub issue URL when repo is GitHub and story has issue number */
+  getGitHubIssueUrl(story: UserStory): string | null {
+    const repo = this.repository() ?? this.repositoryService.getRepositoryById(this.repositoryId()) ?? null;
+    if (!repo?.fullName) return null;
+    const provider = (repo.provider ?? '').toLowerCase();
+    if (provider !== 'github') return null;
+    const issueNumber = story?.gitHubIssueNumber;
+    if (issueNumber == null) return null;
+    return `https://github.com/${repo.fullName}/issues/${issueNumber}`;
+  }
+
+  /** Build GitHub issue URL for a feature when repo is GitHub and feature has issue number */
+  getGitHubFeatureIssueUrl(feature: Feature): string | null {
+    const repo = this.repository() ?? this.repositoryService.getRepositoryById(this.repositoryId()) ?? null;
+    if (!repo?.fullName) return null;
+    const provider = (repo.provider ?? '').toLowerCase();
+    if (provider !== 'github') return null;
+    const issueNumber = feature?.gitHubIssueNumber;
+    if (issueNumber == null) return null;
+    return `https://github.com/${repo.fullName}/issues/${issueNumber}`;
+  }
+
   /** Build Azure DevOps work item URL when org and project are available */
   getAzureDevOpsWorkItemUrl(workItemId: number): string | null {
     const repo = this.repository();
@@ -1694,6 +1801,47 @@ ${jsonFormatRequirement}`;
       error: (err) => {
         this.syncToAzureDevOpsLoading.set(false);
         this.syncToAzureDevOpsError.set(err.error?.message || err.message || 'Failed to sync to Azure DevOps');
+      }
+    });
+  }
+
+  syncToGitHub(): void {
+    const repoId = this.repositoryId();
+    if (!repoId) return;
+    this.syncToGitHubLoading.set(true);
+    this.syncToGitHubError.set(null);
+    this.syncToGitHubSuccess.set(null);
+    const epics = this.epics();
+    const epicIds = Array.from(this.selectedSyncToAzureEpics()).filter(() => false); // Epics don't have gitHubIssueNumber in our import
+    const featureIds = Array.from(this.selectedSyncToAzureFeatures()).filter(id => {
+      for (const e of epics) {
+        const f = e.features?.find(x => x.id === id);
+        if (f) return f.source === 'GitHub' && f.gitHubIssueNumber != null;
+      }
+      return false;
+    });
+    const storyIds = Array.from(this.selectedSyncToAzureStories()).filter(id => {
+      for (const e of epics) {
+        for (const f of e.features || []) {
+          const s = f.userStories?.find(x => x.id === id);
+          if (s) return s.source === 'GitHub' && s.gitHubIssueNumber != null;
+        }
+      }
+      return false;
+    });
+    this.backlogService.syncToGitHub(repoId, { epicIds, featureIds, storyIds }).subscribe({
+      next: (res) => {
+        this.syncToGitHubLoading.set(false);
+        if (res.success) {
+          this.syncToGitHubSuccess.set({ syncedCount: res.syncedCount, failedCount: res.failedCount });
+        } else {
+          this.syncToGitHubError.set(res.errors?.[0] || 'Sync failed');
+          this.syncToGitHubSuccess.set(res.syncedCount > 0 ? { syncedCount: res.syncedCount, failedCount: res.failedCount } : null);
+        }
+      },
+      error: (err) => {
+        this.syncToGitHubLoading.set(false);
+        this.syncToGitHubError.set(err.error?.message || err.message || 'Failed to sync to GitHub');
       }
     });
   }
@@ -2143,9 +2291,10 @@ ${jsonFormatRequirement}`;
     this.showGitHubImport.set(true);
     this.gitHubError.set(null);
     this.gitHubIssues.set(null);
-    this.selectedGitHubMilestones.set(new Set());
+    this.selectedGitHubIssues.set(new Set());
     this.expandedGitHubMilestones.set(new Set());
-    this.includeGitHubUnassigned.set(false);
+    this.ghNameFilter.set('');
+    this.ghShowAllStatuses.set(false); // Default: Active only
     
     // Auto-fetch if we have the repo info
     this.fetchGitHubIssues();
@@ -2182,7 +2331,7 @@ ${jsonFormatRequirement}`;
         this.gitHubIssues.set(issues);
         this.gitHubLoading.set(false);
         
-        // Auto-expand all milestones
+        // Auto-expand all milestones and unassigned section
         const expandedSet = new Set<number>();
         issues.milestones.forEach(m => expandedSet.add(m.number));
         this.expandedGitHubMilestones.set(expandedSet);
@@ -2192,16 +2341,6 @@ ${jsonFormatRequirement}`;
         this.gitHubLoading.set(false);
       }
     });
-  }
-
-  toggleGitHubMilestoneSelection(milestoneNumber: number): void {
-    const selected = new Set(this.selectedGitHubMilestones());
-    if (selected.has(milestoneNumber)) {
-      selected.delete(milestoneNumber);
-    } else {
-      selected.add(milestoneNumber);
-    }
-    this.selectedGitHubMilestones.set(selected);
   }
 
   toggleGitHubMilestoneExpand(milestoneNumber: number): void {
@@ -2214,24 +2353,8 @@ ${jsonFormatRequirement}`;
     this.expandedGitHubMilestones.set(expanded);
   }
 
-  isGitHubMilestoneSelected(milestoneNumber: number): boolean {
-    return this.selectedGitHubMilestones().has(milestoneNumber);
-  }
-
   isGitHubMilestoneExpanded(milestoneNumber: number): boolean {
     return this.expandedGitHubMilestones().has(milestoneNumber);
-  }
-
-  selectAllGitHubMilestones(): void {
-    const issues = this.gitHubIssues();
-    if (!issues) return;
-    
-    const allIds = new Set(issues.milestones.map(m => m.number));
-    this.selectedGitHubMilestones.set(allIds);
-  }
-
-  deselectAllGitHubMilestones(): void {
-    this.selectedGitHubMilestones.set(new Set());
   }
 
   getGitHubIssuesForMilestone(milestoneNumber: number): GitHubIssue[] {
@@ -2240,26 +2363,170 @@ ${jsonFormatRequirement}`;
     return issues.issues.filter(i => i.milestoneNumber === milestoneNumber);
   }
 
+  private passesGitHubStatusFilter(item: { state: string }): boolean {
+    if (!this.ghShowAllStatuses()) {
+      const s = (item.state || '').toLowerCase();
+      if (s === 'closed') return false;
+    }
+    return true;
+  }
+
+  /** Filter milestones and issues by status (open/closed) and name */
+  getFilteredGitHubMilestones(): GitHubMilestone[] {
+    const issues = this.gitHubIssues();
+    const q = this.ghNameFilter().trim().toLowerCase();
+    if (!issues) return [];
+    let list = issues.milestones.filter(m => this.passesGitHubStatusFilter(m));
+    if (q) {
+      list = list.filter(m => {
+        const matchMilestone = m.title.toLowerCase().includes(q);
+        const childIssues = this.getFilteredGitHubIssuesForMilestone(m.number);
+        const matchChild = childIssues.some(i => i.title.toLowerCase().includes(q));
+        return matchMilestone || matchChild;
+      });
+    }
+    return list;
+  }
+
+  getFilteredGitHubIssuesForMilestone(milestoneNumber: number): GitHubIssue[] {
+    const list = this.getGitHubIssuesForMilestone(milestoneNumber).filter(i => this.passesGitHubStatusFilter(i));
+    const q = this.ghNameFilter().trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(i => i.title.toLowerCase().includes(q));
+  }
+
+  getFilteredGitHubUnassignedIssues(): GitHubIssue[] {
+    const issues = this.gitHubIssues();
+    if (!issues) return [];
+    const list = issues.unassignedIssues.filter(i => this.passesGitHubStatusFilter(i));
+    const q = this.ghNameFilter().trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(i => i.title.toLowerCase().includes(q));
+  }
+
+  getGitHubEpicsCount(): number {
+    return this.getFilteredGitHubMilestones().length;
+  }
+
+  getGitHubFeaturesCount(): number {
+    const milestones = this.getFilteredGitHubMilestones();
+    let count = 0;
+    for (const m of milestones) {
+      count += this.getFilteredGitHubIssuesForMilestone(m.number).filter(i =>
+        this.hasGitHubLabel(i, 'feature') || this.hasGitHubLabel(i, 'enhancement')
+      ).length;
+    }
+    count += this.getFilteredGitHubUnassignedIssues().filter(i =>
+      this.hasGitHubLabel(i, 'feature') || this.hasGitHubLabel(i, 'enhancement')
+    ).length;
+    return count;
+  }
+
+  getGitHubStoriesCount(): number {
+    const milestones = this.getFilteredGitHubMilestones();
+    let count = 0;
+    for (const m of milestones) {
+      count += this.getFilteredGitHubIssuesForMilestone(m.number).filter(i =>
+        !this.hasGitHubLabel(i, 'feature') && !this.hasGitHubLabel(i, 'enhancement')
+      ).length;
+    }
+    count += this.getFilteredGitHubUnassignedIssues().filter(i =>
+      !this.hasGitHubLabel(i, 'feature') && !this.hasGitHubLabel(i, 'enhancement')
+    ).length;
+    return count;
+  }
+
+  /** Checkbox state for "Unassigned" group (issues without milestone) */
+  getGitHubUnassignedCheckboxState(): 'checked' | 'indeterminate' | 'unchecked' {
+    const issues = this.getFilteredGitHubUnassignedIssues();
+    if (issues.length === 0) return 'unchecked';
+    const selected = issues.filter(i => this.selectedGitHubIssues().has(i.number)).length;
+    if (selected === issues.length) return 'checked';
+    if (selected > 0) return 'indeterminate';
+    return 'unchecked';
+  }
+
+  toggleGitHubUnassignedSelection(): void {
+    const issues = this.getFilteredGitHubUnassignedIssues();
+    const state = this.getGitHubUnassignedCheckboxState();
+    const selected = new Set(this.selectedGitHubIssues());
+    if (state === 'checked') {
+      issues.forEach(i => selected.delete(i.number));
+    } else {
+      issues.forEach(i => selected.add(i.number));
+    }
+    this.selectedGitHubIssues.set(selected);
+  }
+
+  /** Epic checkbox state: checked (all selected), indeterminate (some), unchecked (none) */
+  getGitHubMilestoneCheckboxState(milestoneNumber: number): 'checked' | 'indeterminate' | 'unchecked' {
+    const issues = this.getFilteredGitHubIssuesForMilestone(milestoneNumber);
+    if (issues.length === 0) return 'unchecked';
+    const selected = issues.filter(i => this.selectedGitHubIssues().has(i.number)).length;
+    if (selected === issues.length) return 'checked';
+    if (selected > 0) return 'indeterminate';
+    return 'unchecked';
+  }
+
+  toggleGitHubMilestoneSelection(milestoneNumber: number): void {
+    const issues = this.getFilteredGitHubIssuesForMilestone(milestoneNumber);
+    const state = this.getGitHubMilestoneCheckboxState(milestoneNumber);
+    const selected = new Set(this.selectedGitHubIssues());
+    if (state === 'checked') {
+      issues.forEach(i => selected.delete(i.number));
+    } else {
+      issues.forEach(i => selected.add(i.number));
+    }
+    this.selectedGitHubIssues.set(selected);
+  }
+
+  toggleGitHubIssueSelection(issueNumber: number): void {
+    const selected = new Set(this.selectedGitHubIssues());
+    if (selected.has(issueNumber)) {
+      selected.delete(issueNumber);
+    } else {
+      selected.add(issueNumber);
+    }
+    this.selectedGitHubIssues.set(selected);
+  }
+
+  isGitHubIssueSelected(issueNumber: number): boolean {
+    return this.selectedGitHubIssues().has(issueNumber);
+  }
+
+  selectAllGitHubItems(): void {
+    const milestones = this.getFilteredGitHubMilestones();
+    const selected = new Set<number>();
+    for (const m of milestones) {
+      this.getFilteredGitHubIssuesForMilestone(m.number).forEach(i => selected.add(i.number));
+    }
+    this.getFilteredGitHubUnassignedIssues().forEach(i => selected.add(i.number));
+    this.selectedGitHubIssues.set(selected);
+  }
+
+  deselectAllGitHubItems(): void {
+    this.selectedGitHubIssues.set(new Set());
+  }
+
   importSelectedGitHubItems(): void {
     const issues = this.gitHubIssues();
-    const selectedMilestones = Array.from(this.selectedGitHubMilestones());
+    const selectedIssueNumbers = Array.from(this.selectedGitHubIssues());
     const repoId = this.repositoryId();
-    const includeUnassigned = this.includeGitHubUnassigned();
     
     if (!issues || !repoId) {
       this.gitHubError.set('Missing required data');
       return;
     }
 
-    if (selectedMilestones.length === 0 && !includeUnassigned) {
-      this.gitHubError.set('Please select at least one milestone or include unassigned issues');
+    if (selectedIssueNumbers.length === 0) {
+      this.gitHubError.set('Please select at least one item to import');
       return;
     }
 
     this.gitHubImporting.set(true);
     this.gitHubError.set(null);
 
-    this.backlogService.importFromGitHub(repoId, issues, selectedMilestones, includeUnassigned).subscribe({
+    this.backlogService.importFromGitHub(repoId, issues, selectedIssueNumbers).subscribe({
       next: () => {
         this.loadBacklog(repoId); // Merge: refresh full backlog (existing + imported)
         this.gitHubImporting.set(false);

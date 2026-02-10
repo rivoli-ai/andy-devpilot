@@ -11,15 +11,8 @@ export const routes: Routes = [
     loadComponent: () => import('./core/auth/login/login.component').then(m => m.LoginComponent)
   },
   {
-    path: 'auth/callback',
-    loadComponent: () => import('./core/auth/callback/callback.component').then(m => m.CallbackComponent)
-  },
-  {
-    path: 'auth/callback/microsoft',
-    loadComponent: () => import('./core/auth/callback/callback.component').then(m => m.CallbackComponent)
-  },
-  {
-    path: 'auth/callback/azure-devops',
+    // Generic callback route: /auth/callback/:provider (e.g. /auth/callback/GitHub, /auth/callback/AzureAd)
+    path: 'auth/callback/:provider',
     loadComponent: () => import('./core/auth/callback/callback.component').then(m => m.CallbackComponent)
   },
   {

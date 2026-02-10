@@ -17,12 +17,14 @@ export interface CreateBacklogRequest {
       title: string;
       description: string;
       azureDevOpsWorkItemId?: number;
+      gitHubIssueNumber?: number;
       userStories: {
         title: string;
         description: string;
         acceptanceCriteria: string[];
         storyPoints?: number;
         azureDevOpsWorkItemId?: number;
+        gitHubIssueNumber?: number;
       }[];
     }[];
   }[];
@@ -162,11 +164,13 @@ export class BacklogService {
    * Add a new Feature to an Epic
    * @param source Optional: "Manual" | "AzureDevOps" | "GitHub"
    * @param azureDevOpsWorkItemId Optional: Azure DevOps work item ID when imported from ADO
+   * @param gitHubIssueNumber Optional: GitHub issue number when imported from GitHub
    */
-  addFeature(epicId: string, title: string, description?: string, repositoryId?: string, source?: string, azureDevOpsWorkItemId?: number): Observable<Feature> {
-    const body: { title: string; description?: string; source?: string; azureDevOpsWorkItemId?: number } = { title, description };
+  addFeature(epicId: string, title: string, description?: string, repositoryId?: string, source?: string, azureDevOpsWorkItemId?: number, gitHubIssueNumber?: number): Observable<Feature> {
+    const body: { title: string; description?: string; source?: string; azureDevOpsWorkItemId?: number; gitHubIssueNumber?: number } = { title, description };
     if (source) body.source = source;
     if (azureDevOpsWorkItemId != null) body.azureDevOpsWorkItemId = azureDevOpsWorkItemId;
+    if (gitHubIssueNumber != null) body.gitHubIssueNumber = gitHubIssueNumber;
     return this.apiService.post<Feature>(`/backlog/epic/${epicId}/feature`, body).pipe(
       tap(() => repositoryId && this.getBacklog(repositoryId).subscribe())
     );
@@ -176,6 +180,7 @@ export class BacklogService {
    * Add a new User Story to a Feature
    * @param source Optional: "Manual" | "AzureDevOps" | "GitHub"
    * @param azureDevOpsWorkItemId Optional: Azure DevOps work item ID when imported from ADO
+   * @param gitHubIssueNumber Optional: GitHub issue number when imported from GitHub
    */
   addUserStory(
     featureId: string,
@@ -185,9 +190,10 @@ export class BacklogService {
     storyPoints?: number,
     repositoryId?: string,
     source?: string,
-    azureDevOpsWorkItemId?: number
+    azureDevOpsWorkItemId?: number,
+    gitHubIssueNumber?: number
   ): Observable<UserStory> {
-    const body: { title: string; description?: string; acceptanceCriteria?: string; storyPoints?: number; source?: string; azureDevOpsWorkItemId?: number } = {
+    const body: { title: string; description?: string; acceptanceCriteria?: string; storyPoints?: number; source?: string; azureDevOpsWorkItemId?: number; gitHubIssueNumber?: number } = {
       title,
       description,
       acceptanceCriteria,
@@ -195,6 +201,7 @@ export class BacklogService {
     };
     if (source) body.source = source;
     if (azureDevOpsWorkItemId != null) body.azureDevOpsWorkItemId = azureDevOpsWorkItemId;
+    if (gitHubIssueNumber != null) body.gitHubIssueNumber = gitHubIssueNumber;
     return this.apiService.post<UserStory>(`/backlog/feature/${featureId}/story`, body).pipe(
       tap(() => repositoryId && this.getBacklog(repositoryId).subscribe())
     );
@@ -280,6 +287,34 @@ export class BacklogService {
       : {};
     return this.apiService.post<SyncToAzureDevOpsResponse>(
       `/backlog/repository/${repositoryId}/sync-to-azure-devops`,
+      body
+    ).pipe(
+      tap(response => {
+        if (response.success && response.syncedCount > 0) {
+          this.getBacklog(repositoryId).subscribe();
+        }
+      })
+    );
+  }
+
+  /**
+   * Sync backlog items imported from GitHub back to GitHub
+   * Updates title, description, state (open/closed)
+   * When epicIds, featureIds, storyIds are provided, only those items are synced.
+   */
+  syncToGitHub(
+    repositoryId: string,
+    options?: { epicIds?: string[]; featureIds?: string[]; storyIds?: string[] }
+  ): Observable<SyncToGitHubResponse> {
+    const body = options
+      ? {
+          epicIds: options.epicIds ?? [],
+          featureIds: options.featureIds ?? [],
+          storyIds: options.storyIds ?? []
+        }
+      : {};
+    return this.apiService.post<SyncToGitHubResponse>(
+      `/backlog/repository/${repositoryId}/sync-to-github`,
       body
     ).pipe(
       tap(response => {
@@ -603,7 +638,7 @@ export class BacklogService {
           let feature = this.findFeatureByTitle(epic!, featureReq.title);
           if (!feature) {
             feature = await firstValueFrom(
-              this.addFeature(epic!.id, featureReq.title, featureReq.description, repositoryId, source, featureReq.azureDevOpsWorkItemId)
+              this.addFeature(epic!.id, featureReq.title, featureReq.description, repositoryId, source, featureReq.azureDevOpsWorkItemId, featureReq.gitHubIssueNumber)
             );
             epic!.features = epic!.features ?? [];
             epic!.features.push(feature);
@@ -622,7 +657,8 @@ export class BacklogService {
                 storyReq.storyPoints,
                 repositoryId,
                 source,
-                storyReq.azureDevOpsWorkItemId
+                storyReq.azureDevOpsWorkItemId,
+                storyReq.gitHubIssueNumber
               )
             );
           }
@@ -648,108 +684,55 @@ export class BacklogService {
   }
 
   /**
-   * Import GitHub issues into the backlog
-   * Milestones become Epics, issues with "feature" label become Features,
-   * other issues become User Stories
+   * Import GitHub issues into the backlog.
+   * No epic level - items go under Standalone (rendered as Features/Stories only).
+   * Feature/enhancement labeled issues become Features, others become User Stories.
    */
   importFromGitHub(
     repositoryId: string,
     issues: GitHubIssuesHierarchy,
-    selectedMilestoneNumbers: number[],
-    includeUnassigned: boolean
+    selectedIssueNumbers: number[]
   ): Observable<Epic[]> {
     const backlogRequest: CreateBacklogRequest = {
       epics: []
     };
 
-    // Filter to selected milestones
-    const selectedMilestones = issues.milestones.filter(m => selectedMilestoneNumbers.includes(m.number));
+    const selectedSet = new Set(selectedIssueNumbers);
+    const selectedIssues = issues.issues.filter(i => selectedSet.has(i.number));
 
-    for (const milestone of selectedMilestones) {
-      // Find issues for this milestone
-      const milestoneIssues = issues.issues.filter(i => i.milestoneNumber === milestone.number);
-      
-      // Separate features (issues with "feature" label) from stories
-      const featureIssues = milestoneIssues.filter(i => 
-        i.labels.some(l => l.toLowerCase() === 'feature' || l.toLowerCase() === 'enhancement')
-      );
-      const storyIssues = milestoneIssues.filter(i => 
-        !i.labels.some(l => l.toLowerCase() === 'feature' || l.toLowerCase() === 'enhancement')
-      );
+    // Single Epic - no milestone grouping
+    const featureIssues = selectedIssues.filter(i =>
+      i.labels.some(l => l.toLowerCase() === 'feature' || l.toLowerCase() === 'enhancement')
+    );
+    const storyIssues = selectedIssues.filter(i =>
+      !i.labels.some(l => l.toLowerCase() === 'feature' || l.toLowerCase() === 'enhancement')
+    );
 
-      const features: { title: string; description: string; userStories: any[] }[] = [];
+    const features: { title: string; description: string; gitHubIssueNumber?: number; userStories: any[] }[] = [];
 
-      // Create features from feature-labeled issues
-      for (const featureIssue of featureIssues) {
-        features.push({
-          title: featureIssue.title,
-          description: featureIssue.body || '',
-          userStories: [] // Features from GitHub typically don't have child stories
-        });
-      }
-
-      // Group remaining issues into a "User Stories" feature if there are any
-      if (storyIssues.length > 0) {
-        features.push({
-          title: 'User Stories',
-          description: `Issues from milestone "${milestone.title}"`,
-          userStories: storyIssues.map(issue => ({
-            title: issue.title,
-            description: issue.body || '',
-            acceptanceCriteria: [],
-            storyPoints: undefined
-          }))
-        });
-      }
-
-      if (features.length > 0) {
-        backlogRequest.epics.push({
-          title: milestone.title,
-          description: milestone.description || '',
-          features
-        });
-      }
+    for (const fi of featureIssues) {
+      features.push({ title: fi.title, description: fi.body || '', gitHubIssueNumber: fi.number, userStories: [] });
+    }
+    if (storyIssues.length > 0) {
+      features.push({
+        title: 'User Stories',
+        description: 'Imported from GitHub',
+        userStories: storyIssues.map(i => ({
+          title: i.title,
+          description: i.body || '',
+          acceptanceCriteria: [],
+          storyPoints: undefined,
+          gitHubIssueNumber: i.number
+        }))
+      });
     }
 
-    // Handle unassigned issues (no milestone)
-    if (includeUnassigned && issues.unassignedIssues.length > 0) {
-      const unassignedFeatures = issues.unassignedIssues.filter(i =>
-        i.labels.some(l => l.toLowerCase() === 'feature' || l.toLowerCase() === 'enhancement')
-      );
-      const unassignedStories = issues.unassignedIssues.filter(i =>
-        !i.labels.some(l => l.toLowerCase() === 'feature' || l.toLowerCase() === 'enhancement')
-      );
-
-      const features: { title: string; description: string; userStories: any[] }[] = [];
-
-      for (const featureIssue of unassignedFeatures) {
-        features.push({
-          title: featureIssue.title,
-          description: featureIssue.body || '',
-          userStories: []
-        });
-      }
-
-      if (unassignedStories.length > 0) {
-        features.push({
-          title: 'Backlog Items',
-          description: 'Issues without a milestone',
-          userStories: unassignedStories.map(issue => ({
-            title: issue.title,
-            description: issue.body || '',
-            acceptanceCriteria: [],
-            storyPoints: undefined
-          }))
-        });
-      }
-
-      if (features.length > 0) {
-        backlogRequest.epics.push({
-          title: 'Unassigned',
-          description: 'Issues not assigned to any milestone',
-          features
-        });
-      }
+    if (features.length > 0) {
+      backlogRequest.epics.push({
+        title: STANDALONE_EPIC_TITLE,
+        description: 'Items imported from GitHub',
+        features
+      });
     }
 
     // Merge: use existing epics/features when tree already exists (match by title)
@@ -792,6 +775,13 @@ export class BacklogService {
 }
 
 export interface SyncToAzureDevOpsResponse {
+  success: boolean;
+  syncedCount: number;
+  failedCount: number;
+  errors: string[];
+}
+
+export interface SyncToGitHubResponse {
   success: boolean;
   syncedCount: number;
   failedCount: number;

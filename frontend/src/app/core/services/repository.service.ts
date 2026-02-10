@@ -19,6 +19,19 @@ export interface SyncSource {
   username: string | null;
 }
 
+
+/** Item returned from GET available/github or available/azure-devops for selective sync */
+export interface AvailableRepoItem {
+  fullName: string;
+  name: string;
+  description?: string;
+  isPrivate?: boolean;
+  defaultBranch?: string;
+  alreadyInApp: boolean;
+  projectName?: string;
+  organizationName?: string;
+}
+
 export interface RepositoryTreeItem {
   name: string;
   path: string;
@@ -126,10 +139,12 @@ export class RepositoryService {
   constructor(private apiService: ApiService) {}
 
   /**
-   * Fetch all repositories for the current user (no pagination)
+   * Fetch all repositories for the current user (no pagination).
+   * @param filter Optional: 'all' | 'mine' | 'shared'
    */
-  getRepositories(): Observable<Repository[]> {
-    return this.apiService.get<Repository[]>('/repositories').pipe(
+  getRepositories(filter?: 'all' | 'mine' | 'shared'): Observable<Repository[]> {
+    const qs = filter && filter !== 'all' ? `?filter=${encodeURIComponent(filter)}` : '';
+    return this.apiService.get<Repository[]>(`/repositories${qs}`).pipe(
       tap(repositories => this.repositoriesSignal.set(repositories))
     );
   }
@@ -139,11 +154,13 @@ export class RepositoryService {
    */
   getRepositoriesPaginated(params: {
     search?: string;
+    filter?: 'all' | 'mine' | 'shared';
     page?: number;
     pageSize?: number;
   } = {}): Observable<PagedRepositoriesResult> {
     const qs = new URLSearchParams();
     if (params.search?.trim()) qs.set('search', params.search.trim());
+    if (params.filter && params.filter !== 'all') qs.set('filter', params.filter);
     if (params.page != null) qs.set('page', String(params.page));
     if (params.pageSize != null) qs.set('pageSize', String(params.pageSize));
     const query = qs.toString() ? `?${qs.toString()}` : '';
@@ -156,6 +173,17 @@ export class RepositoryService {
   getSyncSources(): Observable<SyncSource[]> {
     return this.apiService.get<SyncSource[]>('/repositories/sync/sources').pipe(
       tap(sources => this.syncSourcesSignal.set(sources))
+    );
+  }
+
+  /**
+   * Add a GitHub repository manually by URL (e.g. https://github.com/owner/repo or owner/repo)
+   * Requires GitHub to be connected.
+   */
+  addManualGitHubRepo(repoUrl: string): Observable<{ id: string; name: string; fullName: string; provider: string; organizationName: string; defaultBranch?: string; alreadyExists: boolean }> {
+    return this.apiService.post<{ id: string; name: string; fullName: string; provider: string; organizationName: string; defaultBranch?: string; alreadyExists: boolean }>(
+      '/repositories/add-github',
+      { repoUrl }
     );
   }
 
@@ -316,7 +344,75 @@ export class RepositoryService {
    * Get a repository by ID
    */
   getRepositoryById(repositoryId: string): Repository | undefined {
-    return this.repositoriesSignal().find(r => r.id === repositoryId);
+    const id = String(repositoryId);
+    return this.repositoriesSignal().find(r => String(r.id) === id);
+  }
+
+  /**
+   * Delete a repository and its backlog. Analysis data is cascade-deleted.
+   */
+  deleteRepository(repositoryId: string): Observable<{ message: string }> {
+    return this.apiService.delete<{ message: string }>(`/repositories/${repositoryId}`).pipe(
+      tap(() => {
+        this.repositoriesSignal.update(repos => repos.filter(r => String(r.id) !== String(repositoryId)));
+      })
+    );
+  }
+
+  /**
+   * Get list of repositories available from GitHub (for selective sync).
+   */
+  getAvailableGitHubRepositories(): Observable<AvailableRepoItem[]> {
+    return this.apiService.get<AvailableRepoItem[]>('/repositories/available/github');
+  }
+
+  /**
+   * Get list of repositories available from Azure DevOps (for selective sync).
+   * @param organization Optional organization name (e.g. 'myorg' from dev.azure.com/myorg)
+   */
+  getAvailableAzureDevOpsRepositories(organization?: string): Observable<AvailableRepoItem[]> {
+    const qs = organization?.trim() ? `?organization=${encodeURIComponent(organization.trim())}` : '';
+    return this.apiService.get<AvailableRepoItem[]>(`/repositories/available/azure-devops${qs}`);
+  }
+
+  /**
+   * Sync only selected GitHub repositories into the app.
+   */
+  syncSelectedGitHubRepositories(fullNames: string[]): Observable<{ added: number; repositories: Repository[] }> {
+    return this.apiService.post<{ added: number; repositories: Repository[] }>('/repositories/sync/github/selected', { fullNames }).pipe(
+      tap(res => {
+        if (res.repositories?.length) {
+          const existing = this.repositoriesSignal();
+          const merged = this.mergeRepositories(existing, res.repositories);
+          this.repositoriesSignal.set(merged);
+        }
+        this.syncingSignal.set(null);
+      }),
+      catchError(err => {
+        this.syncingSignal.set(null);
+        throw err;
+      })
+    );
+  }
+
+  /**
+   * Sync only selected Azure DevOps repositories into the app.
+   */
+  syncSelectedAzureDevOpsRepositories(organization: string, fullNames: string[]): Observable<{ added: number; repositories: Repository[] }> {
+    return this.apiService.post<{ added: number; repositories: Repository[] }>('/repositories/sync/azure-devops/selected', { organization: organization.trim(), fullNames }).pipe(
+      tap(res => {
+        if (res.repositories?.length) {
+          const existing = this.repositoriesSignal();
+          const merged = this.mergeRepositories(existing, res.repositories);
+          this.repositoriesSignal.set(merged);
+        }
+        this.syncingSignal.set(null);
+      }),
+      catchError(err => {
+        this.syncingSignal.set(null);
+        throw err;
+      })
+    );
   }
 
   /**
@@ -333,6 +429,45 @@ export class RepositoryService {
    */
   getAuthenticatedCloneUrl(repositoryId: string): Observable<{ cloneUrl: string }> {
     return this.apiService.get<{ cloneUrl: string }>(`/repositories/${repositoryId}/clone-url`);
+  }
+
+  /**
+   * List users a repository is shared with (owner only).
+   */
+  getSharedWith(repositoryId: string): Observable<{ sharedWith: { userId: string; email: string; name?: string }[] }> {
+    return this.apiService.get<{ sharedWith: { userId: string; email: string; name?: string }[] }>(
+      `/repositories/${repositoryId}/shared-with`
+    );
+  }
+
+  /**
+   * Share repository with another user by email (owner only).
+   */
+  shareRepository(repositoryId: string, email: string): Observable<{ message: string; sharedWithUserId?: string }> {
+    return this.apiService.post<{ message: string; sharedWithUserId?: string }>(
+      `/repositories/${repositoryId}/share`,
+      { email: email.trim() }
+    );
+  }
+
+  /**
+   * Remove access for a user (owner only).
+   */
+  unshareRepository(repositoryId: string, sharedWithUserId: string): Observable<{ message: string }> {
+    return this.apiService.delete<{ message: string }>(
+      `/repositories/${repositoryId}/share/${sharedWithUserId}`
+    );
+  }
+
+  /**
+   * Suggest users by email or name (for share dialog).
+   */
+  suggestUsers(query: string, limit = 10): Observable<{ userId: string; email: string; name?: string }[]> {
+    if (!query?.trim()) return of([]);
+    const params = new URLSearchParams({ q: query.trim(), limit: String(Math.min(limit, 20)) });
+    return this.apiService.get<{ userId: string; email: string; name?: string }[]>(
+      `/users/suggest?${params.toString()}`
+    );
   }
 
   // ============================================

@@ -24,6 +24,15 @@ public interface IGitHubService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Fetches a single repository by owner and repo name
+    /// </summary>
+    System.Threading.Tasks.Task<GitHubRepositoryDto?> GetRepositoryAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Creates a pull request
     /// </summary>
     System.Threading.Tasks.Task<GitHubPullRequestDto> CreatePullRequestAsync(
@@ -101,6 +110,20 @@ public interface IGitHubService
         string owner,
         string repo,
         string? state = "all",
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Updates a GitHub issue (title, body, state)
+    /// Used when syncing backlog items back to GitHub
+    /// </summary>
+    System.Threading.Tasks.Task UpdateIssueAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        int issueNumber,
+        string? title = null,
+        string? body = null,
+        string? state = null,
         CancellationToken cancellationToken = default);
 }
 

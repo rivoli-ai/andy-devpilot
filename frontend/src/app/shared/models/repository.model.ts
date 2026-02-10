@@ -13,4 +13,12 @@ export interface Repository {
   defaultBranch?: string;
   createdAt: string;
   updatedAt?: string;
+  /** True if the current user owns this repository; false if it is shared with them. */
+  isOwner?: boolean;
+  /** Number of users this repo is shared with (only for owned repos). */
+  sharedWithCount?: number;
+  /** When shared with you: name of the person who shared it. */
+  ownerName?: string;
+  /** When shared with you: email of the person who shared it. */
+  ownerEmail?: string;
 }

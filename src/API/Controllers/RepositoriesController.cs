@@ -11,6 +11,14 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 /// <summary>
+/// Request body for adding a GitHub repo manually
+/// </summary>
+public class AddManualGitHubRepoRequest
+{
+    public required string RepoUrl { get; set; }
+}
+
+/// <summary>
 /// Request body for creating a pull request
 /// </summary>
 public class CreatePullRequestRequest
@@ -24,6 +32,33 @@ public class CreatePullRequestRequest
 }
 
 /// <summary>
+/// Request body for syncing selected repositories from a provider
+/// </summary>
+public class SyncSelectedRepositoriesRequest
+{
+    /// <summary>Repository full names to add (e.g. "owner/repo" for GitHub, "org/project/repo" for Azure DevOps)</summary>
+    public List<string> FullNames { get; set; } = new();
+}
+
+/// <summary>
+/// Request body for syncing selected Azure DevOps repositories
+/// </summary>
+public class SyncSelectedAzureRepositoriesRequest
+{
+    public required string Organization { get; set; }
+    /// <summary>Repository full names to add (e.g. "org/project/repo")</summary>
+    public List<string> FullNames { get; set; } = new();
+}
+
+/// <summary>
+/// Request body for sharing a repository with another user (by email)
+/// </summary>
+public class ShareRepositoryRequest
+{
+    public required string Email { get; set; }
+}
+
+/// <summary>
 /// Controller for managing repositories
 /// Follows Clean Architecture - no business logic, only delegates to Application layer
 /// </summary>
@@ -34,6 +69,7 @@ public class RepositoriesController : ControllerBase
     private readonly IMediator _mediator;
     private readonly IUserRepository _userRepository;
     private readonly IRepositoryRepository _repositoryRepository;
+    private readonly IRepositoryShareRepository _repositoryShareRepository;
     private readonly ILinkedProviderRepository _linkedProviderRepository;
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
@@ -43,6 +79,7 @@ public class RepositoriesController : ControllerBase
         IMediator mediator,
         IUserRepository userRepository,
         IRepositoryRepository repositoryRepository,
+        IRepositoryShareRepository repositoryShareRepository,
         ILinkedProviderRepository linkedProviderRepository,
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
@@ -51,6 +88,7 @@ public class RepositoriesController : ControllerBase
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _repositoryRepository = repositoryRepository ?? throw new ArgumentNullException(nameof(repositoryRepository));
+        _repositoryShareRepository = repositoryShareRepository ?? throw new ArgumentNullException(nameof(repositoryShareRepository));
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
         _gitHubService = gitHubService ?? throw new ArgumentNullException(nameof(gitHubService));
         _azureDevOpsService = azureDevOpsService ?? throw new ArgumentNullException(nameof(azureDevOpsService));
@@ -62,12 +100,14 @@ public class RepositoriesController : ControllerBase
     /// Supports pagination and search via query params.
     /// </summary>
     /// <param name="search">Optional search term (matches repository name, full name, or organization)</param>
+    /// <param name="filter">Optional visibility: "all" | "mine" | "shared"</param>
     /// <param name="page">Page number (1-based)</param>
     /// <param name="pageSize">Items per page (1-100)</param>
     [HttpGet]
     [Authorize]
     public async Task<IActionResult> GetRepositories(
         [FromQuery] string? search = null,
+        [FromQuery] string? filter = null,
         [FromQuery] int? page = null,
         [FromQuery] int? pageSize = null,
         CancellationToken cancellationToken = default)
@@ -83,15 +123,128 @@ public class RepositoriesController : ControllerBase
             var paginatedQuery = new GetRepositoriesPaginatedQuery(
                 userId,
                 search,
+                filter,
                 page ?? 1,
                 pageSize ?? 20);
             var result = await _mediator.Send(paginatedQuery, cancellationToken);
             return Ok(result);
         }
 
-        var query = new GetRepositoriesByUserIdQuery(userId);
+        var query = new GetRepositoriesByUserIdQuery(userId, filter);
         var repositories = await _mediator.Send(query, cancellationToken);
         return Ok(repositories);
+    }
+
+    /// <summary>
+    /// Delete a repository and its backlog (epics, features, stories). Analysis data is cascade-deleted.
+    /// </summary>
+    [HttpDelete("{id}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteRepository(Guid id, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        if (repo == null)
+        {
+            return NotFound(new { message = "Repository not found" });
+        }
+        if (repo.UserId != userId)
+        {
+            return Forbid();
+        }
+
+        var deleted = await _repositoryRepository.DeleteAsync(id, cancellationToken);
+        if (!deleted)
+        {
+            return NotFound(new { message = "Repository not found" });
+        }
+
+        _logger.LogInformation("User {UserId} deleted repository {RepositoryId} ({FullName})", userId, id, repo.FullName);
+        return Ok(new { message = "Repository deleted" });
+    }
+
+    /// <summary>
+    /// List users this repository is shared with (owner only).
+    /// </summary>
+    [HttpGet("{id}/shared-with")]
+    [Authorize]
+    public async Task<IActionResult> GetSharedWith(Guid id, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        var sharedWithIds = await _repositoryShareRepository.GetSharedWithUserIdsAsync(id, cancellationToken);
+        var users = new List<object>();
+        foreach (var uid in sharedWithIds)
+        {
+            var u = await _userRepository.GetByIdAsync(uid, cancellationToken);
+            if (u != null)
+                users.Add(new { userId = u.Id, email = u.Email, name = u.Name });
+        }
+        return Ok(new { sharedWith = users });
+    }
+
+    /// <summary>
+    /// Share this repository with another user by email (owner only).
+    /// </summary>
+    [HttpPost("{id}/share")]
+    [Authorize]
+    public async Task<IActionResult> ShareRepository(Guid id, [FromBody] ShareRepositoryRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        if (string.IsNullOrWhiteSpace(request?.Email))
+            return BadRequest(new { message = "Email is required" });
+
+        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        var targetUser = await _userRepository.GetByEmailAsync(request.Email.Trim(), cancellationToken);
+        if (targetUser == null)
+            return NotFound(new { message = "No user found with this email address" });
+        if (targetUser.Id == userId)
+            return BadRequest(new { message = "You cannot share a repository with yourself" });
+
+        if (await _repositoryShareRepository.ExistsAsync(id, targetUser.Id, cancellationToken))
+            return Ok(new { message = "Repository is already shared with this user" });
+
+        await _repositoryShareRepository.AddAsync(new RepositoryShare(id, targetUser.Id), cancellationToken);
+        _logger.LogInformation("User {UserId} shared repository {RepositoryId} with {TargetEmail}", userId, id, targetUser.Email);
+        return Ok(new { message = "Repository shared", sharedWithUserId = targetUser.Id });
+    }
+
+    /// <summary>
+    /// Remove access for a user (owner only).
+    /// </summary>
+    [HttpDelete("{id}/share/{sharedWithUserId:guid}")]
+    [Authorize]
+    public async Task<IActionResult> UnshareRepository(Guid id, Guid sharedWithUserId, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        var removed = await _repositoryShareRepository.RemoveAsync(id, sharedWithUserId, cancellationToken);
+        if (!removed) return NotFound(new { message = "Share not found" });
+        _logger.LogInformation("User {UserId} unshared repository {RepositoryId} from user {SharedWithUserId}", userId, id, sharedWithUserId);
+        return Ok(new { message = "Access removed" });
     }
 
     /// <summary>
@@ -133,6 +286,234 @@ public class RepositoriesController : ControllerBase
         var repositories = await _mediator.Send(command, cancellationToken);
 
         return Ok(repositories);
+    }
+
+    /// <summary>
+    /// Get list of repositories available from GitHub (not yet in app). Used for selective sync.
+    /// </summary>
+    [HttpGet("available/github")]
+    [Authorize]
+    public async Task<IActionResult> GetAvailableGitHubRepositories(CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.GitHub, cancellationToken);
+        string? accessToken = linkedProvider?.AccessToken;
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+            accessToken = user?.GitHubAccessToken;
+        }
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first.", provider = "GitHub" });
+        }
+
+        var gitHubRepos = await _gitHubService.GetRepositoriesAsync(accessToken, cancellationToken);
+        var existingRepos = await _repositoryRepository.GetByUserIdAsync(userId, cancellationToken);
+        var existingSet = new HashSet<string>(existingRepos.Where(r => r.Provider == "GitHub").Select(r => r.FullName), StringComparer.OrdinalIgnoreCase);
+
+        var list = gitHubRepos.Select(r => new
+        {
+            fullName = r.FullName,
+            name = r.Name,
+            description = r.Description,
+            isPrivate = r.IsPrivate,
+            defaultBranch = r.DefaultBranch ?? "main",
+            alreadyInApp = existingSet.Contains(r.FullName)
+        }).ToList();
+
+        return Ok(list);
+    }
+
+    /// <summary>
+    /// Sync only selected GitHub repositories into the app.
+    /// </summary>
+    [HttpPost("sync/github/selected")]
+    [Authorize]
+    public async Task<IActionResult> SyncSelectedGitHubRepositories([FromBody] SyncSelectedRepositoriesRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        if (request?.FullNames == null || request.FullNames.Count == 0)
+        {
+            return Ok(new { added = 0, repositories = Array.Empty<object>() });
+        }
+
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.GitHub, cancellationToken);
+        string? accessToken = linkedProvider?.AccessToken;
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+            accessToken = user?.GitHubAccessToken;
+        }
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first.", provider = "GitHub" });
+        }
+
+        var added = new List<object>();
+        foreach (var fullName in request.FullNames.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(fullName)) continue;
+            var parts = fullName.Trim().Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2) continue;
+
+            var existing = await _repositoryRepository.GetByFullNameProviderAndUserIdAsync(fullName.Trim(), "GitHub", userId, cancellationToken);
+            if (existing != null) continue;
+
+            var gitHubRepo = await _gitHubService.GetRepositoryAsync(accessToken, parts[0], parts[1], cancellationToken);
+            if (gitHubRepo == null) continue;
+
+            var newRepo = new Repository(
+                name: gitHubRepo.Name,
+                fullName: gitHubRepo.FullName,
+                cloneUrl: gitHubRepo.CloneUrl,
+                provider: "GitHub",
+                organizationName: gitHubRepo.OrganizationName,
+                userId: userId,
+                description: gitHubRepo.Description,
+                isPrivate: gitHubRepo.IsPrivate,
+                defaultBranch: gitHubRepo.DefaultBranch ?? "main");
+            await _repositoryRepository.AddAsync(newRepo, cancellationToken);
+            added.Add(new
+            {
+                id = newRepo.Id,
+                name = newRepo.Name,
+                fullName = newRepo.FullName,
+                provider = newRepo.Provider,
+                organizationName = newRepo.OrganizationName,
+                defaultBranch = newRepo.DefaultBranch
+            });
+        }
+
+        _logger.LogInformation("User {UserId} synced {Count} selected repositories from GitHub", userId, added.Count);
+        return Ok(new { added = added.Count, repositories = added });
+    }
+
+    /// <summary>
+    /// Add a GitHub repository manually by URL (e.g. https://github.com/owner/repo or owner/repo)
+    /// Requires GitHub to be connected. The user must have access to the repository.
+    /// </summary>
+    [HttpPost("add-github")]
+    [Authorize]
+    public async Task<IActionResult> AddManualGitHubRepository([FromBody] AddManualGitHubRepoRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        if (string.IsNullOrWhiteSpace(request?.RepoUrl))
+        {
+            return BadRequest(new { message = "Repository URL or owner/repo is required" });
+        }
+
+        var (owner, repo) = ParseGitHubRepoUrl(request.RepoUrl.Trim());
+        if (owner == null || repo == null)
+        {
+            return BadRequest(new { message = "Invalid GitHub URL. Use https://github.com/owner/repo or owner/repo" });
+        }
+
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.GitHub, cancellationToken);
+        var accessToken = linkedProvider?.AccessToken;
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+            accessToken = user?.GitHubAccessToken;
+        }
+        if (string.IsNullOrWhiteSpace(accessToken))
+        {
+            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first." });
+        }
+
+        var gitHubRepo = await _gitHubService.GetRepositoryAsync(accessToken, owner, repo, cancellationToken);
+        if (gitHubRepo == null)
+        {
+            return NotFound(new { message = $"Repository {owner}/{repo} not found or you don't have access to it" });
+        }
+
+        var existingRepo = await _repositoryRepository.GetByFullNameProviderAndUserIdAsync(gitHubRepo.FullName, "GitHub", userId, cancellationToken);
+        if (existingRepo != null)
+        {
+            return Ok(new
+            {
+                id = existingRepo.Id,
+                name = existingRepo.Name,
+                fullName = existingRepo.FullName,
+                provider = existingRepo.Provider,
+                organizationName = existingRepo.OrganizationName,
+                defaultBranch = existingRepo.DefaultBranch,
+                alreadyExists = true
+            });
+        }
+
+        var newRepo = new Repository(
+            name: gitHubRepo.Name,
+            fullName: gitHubRepo.FullName,
+            cloneUrl: gitHubRepo.CloneUrl,
+            provider: "GitHub",
+            organizationName: gitHubRepo.OrganizationName,
+            userId: userId,
+            description: gitHubRepo.Description,
+            isPrivate: gitHubRepo.IsPrivate,
+            defaultBranch: gitHubRepo.DefaultBranch ?? "main");
+        await _repositoryRepository.AddAsync(newRepo, cancellationToken);
+
+        _logger.LogInformation("User {UserId} manually added GitHub repository {FullName}", userId, newRepo.FullName);
+
+        return Ok(new
+        {
+            id = newRepo.Id,
+            name = newRepo.Name,
+            fullName = newRepo.FullName,
+            provider = newRepo.Provider,
+            organizationName = newRepo.OrganizationName,
+            defaultBranch = newRepo.DefaultBranch,
+            alreadyExists = false
+        });
+    }
+
+    private static (string? owner, string? repo) ParseGitHubRepoUrl(string input)
+    {
+        input = input.Trim();
+        if (string.IsNullOrEmpty(input)) return (null, null);
+
+        if (input.StartsWith("https://github.com/", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = input["https://github.com/".Length..].TrimEnd('/');
+            var parts = path.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1].Replace(".git", ""));
+        }
+        else if (input.StartsWith("http://github.com/", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = input["http://github.com/".Length..].TrimEnd('/');
+            var parts = path.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1].Replace(".git", ""));
+        }
+        else if (input.StartsWith("git@github.com:", StringComparison.OrdinalIgnoreCase))
+        {
+            var path = input["git@github.com:".Length..].Replace(".git", "");
+            var parts = path.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1]);
+            if (parts.Length == 1) return (parts[0].Split(':')[0], parts[0].Split(':').LastOrDefault());
+        }
+        else if (input.Contains('/'))
+        {
+            var parts = input.Split('/');
+            if (parts.Length >= 2) return (parts[0], parts[1].Replace(".git", ""));
+        }
+
+        return (null, null);
     }
 
     /// <summary>
@@ -311,6 +692,158 @@ public class RepositoriesController : ControllerBase
             _logger.LogError(ex, "Failed to sync repositories from Azure DevOps for user {UserId}", userId);
             return BadRequest(new { message = $"Failed to sync from Azure DevOps: {ex.Message}" });
         }
+    }
+
+    /// <summary>
+    /// Get list of repositories available from Azure DevOps (optionally filtered by organization). Used for selective sync.
+    /// </summary>
+    [HttpGet("available/azure-devops")]
+    [Authorize]
+    public async Task<IActionResult> GetAvailableAzureDevOpsRepositories([FromQuery] string? organization, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (user == null) return Unauthorized("User not found");
+
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.AzureDevOps, cancellationToken);
+        bool hasStoredPat = !string.IsNullOrWhiteSpace(user.AzureDevOpsAccessToken);
+        bool hasOAuthToken = linkedProvider != null && !string.IsNullOrWhiteSpace(linkedProvider.AccessToken);
+        if (!hasStoredPat && !hasOAuthToken)
+        {
+            return BadRequest(new { message = "Azure DevOps is not connected. Configure PAT in Settings or link your account.", provider = "AzureDevOps" });
+        }
+
+        string accessToken = hasStoredPat
+            ? Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes($":{user.AzureDevOpsAccessToken}"))
+            : linkedProvider!.AccessToken;
+        bool usingPat = hasStoredPat;
+
+        List<Application.Services.AzureDevOpsRepositoryDto> reposList;
+        var organizationName = !string.IsNullOrWhiteSpace(organization) ? organization : user.AzureDevOpsOrganization;
+        if (!string.IsNullOrWhiteSpace(organizationName))
+        {
+            var allRepos = new List<Application.Services.AzureDevOpsRepositoryDto>();
+            var projects = await _azureDevOpsService.GetProjectsAsync(accessToken, organizationName, cancellationToken, usingPat);
+            foreach (var project in projects)
+            {
+                var projectRepos = await _azureDevOpsService.GetProjectRepositoriesAsync(accessToken, organizationName, project.Name, cancellationToken, usingPat);
+                allRepos.AddRange(projectRepos);
+            }
+            reposList = allRepos;
+        }
+        else
+        {
+            reposList = (await _azureDevOpsService.GetRepositoriesAsync(accessToken, cancellationToken)).ToList();
+        }
+
+        var existingRepos = await _repositoryRepository.GetByUserIdAsync(userId, cancellationToken);
+        var existingSet = new HashSet<string>(existingRepos.Where(r => r.Provider == "AzureDevOps").Select(r => r.FullName), StringComparer.OrdinalIgnoreCase);
+
+        var list = reposList.Select(r =>
+        {
+            var fullName = $"{r.OrganizationName}/{r.ProjectName}/{r.Name}";
+            return new
+            {
+                fullName,
+                name = r.Name,
+                projectName = r.ProjectName,
+                organizationName = r.OrganizationName,
+                defaultBranch = r.DefaultBranch ?? "main",
+                alreadyInApp = existingSet.Contains(fullName)
+            };
+        }).ToList();
+
+        return Ok(list);
+    }
+
+    /// <summary>
+    /// Sync only selected Azure DevOps repositories into the app.
+    /// </summary>
+    [HttpPost("sync/azure-devops/selected")]
+    [Authorize]
+    public async Task<IActionResult> SyncSelectedAzureDevOpsRepositories([FromBody] SyncSelectedAzureRepositoriesRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        if (request?.FullNames == null || request.FullNames.Count == 0)
+        {
+            return Ok(new { added = 0, repositories = Array.Empty<object>() });
+        }
+
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (user == null) return Unauthorized("User not found");
+
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.AzureDevOps, cancellationToken);
+        bool hasStoredPat = !string.IsNullOrWhiteSpace(user.AzureDevOpsAccessToken);
+        bool hasOAuthToken = linkedProvider != null && !string.IsNullOrWhiteSpace(linkedProvider.AccessToken);
+        if (!hasStoredPat && !hasOAuthToken)
+        {
+            return BadRequest(new { message = "Azure DevOps is not connected. Configure PAT in Settings or link your account.", provider = "AzureDevOps" });
+        }
+
+        string accessToken = hasStoredPat
+            ? Convert.ToBase64String(System.Text.Encoding.ASCII.GetBytes($":{user.AzureDevOpsAccessToken}"))
+            : linkedProvider!.AccessToken;
+        bool usingPat = hasStoredPat;
+
+        var organizationName = request.Organization?.Trim();
+        if (string.IsNullOrWhiteSpace(organizationName))
+        {
+            return BadRequest(new { message = "Organization is required for Azure DevOps sync." });
+        }
+
+        var allRepos = new List<Application.Services.AzureDevOpsRepositoryDto>();
+        var projects = await _azureDevOpsService.GetProjectsAsync(accessToken, organizationName, cancellationToken, usingPat);
+        foreach (var project in projects)
+        {
+            var projectRepos = await _azureDevOpsService.GetProjectRepositoriesAsync(accessToken, organizationName, project.Name, cancellationToken, usingPat);
+            allRepos.AddRange(projectRepos);
+        }
+
+        var fullNameToAdo = allRepos.ToDictionary(r => $"{r.OrganizationName}/{r.ProjectName}/{r.Name}", StringComparer.OrdinalIgnoreCase);
+        var added = new List<object>();
+        foreach (var fullName in request.FullNames.Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (string.IsNullOrWhiteSpace(fullName)) continue;
+            var key = fullName.Trim();
+            if (!fullNameToAdo.TryGetValue(key, out var adoRepo)) continue;
+
+            var existing = await _repositoryRepository.GetByFullNameProviderAndUserIdAsync(key, "AzureDevOps", userId, cancellationToken);
+            if (existing != null) continue;
+
+            var newRepo = new Repository(
+                name: adoRepo.Name,
+                fullName: key,
+                cloneUrl: adoRepo.RemoteUrl,
+                provider: "AzureDevOps",
+                organizationName: adoRepo.OrganizationName,
+                userId: userId,
+                description: null,
+                isPrivate: true,
+                defaultBranch: adoRepo.DefaultBranch ?? "main");
+            await _repositoryRepository.AddAsync(newRepo, cancellationToken);
+            added.Add(new
+            {
+                id = newRepo.Id,
+                name = newRepo.Name,
+                fullName = newRepo.FullName,
+                provider = newRepo.Provider,
+                organizationName = newRepo.OrganizationName,
+                defaultBranch = newRepo.DefaultBranch
+            });
+        }
+
+        _logger.LogInformation("User {UserId} synced {Count} selected repositories from Azure DevOps", userId, added.Count);
+        return Ok(new { added = added.Count, repositories = added });
     }
 
     /// <summary>
@@ -756,7 +1289,7 @@ public class RepositoriesController : ControllerBase
             return Unauthorized("User ID not found in token");
         }
 
-        var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        var repository = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repository == null)
         {
             return NotFound("Repository not found");
@@ -926,7 +1459,7 @@ public class RepositoriesController : ControllerBase
             return Unauthorized("User ID not found in token");
         }
 
-        var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        var repository = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repository == null)
         {
             return NotFound("Repository not found");
@@ -971,7 +1504,7 @@ public class RepositoriesController : ControllerBase
             return Unauthorized("User ID not found in token");
         }
 
-        var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        var repository = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repository == null)
         {
             return NotFound("Repository not found");
@@ -1023,7 +1556,7 @@ public class RepositoriesController : ControllerBase
             return Unauthorized("User ID not found in token");
         }
 
-        var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        var repository = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repository == null)
         {
             return NotFound("Repository not found");
@@ -1222,7 +1755,7 @@ public class RepositoriesController : ControllerBase
             return Unauthorized("User ID not found in token");
         }
 
-        var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        var repository = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repository == null)
         {
             return NotFound("Repository not found");

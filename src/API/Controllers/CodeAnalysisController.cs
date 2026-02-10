@@ -2,6 +2,7 @@ namespace DevPilot.API.Controllers;
 
 using System.Security.Claims;
 using DevPilot.Application.Services;
+using DevPilot.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -47,14 +48,27 @@ public class SaveAnalysisRequest
 public class CodeAnalysisController : ControllerBase
 {
     private readonly ICodeAnalysisService _codeAnalysisService;
+    private readonly IRepositoryRepository _repositoryRepository;
     private readonly ILogger<CodeAnalysisController> _logger;
 
     public CodeAnalysisController(
         ICodeAnalysisService codeAnalysisService,
+        IRepositoryRepository repositoryRepository,
         ILogger<CodeAnalysisController> logger)
     {
         _codeAnalysisService = codeAnalysisService ?? throw new ArgumentNullException(nameof(codeAnalysisService));
+        _repositoryRepository = repositoryRepository ?? throw new ArgumentNullException(nameof(repositoryRepository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+    }
+
+    private async Task<IActionResult?> EnsureCanAccessRepositoryAsync(Guid repositoryId, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+        return null;
     }
 
     /// <summary>
@@ -66,6 +80,8 @@ public class CodeAnalysisController : ControllerBase
         [FromQuery] string? branch,
         CancellationToken cancellationToken)
     {
+        var access = await EnsureCanAccessRepositoryAsync(repositoryId, cancellationToken);
+        if (access != null) return access;
         try
         {
             var result = await _codeAnalysisService.GetStoredAnalysisAsync(repositoryId, branch, cancellationToken);
@@ -91,6 +107,8 @@ public class CodeAnalysisController : ControllerBase
         [FromBody] SaveAnalysisRequest request,
         CancellationToken cancellationToken)
     {
+        var access = await EnsureCanAccessRepositoryAsync(repositoryId, cancellationToken);
+        if (access != null) return access;
         try
         {
             _logger.LogInformation("Saving analysis for repository {RepositoryId}", repositoryId);
@@ -129,6 +147,8 @@ public class CodeAnalysisController : ControllerBase
         [FromQuery] string? branch,
         CancellationToken cancellationToken)
     {
+        var access = await EnsureCanAccessRepositoryAsync(repositoryId, cancellationToken);
+        if (access != null) return access;
         if (string.IsNullOrEmpty(path))
         {
             return BadRequest(new { message = "File path is required" });
@@ -160,6 +180,8 @@ public class CodeAnalysisController : ControllerBase
         [FromBody] AnalyzeFileRequest request,
         CancellationToken cancellationToken)
     {
+        var access = await EnsureCanAccessRepositoryAsync(repositoryId, cancellationToken);
+        if (access != null) return access;
         if (string.IsNullOrEmpty(request.FilePath))
         {
             return BadRequest(new { message = "File path is required" });
@@ -217,6 +239,8 @@ public class CodeAnalysisController : ControllerBase
         [FromRoute] Guid repositoryId,
         CancellationToken cancellationToken)
     {
+        var access = await EnsureCanAccessRepositoryAsync(repositoryId, cancellationToken);
+        if (access != null) return access;
         try
         {
             await _codeAnalysisService.DeleteAnalysisAsync(repositoryId, cancellationToken);
