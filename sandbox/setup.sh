@@ -314,22 +314,13 @@ RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; 
     c_rehash /etc/ssl/certs 2>/dev/null || true
 
 # ── LD_PRELOAD SSL bypass for .NET (sandbox only) ──
-# .NET uses OpenSSL's SSL_CTX_set_verify callback for certificate validation.
-# We override SSL_CTX_set_verify and SSL_set_verify to force SSL_VERIFY_NONE (0),
-# plus X509_verify_cert as belt & suspenders.
-RUN echo '#define _GNU_SOURCE' > /tmp/ssl_bypass.c && \
-    echo '#include <dlfcn.h>' >> /tmp/ssl_bypass.c && \
-    echo 'typedef void (*set_verify_fn)(void*, int, void*);' >> /tmp/ssl_bypass.c && \
-    echo 'void SSL_CTX_set_verify(void *ctx, int mode, void *cb) {' >> /tmp/ssl_bypass.c && \
-    echo '    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_CTX_set_verify");' >> /tmp/ssl_bypass.c && \
-    echo '    if (real) real(ctx, 0, (void*)0);' >> /tmp/ssl_bypass.c && \
-    echo '}' >> /tmp/ssl_bypass.c && \
-    echo 'void SSL_set_verify(void *ssl, int mode, void *cb) {' >> /tmp/ssl_bypass.c && \
-    echo '    set_verify_fn real = (set_verify_fn)dlsym(RTLD_NEXT, "SSL_set_verify");' >> /tmp/ssl_bypass.c && \
-    echo '    if (real) real(ssl, 0, (void*)0);' >> /tmp/ssl_bypass.c && \
-    echo '}' >> /tmp/ssl_bypass.c && \
-    echo 'int X509_verify_cert(void *ctx) { return 1; }' >> /tmp/ssl_bypass.c && \
-    gcc -shared -fPIC -o /usr/local/lib/ssl_bypass.so /tmp/ssl_bypass.c -ldl && \
+# .NET calls SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, callback) to enable cert checks.
+# If our override does NOTHING, the SSL context stays at its default: SSL_VERIFY_NONE.
+# No dlsym needed — just empty functions. Simple and zero dependencies.
+RUN echo 'void SSL_CTX_set_verify(void *a, int b, void *c) {}' > /tmp/ssl_bypass.c && \
+    echo 'void SSL_set_verify(void *a, int b, void *c) {}' >> /tmp/ssl_bypass.c && \
+    echo 'int X509_verify_cert(void *a) { return 1; }' >> /tmp/ssl_bypass.c && \
+    gcc -shared -fPIC -o /usr/local/lib/ssl_bypass.so /tmp/ssl_bypass.c && \
     rm /tmp/ssl_bypass.c
 ENV LD_PRELOAD=/usr/local/lib/ssl_bypass.so
 
