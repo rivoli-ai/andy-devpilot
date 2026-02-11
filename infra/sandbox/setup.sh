@@ -2282,7 +2282,7 @@ echo "[SSL] Certificate store updated and rehashed" >> /tmp/sandbox-debug.log
 export DOTNET_NUGET_SIGNATURE_VERIFICATION=false
 
 # Log version and environment variables for debugging
-echo "=== DevPilot Sandbox v2.1.0 ===" > /tmp/sandbox-debug.log
+echo "=== DevPilot Sandbox v2.3.0 ===" > /tmp/sandbox-debug.log
 echo "Started at: \$(date)" >> /tmp/sandbox-debug.log
 echo "=== Environment Variables ===" >> /tmp/sandbox-debug.log
 env >> /tmp/sandbox-debug.log
@@ -2873,6 +2873,8 @@ import time
 app = Flask(__name__)
 CORS(app)
 
+SANDBOX_MANAGER_VERSION = "2.3.0"  # Bump this when deploying changes
+
 client = docker.from_env()
 
 # Track active sandboxes: {sandbox_id: {container_id, port, created_at}}
@@ -2898,7 +2900,11 @@ def release_port(port):
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({"status": "ok"})
+    return jsonify({
+        "status": "ok",
+        "version": SANDBOX_MANAGER_VERSION,
+        "active_sandboxes": len(sandboxes)
+    })
 
 @app.route('/sandboxes', methods=['GET'])
 def list_sandboxes():
@@ -2924,7 +2930,7 @@ def create_sandbox():
     
     # Log incoming request
     print("=" * 50)
-    print("CREATE SANDBOX REQUEST")
+    print(f"CREATE SANDBOX REQUEST (Manager v{SANDBOX_MANAGER_VERSION})")
     print("=" * 50)
     print(f"Request JSON: {request.json}")
     print("=" * 50)
@@ -3153,7 +3159,7 @@ if __name__ == '__main__':
     # Start cleanup thread
     threading.Thread(target=cleanup_old_sandboxes, daemon=True).start()
     
-    print("DevPilot Sandbox Manager starting on port 8090...")
+    print(f"DevPilot Sandbox Manager v{SANDBOX_MANAGER_VERSION} starting on port 8090...")
     app.run(host='0.0.0.0', port=8090)
 MANAGER_PY
 
