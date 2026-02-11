@@ -38,6 +38,12 @@ elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
     PROJECT_DIR="/opt/devpilot-sandbox"
 fi
 
+# Resolve script location for certs (before any cd). When run as ./setup.sh from repo, certs are read from <repo>/infra/sandbox/certs.
+if [ -n "${BASH_SOURCE[0]}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
+    _SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+    [ -n "$_SCRIPT_DIR" ] && SCRIPT_SOURCE_DIR="$_SCRIPT_DIR"
+fi
+
 # Check root (only on Linux)
 if [ "$IS_LINUX" = true ] && [ "$EUID" -ne 0 ]; then 
     log_error "Please run as root: sudo ./setup.sh"
@@ -107,35 +113,29 @@ log_info "Creating desktop image..."
 mkdir -p desktop
 
 # ── Custom certificates ──────────────────────────────────────────────────
-# Users can place .crt/.pem files in sandbox/certs/ BEFORE running this script.
-# These are copied into the container's CA trust store at build time.
-# Typical use case: Zscaler, corporate proxies, or any custom Root CA.
-# Resolve script source dir (works when run directly; falls back to $PROJECT_DIR when piped)
-if [ -n "${BASH_SOURCE[0]}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
-    SCRIPT_SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
-else
-    SCRIPT_SOURCE_DIR="$PROJECT_DIR"
-fi
-CERTS_SOURCE="${SCRIPT_SOURCE_DIR}/certs"
+# Certs are read from (1) infra/sandbox/certs and (2) infra/identity/certs.
+# Place .crt/.pem/.cer files in either folder; all are copied into the image.
+SCRIPT_SOURCE_DIR="${SCRIPT_SOURCE_DIR:-$PROJECT_DIR}"
 CERTS_BUILD="desktop/certs"
 mkdir -p "$CERTS_BUILD"
 
 CERT_COUNT=0
-if [ -d "$CERTS_SOURCE" ]; then
+for CERTS_SOURCE in "${SCRIPT_SOURCE_DIR}/certs" "${SCRIPT_SOURCE_DIR}/../identity/certs"; do
+    [ -d "$CERTS_SOURCE" ] || continue
     for f in "$CERTS_SOURCE"/*.crt "$CERTS_SOURCE"/*.pem "$CERTS_SOURCE"/*.cer; do
         [ -f "$f" ] || continue
         cp "$f" "$CERTS_BUILD/"
         CERT_COUNT=$((CERT_COUNT + 1))
-        log_info "  Found custom certificate: $(basename "$f")"
+        log_info "  Found custom certificate: $(basename "$f") (from $CERTS_SOURCE)"
     done
-fi
+done
 
 if [ "$CERT_COUNT" -gt 0 ]; then
-    log_info "Loaded $CERT_COUNT custom certificate(s) from $CERTS_SOURCE"
+    log_info "Loaded $CERT_COUNT custom certificate(s)"
 else
-    log_warn "No custom certificates found in $CERTS_SOURCE"
+    log_warn "No custom certificates found in ${SCRIPT_SOURCE_DIR}/certs or ${SCRIPT_SOURCE_DIR}/../identity/certs"
     log_warn "If you're behind a corporate proxy (Zscaler, etc.), place your"
-    log_warn "root CA .crt files in: $CERTS_SOURCE/"
+    log_warn "root CA .crt files in infra/sandbox/certs/ or infra/identity/certs/"
     log_warn "Then re-run this script."
     # Create an empty placeholder so COPY doesn't fail
     touch "$CERTS_BUILD/.keep"
@@ -451,7 +451,7 @@ echo ""
 echo "TIP: If this keeps failing, export your corporate root CA (Zscaler, etc.)"
 echo "     and place it in sandbox/certs/ then re-run setup.sh"
 FIX_SSL_SCRIPT
-chmod +x /usr/local/bin/fix-ssl
+RUN chmod +x /usr/local/bin/fix-ssl
 
 # Configure nginx for noVNC proxy (port 6080)
 RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
