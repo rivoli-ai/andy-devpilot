@@ -2596,14 +2596,14 @@ chown sandbox:sandbox "$WORK_DIR"
 echo "REPO_URL: $REPO_URL" >> /tmp/sandbox-debug.log
 echo "REPO_NAME: $REPO_NAME" >> /tmp/sandbox-debug.log
 echo "REPO_BRANCH: $REPO_BRANCH" >> /tmp/sandbox-debug.log
-echo "REPO_ARCHIVE_URL: $REPO_ARCHIVE_URL" >> /tmp/sandbox-debug.log
-
-REPO_NAME="${REPO_NAME:-repo}"
-REPO_BRANCH="${REPO_BRANCH:-main}"
 
 if [ -n "$REPO_URL" ]; then
     echo "Cloning repository: $REPO_URL"
+    REPO_NAME="${REPO_NAME:-repo}"
+    REPO_BRANCH="${REPO_BRANCH:-main}"
+    
     cd "$WORK_DIR"
+    
     # Clone with --no-single-branch so new branches can be pushed and seen remotely
     echo "Attempting clone with branch $REPO_BRANCH..."
     if git clone --depth 1 --no-single-branch --branch "$REPO_BRANCH" "$REPO_URL" "$REPO_NAME" 2>&1; then
@@ -2614,7 +2614,7 @@ if [ -n "$REPO_URL" ]; then
         echo "ERROR: Failed to clone repository" >> /tmp/sandbox-debug.log
         echo "Warning: Failed to clone repository"
     fi
-    cd - >/dev/null
+    
     if [ -d "$WORK_DIR/$REPO_NAME" ]; then
         WORK_DIR="$WORK_DIR/$REPO_NAME"
         chown -R sandbox:sandbox "$WORK_DIR"
@@ -2626,6 +2626,7 @@ if [ -n "$REPO_URL" ]; then
             current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
             if [ "$current_branch" != "$REPO_BRANCH" ]; then
                 echo "Checking out branch $REPO_BRANCH..."
+                # Remove untracked files (e.g. .rules) that would block checkout
                 git clean -fd 2>/dev/null || true
                 if git checkout "$REPO_BRANCH" 2>/dev/null; then
                     echo "Checked out existing $REPO_BRANCH"
@@ -2642,16 +2643,18 @@ else
     echo "No REPO_URL provided, skipping clone" >> /tmp/sandbox-debug.log
 fi
 
-# When clone was not used or failed, use GitHub archive (zipball) so code is available when git clone is blocked
-if [ -n "$REPO_ARCHIVE_URL" ] && [ ! -d "$WORK_DIR/$REPO_NAME" ]; then
+# Fallback: when clone was not used or failed, use GitHub archive (zipball) so code is available when git clone is blocked
+REPO_NAME="${REPO_NAME:-repo}"
+if [ -n "$REPO_ARCHIVE_URL" ] && [ ! -d "$WORK_DIR/$REPO_NAME" ] && [ ! -d "/home/sandbox/projects/$REPO_NAME" ]; then
+    echo "REPO_ARCHIVE_URL: $REPO_ARCHIVE_URL" >> /tmp/sandbox-debug.log
     echo "Downloading repository from archive: $REPO_ARCHIVE_URL"
-    cd "$WORK_DIR"
+    cd /home/sandbox/projects
     if curl -sSfL -o repo.zip "$REPO_ARCHIVE_URL" 2>>/tmp/sandbox-debug.log; then
         unzip -o -q repo.zip 2>>/tmp/sandbox-debug.log
         TOPDIR=$(ls -d */ 2>/dev/null | head -1)
         if [ -n "$TOPDIR" ]; then
             mv "${TOPDIR%/}" "$REPO_NAME"
-            WORK_DIR="$WORK_DIR/$REPO_NAME"
+            WORK_DIR="/home/sandbox/projects/$REPO_NAME"
             chown -R sandbox:sandbox "$WORK_DIR"
             echo "Repository extracted to: $WORK_DIR"
             echo "Archive download successful: $WORK_DIR" >> /tmp/sandbox-debug.log
@@ -2661,7 +2664,6 @@ if [ -n "$REPO_ARCHIVE_URL" ] && [ ! -d "$WORK_DIR/$REPO_NAME" ]; then
         echo "ERROR: Failed to download repository archive" >> /tmp/sandbox-debug.log
         echo "Warning: Failed to download repository archive"
     fi
-    cd - >/dev/null
 fi
 
 # Launch Zed with software rendering and D-Bus
