@@ -39,6 +39,12 @@ services:
       PrivateServerAuthentication__HeathUrl: "https://localhost:${IDS_PORT:-5001}/healthz"
       PrivateServerAuthentication__RequireHttpsMetadata: "false"
 
+      # ── SSL / Enterprise proxy ─────────────────────────────────────
+      # Trust extra CA certs mounted at /enterprise-certs
+      SSL_CERT_DIR: "/enterprise-certs:/etc/ssl/certs"
+      # Also tell .NET to load additional certs bundle
+      DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER: "0"
+
       # ── Client 0 – Admin Blazor SPA (built-in UI) ───────────────────
       InitialData__Clients__0__ClientId: "theidserveradmin"
       InitialData__Clients__0__ClientName: "DevPilot Admin UI"
@@ -95,6 +101,7 @@ services:
       - duende-data:/data
       - ./certs:/certs:ro
       - ./blazor-appsettings.json:/app/wwwroot/appsettings.json:ro
+      - ./enterprise-certs:/enterprise-certs:ro
     depends_on:
       redis:
         condition: service_healthy

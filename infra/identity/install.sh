@@ -80,6 +80,67 @@ fi
 echo "    docker  ✓"
 echo "    openssl ✓"
 
+# ── Install enterprise/proxy CA certificates (SSL interception) ──────────────
+# Looks for .crt/.pem files in:
+#   1. ./enterprise-certs/    (identity-specific)
+#   2. ../sandbox/certs/      (shared with sandbox)
+# Installs them into the host OS trust store so Docker can pull images correctly.
+echo ""
+echo "==> Checking for enterprise CA certificates..."
+ENTERPRISE_CERT_COUNT=0
+
+install_host_certs() {
+  local src_dir="$1"
+  if [ -d "$src_dir" ]; then
+    for f in "$src_dir"/*.crt "$src_dir"/*.pem; do
+      [ -f "$f" ] || continue
+      local fname
+      fname=$(basename "$f")
+      # Skip localhost certs (those are for the identity server itself)
+      [[ "$fname" == localhost* ]] && continue
+      echo "    Found: $fname (from $src_dir)"
+      sudo cp "$f" /usr/local/share/ca-certificates/"$fname" 2>/dev/null || \
+        cp "$f" /usr/local/share/ca-certificates/"$fname" 2>/dev/null || true
+      ENTERPRISE_CERT_COUNT=$((ENTERPRISE_CERT_COUNT + 1))
+    done
+  fi
+}
+
+# Auto-extract enterprise CA from live connections (catches proxy-injected CAs)
+mkdir -p ./enterprise-certs
+if [ ! -f ./enterprise-certs/auto-proxy-ca.crt ] || [ "$ENTERPRISE_CERT_COUNT" -eq 0 ]; then
+  echo "    Attempting to auto-detect proxy CA from live connections..."
+  for HOST in registry-1.docker.io hub.docker.com google.com; do
+    EXTRACTED=$(echo | openssl s_client -showcerts -connect "${HOST}:443" -servername "${HOST}" 2>/dev/null | \
+      awk '/BEGIN CERTIFICATE/,/END CERTIFICATE/' 2>/dev/null)
+    if [ -n "$EXTRACTED" ]; then
+      echo "$EXTRACTED" > "./enterprise-certs/auto-${HOST}.crt"
+      echo "    Extracted cert chain from $HOST"
+    fi
+  done
+fi
+
+install_host_certs "./enterprise-certs"
+install_host_certs "../sandbox/certs"
+
+if [ "$ENTERPRISE_CERT_COUNT" -gt 0 ]; then
+  echo "    Installing $ENTERPRISE_CERT_COUNT cert(s) into host trust store..."
+  sudo update-ca-certificates 2>/dev/null || update-ca-certificates 2>/dev/null || true
+  echo "    Restarting Docker to pick up new CAs..."
+  sudo systemctl restart docker 2>/dev/null || sudo service docker restart 2>/dev/null || true
+  # Wait for Docker to be ready again
+  for i in $(seq 1 15); do
+    docker info &>/dev/null && break
+    sleep 1
+  done
+  echo "    Enterprise CA certificates installed ✓"
+else
+  echo "    No enterprise certs found."
+  echo "    If behind a corporate proxy (Zscaler, etc.), place your root CA .crt files in:"
+  echo "      ./enterprise-certs/   or   ../sandbox/certs/"
+  echo "    Then re-run this script."
+fi
+
 # ── Generate admin password ──────────────────────────────────────────────────
 ADMIN_PASSWORD="$(openssl rand -base64 16 | tr -d '/+=' | head -c 16)Dp1!"
 echo ""
