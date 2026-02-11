@@ -183,6 +183,46 @@ else
   echo "==> Using existing certificates in certs/"
 fi
 
+# ── Build CA bundle for the container ─────────────────────────────────────────
+# The Duende image has no shell, so we can't run update-ca-certificates inside it.
+# Instead, we build a combined CA bundle and mount it directly.
+echo ""
+echo "==> Building CA bundle for container..."
+
+# Start with the system CA bundle
+CA_BUNDLE="certs/ca-bundle.crt"
+if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+  cp /etc/ssl/certs/ca-certificates.crt "$CA_BUNDLE"
+elif [ -f /etc/pki/tls/certs/ca-bundle.crt ]; then
+  cp /etc/pki/tls/certs/ca-bundle.crt "$CA_BUNDLE"
+else
+  # Start empty if no system bundle found
+  > "$CA_BUNDLE"
+fi
+
+# Append localhost self-signed cert
+if [ -f certs/localhost.crt ]; then
+  echo "" >> "$CA_BUNDLE"
+  echo "# DevPilot localhost self-signed" >> "$CA_BUNDLE"
+  cat certs/localhost.crt >> "$CA_BUNDLE"
+fi
+
+# Append enterprise certs
+for dir in ./enterprise-certs ../sandbox/certs; do
+  if [ -d "$dir" ]; then
+    for f in "$dir"/*.crt "$dir"/*.pem; do
+      [ -f "$f" ] || continue
+      [[ "$(basename "$f")" == localhost* ]] && continue
+      echo "" >> "$CA_BUNDLE"
+      echo "# Enterprise: $(basename "$f")" >> "$CA_BUNDLE"
+      cat "$f" >> "$CA_BUNDLE"
+    done
+  fi
+done
+
+BUNDLE_CERTS=$(grep -c "BEGIN CERTIFICATE" "$CA_BUNDLE" 2>/dev/null || echo "0")
+echo "    $CA_BUNDLE ✓ ($BUNDLE_CERTS certificates)"
+
 # ── Trust certificate (macOS only) ──────────────────────────────────────────
 if [ "$TRUST_CERT" = true ]; then
   if [[ "$(uname)" == "Darwin" ]]; then
