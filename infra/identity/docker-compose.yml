@@ -90,12 +90,7 @@ services:
       InitialData__Users__0__Claims__2__ClaimType: "email"
       InitialData__Users__0__Claims__2__ClaimValue: "${ADMIN_EMAIL:-admin@devpilot.local}"
 
-    entrypoint: >
-      sh -c "
-        cp /certs/localhost.crt /usr/local/share/ca-certificates/localhost.crt &&
-        update-ca-certificates 2>/dev/null &&
-        dotnet Aguacongas.TheIdServer.Duende.dll
-      "
+    entrypoint: ["sh", "-c", "cp /certs/localhost.crt /usr/local/share/ca-certificates/localhost.crt && update-ca-certificates 2>/dev/null; echo 'Starting Duende...'; exec dotnet Aguacongas.TheIdServer.Duende.dll"]
     volumes:
       - duende-data:/data
       - ./certs:/certs:ro
