@@ -1,0 +1,6 @@
+# Ignore actual certificate files (user-specific, should not be committed)
+*.crt
+*.pem
+*.cer
+!.gitkeep
+!README.md

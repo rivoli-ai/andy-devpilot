@@ -1,2 +1,9 @@
 # Local development config (secrets)
-src/API/appsettings.Development.json
+backend/src/API/appsettings.Development.json
+
+# .NET build output
+**/bin/
+**/obj/
+
+# OS files
+.DS_Store

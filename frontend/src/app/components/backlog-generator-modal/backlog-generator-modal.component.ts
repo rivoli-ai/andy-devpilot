@@ -517,38 +517,41 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Check if AI is configured
-    const aiConfig = this.aiConfigService.defaultProvider();
-    if (!aiConfig.apiKey) {
+    this.state.set('creating_sandbox');
+    this.errorMessage.set('');
+
+    // Use effective AI config for this repository (default or repo override)
+    this.aiConfigService.getEffectiveConfig(repo.id).then((aiConfig) => {
+      if (!aiConfig.apiKey) {
+        this.state.set('error');
+        this.errorMessage.set('AI is not configured. Please configure AI settings first.');
+        return;
+      }
+      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig);
+      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+        next: (result) => {
+          this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
+        },
+        error: (err) => {
+          console.error('Failed to get authenticated clone URL:', err);
+          const repoUrl = this.buildRepoCloneUrl(repo);
+          this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings);
+        }
+      });
+    }).catch((err) => {
+      console.error('Failed to get AI config:', err);
       this.state.set('error');
       this.errorMessage.set('AI is not configured. Please configure AI settings first.');
-      return;
-    }
-
-    this.state.set('creating_sandbox');
-
-    const zedSettings = this.aiConfigService.getZedSettingsJson();
-
-    // Fetch authenticated clone URL (with PAT embedded for private repos)
-    this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-      next: (result) => {
-        this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings);
-      },
-      error: (err) => {
-        console.error('Failed to get authenticated clone URL:', err);
-        // Fallback to regular clone URL
-        const repoUrl = this.buildRepoCloneUrl(repo);
-        this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings);
-      }
     });
   }
 
-  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object): void {
+  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string): void {
     // Create sandbox
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
+      repo_archive_url: repoArchiveUrl,
       ai_config: {
         provider: aiConfig.provider,
         api_key: aiConfig.apiKey,

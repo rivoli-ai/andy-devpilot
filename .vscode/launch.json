@@ -10,9 +10,9 @@
             "request": "launch",
             "preLaunchTask": "build",
             // If you have changed target frameworks, make sure to update the program path.
-            "program": "${workspaceFolder}/src/API/bin/Debug/net9.0/DevPilot.API.dll",
+            "program": "${workspaceFolder}/backend/src/API/bin/Debug/net9.0/DevPilot.API.dll",
             "args": [],
-            "cwd": "${workspaceFolder}/src/API",
+            "cwd": "${workspaceFolder}/backend/src/API",
             "stopAtEntry": false,
             // Enable launching a web browser when ASP.NET Core starts. For more information: https://aka.ms/VSCode-CS-LaunchJson-WebBrowser
             "serverReadyAction": {

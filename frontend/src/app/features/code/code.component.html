@@ -14,6 +14,36 @@
     </div>
     
     <div class="header-actions">
+      <!-- AI model selector (repository override) -->
+      @if (repository() && getLlmSettings().length > 0) {
+        <div class="llm-selector">
+          <div class="llm-select-wrap">
+            <svg class="llm-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9.937 15.5A2 2 0 0 0 8.5 14.063l-6.135-1.582a.5.5 0 0 1 0-.962L8.5 9.936A2 2 0 0 0 9.937 8.5l1.582-6.135a.5.5 0 0 1 .963 0L14.063 8.5A2 2 0 0 0 15.5 9.937l6.135 1.582a.5.5 0 0 1 0 .963L15.5 14.063a2 2 0 0 0-1.437 1.437l-1.582 6.135a.5.5 0 0 1-.963 0z"/>
+              <path d="M20 3v4"/><path d="M22 5h-4"/>
+            </svg>
+            <select
+              id="code-llm-select"
+              class="llm-select"
+              [ngModel]="repository()?.llmSettingId ?? ''"
+              [disabled]="repoLlmUpdating()"
+              (ngModelChange)="onRepoLlmChange($event || null)"
+              title="AI model for this repository">
+              <option value="">Default</option>
+              @for (llm of getLlmSettings(); track llm.id) {
+                <option [value]="llm.id">{{ llm.name || llm.model }}</option>
+              }
+            </select>
+            @if (repoLlmUpdating()) {
+              <span class="llm-select-spinner"></span>
+            } @else {
+              <svg class="llm-dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M6 9l6 6 6-6"/>
+              </svg>
+            }
+          </div>
+        </div>
+      }
       <!-- Branch selector (only show on code tab) -->
       @if (activeTab() === 'code') {
         <div class="branch-selector">

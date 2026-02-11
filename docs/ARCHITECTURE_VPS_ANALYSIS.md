@@ -106,7 +106,7 @@ This document describes the architecture for performing repository analysis usin
 
 ### 1. AnalyzeRepositoryCommandHandler
 
-**Location:** `src/Application/UseCases/AnalyzeRepositoryCommandHandler.cs`
+**Location:** `backend/src/Application/UseCases/AnalyzeRepositoryCommandHandler.cs`
 
 **Responsibilities:**
 - Receives analysis command
@@ -130,7 +130,7 @@ else
 
 ### 2. VPSAnalysisService
 
-**Location:** `src/Infrastructure/VPS/VPSAnalysisService.cs`
+**Location:** `backend/src/Infrastructure/VPS/VPSAnalysisService.cs`
 
 **Responsibilities:**
 - Orchestrates the entire VPS analysis workflow
@@ -149,7 +149,7 @@ else
 
 ### 3. ZedSessionService
 
-**Location:** `src/Infrastructure/Zed/ZedSessionService.cs`
+**Location:** `backend/src/Infrastructure/Zed/ZedSessionService.cs`
 
 **Responsibilities:**
 - Communicates with VPS Gateway via HTTP
@@ -163,7 +163,7 @@ else
 
 ### 4. ACPClient
 
-**Location:** `src/Infrastructure/ACP/ACPClient.cs`
+**Location:** `backend/src/Infrastructure/ACP/ACPClient.cs`
 
 **Responsibilities:**
 - WebSocket communication with Zed containers

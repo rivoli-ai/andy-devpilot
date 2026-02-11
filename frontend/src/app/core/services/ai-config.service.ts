@@ -1,5 +1,5 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
-import { AuthService, AiSettings, AiSettingsFull } from './auth.service';
+import { AuthService, AiSettings, AiSettingsFull, LlmSettingDto } from './auth.service';
 import { firstValueFrom } from 'rxjs';
 
 export interface AIProviderConfig {
@@ -29,9 +29,13 @@ export class AIConfigService {
   private configSignal = signal<AIProviderConfig>(DEFAULT_CONFIG);
   private loadedSignal = signal<boolean>(false);
   private githubTokenSignal = signal<string>('');
+  private llmSettingsSignal = signal<LlmSettingDto[]>([]);
 
-  /** Current AI configuration */
+  /** Current AI configuration (default effective config when no repo context) */
   config = this.configSignal.asReadonly();
+
+  /** User's LLM configurations (for settings UI and repo override dropdown) */
+  llmSettings = this.llmSettingsSignal.asReadonly();
 
   /** Check if AI is configured */
   isConfigured = computed(() => {
@@ -57,22 +61,19 @@ export class AIConfigService {
   }
 
   /**
-   * Load configuration from server
+   * Load configuration from server (default effective config, no repo).
+   * Also loads the list of LLM settings.
    */
   async loadFromServer(): Promise<void> {
     try {
+      await this.loadLlmSettings();
       // First get the basic settings to check if configured
       const settings = await firstValueFrom(this.authService.getAiSettings());
       
       if (settings.hasApiKey) {
-        // Get full settings including API key
+        // Get full settings including API key (default effective = no repositoryId)
         const fullSettings = await firstValueFrom(this.authService.getFullAiSettings());
-        this.configSignal.set({
-          provider: (fullSettings.provider as AIProviderConfig['provider']) || 'openai',
-          apiKey: fullSettings.apiKey || '',
-          model: fullSettings.model || 'gpt-4o',
-          baseUrl: fullSettings.baseUrl
-        });
+        this.configSignal.set(this.fullSettingsToConfig(fullSettings));
       } else {
         // Set provider and model without API key
         this.configSignal.set({
@@ -91,25 +92,43 @@ export class AIConfigService {
   }
 
   /**
-   * Update the default provider configuration
+   * Load the list of user LLM settings (for settings UI and repo override dropdown).
+   */
+  async loadLlmSettings(): Promise<void> {
+    try {
+      const list = await firstValueFrom(this.authService.getLlmSettings());
+      this.llmSettingsSignal.set(list ?? []);
+    } catch (e) {
+      console.error('Failed to load LLM settings:', e);
+      this.llmSettingsSignal.set([]);
+    }
+  }
+
+  /**
+   * Get effective AI config for a repository (or default if no repositoryId).
+   * Use this when operating in repo context (e.g. backlog, code analysis).
+   */
+  async getEffectiveConfig(repositoryId?: string): Promise<AIProviderConfig> {
+    const full = await firstValueFrom(this.authService.getFullAiSettings(repositoryId));
+    return this.fullSettingsToConfig(full);
+  }
+
+  private fullSettingsToConfig(full: AiSettingsFull): AIProviderConfig {
+    return {
+      provider: (full.provider as AIProviderConfig['provider']) || 'openai',
+      apiKey: full.apiKey ?? '',
+      model: full.model || 'gpt-4o',
+      baseUrl: full.baseUrl
+    };
+  }
+
+  /**
+   * Update the default provider configuration (local only).
+   * To add or change AI providers, use Settings > AI providers.
    */
   async updateDefaultProvider(config: Partial<AIProviderConfig>): Promise<void> {
     const current = this.configSignal();
-    const updated = { ...current, ...config };
-    
-    try {
-      await firstValueFrom(this.authService.saveAiSettings(
-        updated.provider,
-        config.apiKey, // Only send if changed
-        updated.model,
-        updated.baseUrl
-      ));
-      
-      this.configSignal.set(updated);
-    } catch (e) {
-      console.error('Failed to save AI config:', e);
-      throw e;
-    }
+    this.configSignal.set({ ...current, ...config });
   }
 
   /**
@@ -169,10 +188,11 @@ export class AIConfigService {
   }
 
   /**
-   * Get Zed settings.json content for AI configuration
+   * Get Zed settings.json content for AI configuration.
+   * @param config Optional config to use (e.g. effective config for a repo); otherwise uses default.
    */
-  getZedSettingsJson(): object {
-    const cfg = this.configSignal();
+  getZedSettingsJson(config?: AIProviderConfig): object {
+    const cfg = config ?? this.configSignal();
     
     const zedProvider = cfg.provider === 'custom' ? 'openai' : cfg.provider;
     const model = cfg.model || 'gpt-4o';
@@ -231,15 +251,9 @@ export class AIConfigService {
   }
 
   /**
-   * Clear all configuration
+   * Clear local config (e.g. after logout). To remove AI providers, use Settings > AI providers.
    */
   async clearConfig(): Promise<void> {
-    try {
-      await firstValueFrom(this.authService.clearAiSettings());
-      this.configSignal.set(DEFAULT_CONFIG);
-    } catch (e) {
-      console.error('Failed to clear AI config:', e);
-      throw e;
-    }
+    this.configSignal.set(DEFAULT_CONFIG);
   }
 }
