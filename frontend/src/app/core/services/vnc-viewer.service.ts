@@ -26,6 +26,8 @@ export interface VncViewer {
   implementationContext?: ImplementationContext;
   /** True when implementation is complete and waiting for PR */
   readyForPr?: boolean;
+  /** Connection state: 'connecting' | 'connected' | 'disconnected' | 'error' - persisted when viewer moves floating↔minimized */
+  connectionState?: string;
 }
 
 /**
@@ -195,6 +197,16 @@ export class VncViewerService {
   setReadyForPr(viewerId: string, ready: boolean): void {
     const viewers = this.viewersSubject.value.map(v => 
       v.id === viewerId ? { ...v, readyForPr: ready } : v
+    );
+    this.viewersSubject.next(viewers);
+  }
+
+  /**
+   * Set connection state for a viewer (persists when viewer moves floating↔minimized)
+   */
+  setConnectionState(viewerId: string, state: string): void {
+    const viewers = this.viewersSubject.value.map(v =>
+      v.id === viewerId ? { ...v, connectionState: state } : v
     );
     this.viewersSubject.next(viewers);
   }

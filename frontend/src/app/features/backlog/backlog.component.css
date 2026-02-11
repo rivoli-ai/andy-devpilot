@@ -92,71 +92,94 @@
   gap: 0.75rem;
 }
 
-/* AI model selector (same style as branch selector, Windows-friendly) */
+/* AI model selector - same UI as branch selector (button + dropdown) */
 .llm-selector {
   position: relative;
 }
-.llm-select-wrap {
+.llm-selector .branch-btn {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  min-height: 36px;
-  padding: 0 0.75rem;
-  box-sizing: border-box;
+  padding: 0.5rem 0.75rem;
   background: var(--surface-secondary, rgba(0, 0, 0, 0.04));
   border: 1px solid var(--border-default, #e2e8f0);
   border-radius: 6px;
-  font-size: 0.875rem;
   font-family: inherit;
+  font-size: 0.875rem;
   color: var(--text-primary);
+  cursor: pointer;
   transition: all 0.2s ease;
 }
-.llm-select-wrap:hover .llm-select:not(:disabled) {
-  color: var(--text-primary);
+.llm-selector .branch-btn:hover {
+  background: var(--surface-tertiary, rgba(0, 0, 0, 0.06));
+  border-color: var(--border-hover, #cbd5e1);
 }
-.llm-icon {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-  color: var(--text-secondary, #64748b);
-}
-.llm-select {
-  -webkit-appearance: none;
-  -moz-appearance: none;
-  appearance: none;
-  flex: 1;
-  min-width: 88px;
-  height: 22px;
-  line-height: 22px;
-  font-size: 0.875rem;
-  font-weight: 500;
-  font-family: inherit;
-  color: var(--text-primary);
-  background: transparent;
-  border: none;
-  padding: 0;
-  margin: 0;
-  cursor: pointer;
-}
-.llm-select:focus {
-  outline: none;
-}
-.llm-select:disabled {
+.llm-selector .branch-btn:disabled {
   opacity: 0.7;
   cursor: not-allowed;
 }
-/* Windows: prevent native select styling from leaking */
-.llm-select option {
-  background: var(--surface-card, #fff);
-  color: var(--text-primary, #0f172a);
+.llm-selector .branch-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
 }
-.llm-dropdown-arrow {
+.llm-selector .branch-btn .dropdown-arrow {
   width: 14px;
   height: 14px;
-  flex-shrink: 0;
   color: var(--text-muted, #94a3b8);
 }
-.llm-select-spinner {
+.llm-selector .branch-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 0.5rem;
+  min-width: 200px;
+  background: var(--surface-card, #fff);
+  border: 1px solid var(--border-default, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+  z-index: 100;
+  overflow: hidden;
+}
+.llm-selector .dropdown-header {
+  padding: 0.5rem 0.75rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-secondary, #64748b);
+  border-bottom: 1px solid var(--border-light, #e2e8f0);
+}
+.llm-selector .branch-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+.llm-selector .branch-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  background: transparent;
+  border: none;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.llm-selector .branch-item:hover {
+  background: var(--surface-hover, rgba(0, 0, 0, 0.04));
+}
+.llm-selector .branch-item.active {
+  font-weight: 500;
+}
+.llm-selector .branch-item svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--brand-primary, #6366f1);
+}
+.llm-selector .branch-btn .llm-select-spinner {
   width: 12px;
   height: 12px;
   flex-shrink: 0;
@@ -785,6 +808,29 @@
 }
 
 /* Empty State */
+/* Filter empty – compact inline (no scroll) */
+.filter-empty-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.filter-empty-message .filter-empty-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.filter-empty-message p {
+  margin: 0;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;

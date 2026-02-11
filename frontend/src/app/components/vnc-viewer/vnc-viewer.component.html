@@ -213,15 +213,26 @@
           </div>
         }
 
-        <!-- Loading State (show while connecting, before iframe loads) -->
-        @if (isConnecting() && !hasIframeUrl()) {
+        <!-- Loading State (show while connecting - covers vnc-section until ready) -->
+        @if (isConnecting()) {
           <div class="loading-overlay">
-            <div class="loader">
-              <div class="loader-ring"></div>
-              <div class="loader-ring"></div>
-              <div class="loader-ring"></div>
+            <div class="loading-card">
+              <div class="loading-card-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <path d="M8 21h8"/>
+                  <path d="M12 17v4"/>
+                </svg>
+              </div>
+              <h3 class="loading-card-title">Initializing sandbox</h3>
+              <p class="loading-card-subtitle">Preparing your environment and AI assistant...</p>
+              <div class="loader">
+                <div class="loader-ring"></div>
+                <div class="loader-ring"></div>
+                <div class="loader-ring"></div>
+              </div>
+              <p class="loading-card-hint">This usually takes a few seconds</p>
             </div>
-            <p>Connecting to remote desktop...</p>
           </div>
         }
 
@@ -234,7 +245,8 @@
           width="100%"
           height="100%"
           style="border: none;"
-          (load)="onIframeLoad()">
+          (load)="onIframeLoad()"
+          (error)="onIframeError()">
         </iframe>
       </div>
 

@@ -4,35 +4,6 @@
       <h1 class="page-title">Repositories</h1>
       <p class="page-subtitle">Manage and analyze your repositories from GitHub and Azure DevOps</p>
     </div>
-    <div class="header-actions">
-      <div class="view-toggle">
-        <button
-          class="view-btn"
-          [class.active]="viewMode() === 'cards'"
-          (click)="viewMode.set('cards')"
-          title="Card View"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="7" height="7"/>
-            <rect x="14" y="3" width="7" height="7"/>
-            <rect x="14" y="14" width="7" height="7"/>
-            <rect x="3" y="14" width="7" height="7"/>
-          </svg>
-        </button>
-        <button
-          class="view-btn"
-          [class.active]="viewMode() === 'grid'"
-          (click)="viewMode.set('grid')"
-          title="Grid View"
-        >
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <line x1="3" y1="3" x2="21" y2="3"/>
-            <line x1="3" y1="12" x2="21" y2="12"/>
-            <line x1="3" y1="21" x2="21" y2="21"/>
-          </svg>
-        </button>
-      </div>
-    </div>
   </div>
 
   <!-- Success Message -->
@@ -156,8 +127,8 @@
     </div>
   </app-card>
 
-  <!-- Search & Filters (fixed, only shown when repos exist) -->
-  @if (!loading() && !error() && repositories().length > 0) {
+  <!-- Search & Filters (shown when repos exist or user has applied filter, so they can adjust) -->
+  @if (!loading() && !error() && (repositories().length > 0 || searchQuery() || visibilityFilter() !== 'all')) {
     <div class="search-section">
       <div class="search-input-wrapper">
         <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -266,17 +237,28 @@
   }
 
   @if (!loading() && !error()) {
-    @if (repositories().length === 0) {
-      <app-card padding="lg" class="empty-state">
-        <svg class="empty-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-          <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+    @if (repositories().length === 0 && !searchQuery() && visibilityFilter() === 'all') {
+      <!-- No repos at all – centered, compact, no card -->
+      <div class="empty-message">
+        <div class="empty-message-icon-wrap">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="empty-message-icon">
+            <path d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+          </svg>
+        </div>
+        <h3 class="empty-message-title">No repositories yet</h3>
+        <p class="empty-message-desc">Sync your GitHub repositories to get started with AI-powered analysis</p>
+      </div>
+    } @else if (filteredRepositories().length === 0) {
+      <!-- Has data but filter yields 0 – compact inline, no card -->
+      <div class="filter-empty-message">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="filter-empty-icon">
+          <circle cx="11" cy="11" r="8"/>
+          <path d="M21 21l-4.35-4.35"/>
         </svg>
-        <h3 class="empty-title">No repositories yet</h3>
-        <p class="empty-description">Sync your GitHub repositories to get started with AI-powered analysis</p>
-      </app-card>
+        <p>No items found with filters. Try adjusting your search or provider filter.</p>
+      </div>
     } @else {
-      @if (viewMode() === 'cards') {
-          @for (group of repositoriesByProject(); track group.project) {
+      @for (group of repositoriesByProject(); track group.project) {
             <div class="project-section">
               <div class="project-section-header">
                 <h3 class="project-section-title">{{ getProjectDisplayName(group.project) }}</h3>
@@ -409,20 +391,6 @@
           @if (!loading() && !loadingMore() && hasMore() && repositories().length > 0) {
             <div class="load-more-trigger" (click)="loadMore()">Load more</div>
           }
-      } @else {
-        <!-- Grid View -->
-        <app-data-grid
-          [columns]="gridColumns"
-          [data]="filteredRepositories()"
-          [enableFiltering]="true"
-          [enableSorting]="true"
-          [enableGrouping]="true"
-          [enableColumnResize]="true"
-          [height]="'calc(100vh - 360px)'"
-          (rowClick)="onGridRowClick($event)"
-          (rowDoubleClick)="onGridRowDoubleClick($event)"
-        ></app-data-grid>
-      }
     }
   }
   </div>

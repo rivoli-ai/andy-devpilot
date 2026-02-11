@@ -119,8 +119,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
   // Sandbox state
   creatingSandboxForStory = signal<string | null>(null);
 
-  // LLM selector (repo override)
+  // LLM selector (repo override, same UI as branch dropdown)
   repoLlmUpdating = signal<boolean>(false);
+  showLlmDropdown = signal<boolean>(false);
   openSandboxStoryIds = signal<string[]>([]);
 
   // Computed stats (exclude Standalone epic from count – it's not shown as an epic row)
@@ -292,6 +293,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.standaloneFeaturesForTree().length > 0 ||
     this.standaloneStoriesForTree().length > 0
   );
+
+  /** True when backlog has any raw data (before filtering). Keeps stats bar + filters visible when filter yields 0 items. */
+  hasRawBacklogItems = computed(() => this.epics().length > 0);
 
   // Standalone epic (used for deleteFeature parent - never displayed)
   standaloneEpic = computed(() =>
@@ -539,6 +543,23 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   getLlmSettings() {
     return this.aiConfigService.llmSettings();
+  }
+
+  currentLlmLabel(): string {
+    const repo = this.repository();
+    const settingId = repo?.llmSettingId;
+    if (!settingId) return 'Default';
+    const llm = this.aiConfigService.llmSettings().find(s => s.id === settingId);
+    return llm?.name || llm?.model || 'Default';
+  }
+
+  toggleLlmDropdown(): void {
+    this.showLlmDropdown.update(v => !v);
+  }
+
+  selectLlmOption(llmSettingId: string | null): void {
+    this.showLlmDropdown.set(false);
+    this.onRepoLlmChange(llmSettingId);
   }
 
   onRepoLlmChange(llmSettingId: string | null): void {

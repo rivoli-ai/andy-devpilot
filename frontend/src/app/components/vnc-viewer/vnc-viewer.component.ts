@@ -30,6 +30,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   config = input.required<VncConfig>();
   viewerId = input<string>('');
   initialDockPosition = input<DockPosition>('floating');
+  initialConnectionState = input<string | undefined>(undefined); // From service when viewer moves floating↔minimized
   viewerTitle = input<string>('Sandbox');
   viewerIndex = input<number>(0); // Index for positioning multiple minimized widgets
   embedded = input<boolean>(false); // When true, renders without container/header (for dock panel)
@@ -76,8 +77,18 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   private resizeStartX = 0;
   private resizeStartY = 0;
 
-  // Connection timeout
+  // Connection timeout and retry (sandbox may take a few seconds to be ready)
   private connectionTimeout: any = null;
+  private connectionRetryTimeout: any = null;
+  private connectionRetryCount = 0;
+  private static readonly CONNECTION_ESTABLISHED_MS = 15000; // Stay "Connecting" up to 15s before optimistic Connected
+  private static readonly RETRY_DELAY_MS = 3000;           // Wait 3s before retry after error
+  private static readonly MAX_CONNECTION_RETRIES = 4;     // Retry up to 4 times before showing error
+
+  // Wait for bridge (AI conversations) before loading iframe when bridgePort is set
+  private bridgeWaitIntervalId: ReturnType<typeof setInterval> | null = null;
+  private static readonly BRIDGE_POLL_INTERVAL_MS = 1500;  // Poll bridge health every 1.5s
+  private static readonly BRIDGE_MAX_WAIT_MS = 25000;      // Stop waiting after 25s and load iframe anyway
 
   // Conversations state
   conversations = signal<ZedConversation[]>([]);
@@ -181,14 +192,23 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     private repositoryService: RepositoryService,
     private backlogService: BacklogService
   ) {
-    // Update config when input changes
+    // Update config when input changes. When bridgePort is set, wait for bridge health before loading iframe.
     effect(() => {
       const inputConfig = this.config();
       if (inputConfig) {
         const mergedConfig = { ...DEFAULT_VNC_CONFIG, ...inputConfig };
         this.internalConfig.set(mergedConfig);
-        if (mergedConfig.url) {
-          this.setupIframeUrl();
+        if (mergedConfig.url && mergedConfig.url.trim() !== '') {
+          const port = this.bridgePort();
+          if (port) {
+            if (this.bridgeWaitIntervalId) {
+              clearInterval(this.bridgeWaitIntervalId);
+              this.bridgeWaitIntervalId = null;
+            }
+            this.waitForBridgeThenSetupIframe(port);
+          } else {
+            this.setupIframeUrl();
+          }
         }
       }
     }, { allowSignalWrites: true });
@@ -205,6 +225,23 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       };
       this.connectionStateText.set(stateTexts[state] || 'Disconnected');
     }, { allowSignalWrites: true });
+
+    // Initialize from service when viewer moves floating↔minimized (new component instance, same viewer)
+    effect(() => {
+      const init = this.initialConnectionState();
+      if (init === 'connected') {
+        this.connectionState.set(VncConnectionState.Connected);
+      }
+    }, { allowSignalWrites: true });
+
+    // Sync connection state back to service so it persists when viewer moves floating↔minimized
+    effect(() => {
+      const id = this.viewerId();
+      const state = this.connectionState();
+      if (id && state) {
+        this.vncViewerService.setConnectionState(id, state);
+      }
+    });
   }
 
   /**
@@ -223,6 +260,45 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * When opening sandbox with AI conversations (bridgePort set), wait for the bridge to respond
+   * to /health before loading the VNC iframe. This avoids "unable to connect" when the bridge
+   * starts a few seconds after the sandbox.
+   */
+  private waitForBridgeThenSetupIframe(bridgePort: number): void {
+    const start = Date.now();
+    const maxWait = VncViewerComponent.BRIDGE_MAX_WAIT_MS;
+    const pollMs = VncViewerComponent.BRIDGE_POLL_INTERVAL_MS;
+
+    const tryHealth = () => {
+      if (Date.now() - start >= maxWait) {
+        if (this.bridgeWaitIntervalId) {
+          clearInterval(this.bridgeWaitIntervalId);
+          this.bridgeWaitIntervalId = null;
+        }
+        console.log('Bridge wait timeout, loading VNC iframe anyway');
+        this.setupIframeUrl();
+        return;
+      }
+      this.sandboxBridgeService.health(bridgePort).subscribe({
+        next: (res) => {
+          if (res.status !== 'error') {
+            if (this.bridgeWaitIntervalId) {
+              clearInterval(this.bridgeWaitIntervalId);
+              this.bridgeWaitIntervalId = null;
+            }
+            console.log('Bridge ready, loading VNC iframe');
+            this.setupIframeUrl();
+          }
+        },
+        error: () => { /* next poll */ }
+      });
+    };
+
+    tryHealth();
+    this.bridgeWaitIntervalId = setInterval(tryHealth, pollMs);
+  }
+
   ngOnInit(): void {
     // Set initial dock position from input
     const initialPos = this.initialDockPosition();
@@ -238,13 +314,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     // Listen for fullscreen changes
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
 
-    // Setup iframe URL
-    setTimeout(() => {
-      const config = this.internalConfig();
-      if (config.url && config.url.trim() !== '') {
-        this.setupIframeUrl();
-      }
-    }, 100);
+    // Iframe URL is set by the effect when config (and optional bridgePort) is available
 
     // Start conversation polling if bridge port is provided
     this.startConversationPolling();
@@ -470,21 +540,31 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     this.error.set(null);
     this.vncIframeUrlRaw.set(finalUrl);
 
-    // Auto-refresh after 2 seconds to ensure connection
+    this.connectionRetryCount = 0;
+
+    // Auto-refresh after 2s and 6s to give sandbox time to become ready
     setTimeout(() => {
       if (this.connectionState() === VncConnectionState.Connecting) {
-        console.log('Auto-refreshing iframe for better connection...');
+        console.log('Auto-refreshing iframe (2s)...');
         this.refreshIframe();
       }
     }, 2000);
+    setTimeout(() => {
+      if (this.connectionState() === VncConnectionState.Connecting) {
+        console.log('Auto-refreshing iframe (6s)...');
+        this.refreshIframe();
+      }
+    }, 6000);
 
-    // Mark as connected after total 4 seconds
+    // Mark as connected after timeout. When minimized, iframe isn't rendered so onIframeLoad never fires –
+    // use a shorter delay since we can't rely on iframe load.
+    const delayMs = this.dockPosition() === 'minimized' ? 2000 : VncViewerComponent.CONNECTION_ESTABLISHED_MS;
     this.connectionTimeout = setTimeout(() => {
       if (this.connectionState() === VncConnectionState.Connecting) {
         console.log('VNC connection established');
         this.connectionState.set(VncConnectionState.Connected);
       }
-    }, 4000);
+    }, delayMs);
   }
 
   // Connection methods
@@ -494,7 +574,19 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       this.error.set('VNC server URL is required');
       return;
     }
-    this.setupIframeUrl();
+    this.error.set(null);
+    this.connectionState.set(VncConnectionState.Connecting);
+    const port = this.bridgePort();
+    if (port) {
+      this.vncIframeUrlRaw.set(''); // show loading overlay while waiting for bridge
+      if (this.bridgeWaitIntervalId) {
+        clearInterval(this.bridgeWaitIntervalId);
+        this.bridgeWaitIntervalId = null;
+      }
+      this.waitForBridgeThenSetupIframe(port);
+    } else {
+      this.setupIframeUrl();
+    }
   }
 
   disconnect(): void {
@@ -502,6 +594,15 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       clearTimeout(this.connectionTimeout);
       this.connectionTimeout = null;
     }
+    if (this.connectionRetryTimeout) {
+      clearTimeout(this.connectionRetryTimeout);
+      this.connectionRetryTimeout = null;
+    }
+    if (this.bridgeWaitIntervalId) {
+      clearInterval(this.bridgeWaitIntervalId);
+      this.bridgeWaitIntervalId = null;
+    }
+    this.connectionRetryCount = 0;
     this.vncIframeUrlRaw.set('');
     this.connectionState.set(VncConnectionState.Disconnected);
   }
@@ -734,8 +835,19 @@ export class VncViewerComponent implements OnInit, OnDestroy {
 
   // Iframe events
   onIframeLoad(): void {
+    // Ignore load events from about:blank or when we're still waiting for the bridge
+    const currentUrl = this.vncIframeUrlRaw();
+    if (!currentUrl || currentUrl.trim() === '' || this.bridgeWaitIntervalId) {
+      console.log('VNC iframe loaded (about:blank or bridge not ready yet, ignoring)');
+      return;
+    }
+
     console.log('VNC iframe loaded');
-    // Clear the connection timeout since we got a proper load event
+    this.connectionRetryCount = 0;
+    if (this.connectionRetryTimeout) {
+      clearTimeout(this.connectionRetryTimeout);
+      this.connectionRetryTimeout = null;
+    }
     if (this.connectionTimeout) {
       clearTimeout(this.connectionTimeout);
       this.connectionTimeout = null;
@@ -745,9 +857,29 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   }
 
   onIframeError(): void {
-    console.error('VNC iframe failed to load');
-    this.connectionState.set(VncConnectionState.Error);
-    this.error.set('Failed to load VNC viewer. Check your VPS connection.');
+    this.connectionRetryCount += 1;
+    console.warn('VNC iframe load error, retry', this.connectionRetryCount, 'of', VncViewerComponent.MAX_CONNECTION_RETRIES);
+
+    if (this.connectionRetryCount < VncViewerComponent.MAX_CONNECTION_RETRIES) {
+      // Sandbox may still be starting; retry after a delay
+      this.connectionState.set(VncConnectionState.Connecting);
+      this.error.set(null);
+      this.connectionRetryTimeout = setTimeout(() => {
+        this.connectionRetryTimeout = null;
+        if (this.connectionState() === VncConnectionState.Connecting && this.vncIframeUrlRaw()) {
+          console.log('Retrying VNC connection...');
+          this.refreshIframe();
+        }
+      }, VncViewerComponent.RETRY_DELAY_MS);
+    } else {
+      console.error('VNC iframe failed after retries');
+      if (this.connectionRetryTimeout) {
+        clearTimeout(this.connectionRetryTimeout);
+        this.connectionRetryTimeout = null;
+      }
+      this.connectionState.set(VncConnectionState.Error);
+      this.error.set('Failed to load VNC viewer after retries. Check your VPS connection or try "Connect" again.');
+    }
   }
 
   // Keyboard shortcuts

@@ -77,8 +77,9 @@ export class CodeComponent implements OnInit, OnDestroy {
   fileAnalysisError = signal<string | null>(null);
   showFileExplanation = signal<boolean>(false);
 
-  // LLM selector (repo override)
+  // LLM selector (repo override, same UI as branch dropdown)
   repoLlmUpdating = signal<boolean>(false);
+  showLlmDropdown = signal<boolean>(false);
 
   // Subscriptions for cleanup
   private analysisSubscription?: Subscription;
@@ -166,6 +167,23 @@ export class CodeComponent implements OnInit, OnDestroy {
 
   getLlmSettings() {
     return this.aiConfigService.llmSettings();
+  }
+
+  currentLlmLabel(): string {
+    const repo = this.repository();
+    const settingId = repo?.llmSettingId;
+    if (!settingId) return 'Default';
+    const llm = this.aiConfigService.llmSettings().find(s => s.id === settingId);
+    return llm?.name || llm?.model || 'Default';
+  }
+
+  toggleLlmDropdown(): void {
+    this.showLlmDropdown.update(v => !v);
+  }
+
+  selectLlmOption(llmSettingId: string | null): void {
+    this.showLlmDropdown.set(false);
+    this.onRepoLlmChange(llmSettingId);
   }
 
   onRepoLlmChange(llmSettingId: string | null): void {
