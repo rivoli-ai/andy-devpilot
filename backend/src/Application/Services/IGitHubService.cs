@@ -81,6 +81,14 @@ public interface IGitHubService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Gets issues and milestones from a public GitHub repository (no token required).
+    /// </summary>
+    System.Threading.Tasks.Task<GitHubIssuesHierarchyDto> GetIssuesPublicAsync(
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Gets the repository file tree (directory contents)
     /// </summary>
     System.Threading.Tasks.Task<RepositoryTreeDto> GetRepositoryTreeAsync(

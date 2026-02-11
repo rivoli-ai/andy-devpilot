@@ -345,6 +345,57 @@ public class GitHubService : IGitHubService
         }
     }
 
+    public async System.Threading.Tasks.Task<GitHubIssuesHierarchyDto> GetIssuesPublicAsync(
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClientAnonymous();
+        var result = new GitHubIssuesHierarchyDto();
+        var milestonesRequest = new MilestoneRequest { State = ItemStateFilter.All, SortProperty = MilestoneSort.DueDate, SortDirection = SortDirection.Ascending };
+        var milestones = await client.Issue.Milestone.GetAllForRepository(owner, repo, milestonesRequest);
+        foreach (var milestone in milestones)
+        {
+            result.Milestones.Add(new GitHubMilestoneDto
+            {
+                Number = milestone.Number,
+                Title = milestone.Title ?? $"Milestone {milestone.Number}",
+                Description = milestone.Description,
+                State = milestone.State.StringValue,
+                OpenIssues = milestone.OpenIssues,
+                ClosedIssues = milestone.ClosedIssues,
+                DueOn = milestone.DueOn?.DateTime,
+                CreatedAt = milestone.CreatedAt.DateTime,
+                Url = milestone.HtmlUrl
+            });
+        }
+        var issuesRequest = new RepositoryIssueRequest { State = ItemStateFilter.All, SortProperty = IssueSort.Created, SortDirection = SortDirection.Descending };
+        var issues = await client.Issue.GetAllForRepository(owner, repo, issuesRequest);
+        foreach (var issue in issues)
+        {
+            if (issue.PullRequest != null) continue;
+            var issueDto = new GitHubIssueDto
+            {
+                Number = issue.Number,
+                Title = issue.Title ?? $"Issue #{issue.Number}",
+                Body = issue.Body,
+                State = issue.State.StringValue,
+                Assignee = issue.Assignee?.Login,
+                Labels = issue.Labels?.Select(l => l.Name).ToList() ?? new List<string>(),
+                MilestoneNumber = issue.Milestone?.Number,
+                MilestoneTitle = issue.Milestone?.Title,
+                Url = issue.HtmlUrl ?? $"https://github.com/{owner}/{repo}/issues/{issue.Number}",
+                CreatedAt = issue.CreatedAt.DateTime,
+                UpdatedAt = issue.UpdatedAt?.DateTime,
+                ClosedAt = issue.ClosedAt?.DateTime,
+                IsPullRequest = false
+            };
+            result.Issues.Add(issueDto);
+            if (issue.Milestone == null) result.UnassignedIssues.Add(issueDto);
+        }
+        return result;
+    }
+
     private GitHubRepositoryDto MapToDto(Octokit.Repository repository)
     {
         // Extract organization name from full name (format: "org/repo")

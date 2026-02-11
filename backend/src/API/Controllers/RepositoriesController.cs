@@ -1193,33 +1193,39 @@ public class RepositoriesController : ControllerBase
 
         try
         {
-            // Get GitHub access token from linked provider or legacy field
             var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(
                 userId, ProviderTypes.GitHub, cancellationToken);
-
             string? accessToken = linkedProvider?.AccessToken;
-
-            // Fallback to legacy GitHubAccessToken field
             if (string.IsNullOrEmpty(accessToken))
             {
                 var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
                 accessToken = user?.GitHubAccessToken;
             }
 
-            if (string.IsNullOrEmpty(accessToken))
+            if (!string.IsNullOrEmpty(accessToken))
             {
-                return BadRequest(new { 
-                    message = "GitHub is not linked. Please link your GitHub account first."
-                });
+                var issues = await _gitHubService.GetIssuesAsync(
+                    accessToken,
+                    request.Owner,
+                    request.Repo,
+                    cancellationToken);
+                return Ok(issues);
             }
 
-            var issues = await _gitHubService.GetIssuesAsync(
-                accessToken,
+            // No GitHub connected: fetch issues for public repos via unauthenticated API
+            var issuesPublic = await _gitHubService.GetIssuesPublicAsync(
                 request.Owner,
                 request.Repo,
                 cancellationToken);
-
-            return Ok(issues);
+            return Ok(issuesPublic);
+        }
+        catch (Octokit.NotFoundException)
+        {
+            return BadRequest(new { message = "Repository not found or is private. Connect GitHub to import issues from private repos." });
+        }
+        catch (Octokit.ForbiddenException)
+        {
+            return BadRequest(new { message = "Repository may be private or access was denied. Connect GitHub to import." });
         }
         catch (Exception ex)
         {
