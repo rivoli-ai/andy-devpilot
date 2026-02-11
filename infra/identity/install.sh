@@ -187,6 +187,18 @@ for f in certs/localhost.crt certs/localhost.key certs/localhost.pfx; do
   echo "    $f ✓"
 done
 
+# ── Enable QEMU emulation for cross-arch images (needed on ARM WSL for amd64) ─
+ARCH=$(uname -m)
+if [[ "$ARCH" != "x86_64" && "$ARCH" != "amd64" ]]; then
+  echo ""
+  echo "==> Detected architecture: $ARCH (non-amd64)"
+  echo "    Enabling QEMU emulation for amd64 containers..."
+  docker run --privileged --rm tonistiigi/binfmt --install amd64 2>/dev/null || {
+    echo "    WARNING: Could not install QEMU binfmt. amd64 containers may fail."
+    echo "    You can install it manually: docker run --privileged --rm tonistiigi/binfmt --install all"
+  }
+fi
+
 # ── Stop any existing containers ─────────────────────────────────────────────
 echo ""
 echo "==> Starting containers..."
