@@ -2649,7 +2649,7 @@ if [ -n "$REPO_ARCHIVE_URL" ] && [ ! -d "$WORK_DIR/$REPO_NAME" ] && [ ! -d "/hom
     echo "REPO_ARCHIVE_URL: $REPO_ARCHIVE_URL" >> /tmp/sandbox-debug.log
     echo "Downloading repository from archive: $REPO_ARCHIVE_URL"
     cd /home/sandbox/projects
-    if curl -sSfL -o repo.zip "$REPO_ARCHIVE_URL" 2>>/tmp/sandbox-debug.log; then
+    if curl -sSfL -H "User-Agent: DevPilot" -o repo.zip "$REPO_ARCHIVE_URL" 2>>/tmp/sandbox-debug.log; then
         unzip -o -q repo.zip 2>>/tmp/sandbox-debug.log
         TOPDIR=$(ls -d */ 2>/dev/null | head -1)
         if [ -n "$TOPDIR" ]; then
