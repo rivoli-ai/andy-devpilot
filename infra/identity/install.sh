@@ -433,10 +433,19 @@ else
   echo "    amd64 native — no emulation needed ✓"
 fi
 
-# ── Stop any existing containers ─────────────────────────────────────────────
+# ── Clean up old containers, images, and volumes ─────────────────────────────
 echo ""
-echo "==> Starting containers..."
+echo "==> Cleaning up previous installation..."
 docker compose down --remove-orphans -v 2>/dev/null || true
+docker rmi aguacongas/theidserver.duende:6.0.0 2>/dev/null || true
+docker rmi redis:7 2>/dev/null || true
+docker volume rm identity_duende-data 2>/dev/null || true
+echo "    Old containers, images, and volumes removed ✓"
+
+# ── Start containers (fresh pull) ────────────────────────────────────────────
+echo ""
+echo "==> Pulling and starting containers..."
+docker compose pull
 docker compose up -d
 
 # ── Wait for health ──────────────────────────────────────────────────────────
