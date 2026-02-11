@@ -113,29 +113,28 @@ log_info "Creating desktop image..."
 mkdir -p desktop
 
 # ── Custom certificates ──────────────────────────────────────────────────
-# Certs are read from (1) infra/sandbox/certs and (2) infra/identity/certs.
-# Place .crt/.pem/.cer files in either folder; all are copied into the image.
+# Users place .crt/.pem files in infra/sandbox/certs only.
 SCRIPT_SOURCE_DIR="${SCRIPT_SOURCE_DIR:-$PROJECT_DIR}"
+CERTS_SOURCE="${SCRIPT_SOURCE_DIR}/certs"
 CERTS_BUILD="desktop/certs"
 mkdir -p "$CERTS_BUILD"
 
 CERT_COUNT=0
-for CERTS_SOURCE in "${SCRIPT_SOURCE_DIR}/certs" "${SCRIPT_SOURCE_DIR}/../identity/certs"; do
-    [ -d "$CERTS_SOURCE" ] || continue
+if [ -d "$CERTS_SOURCE" ]; then
     for f in "$CERTS_SOURCE"/*.crt "$CERTS_SOURCE"/*.pem "$CERTS_SOURCE"/*.cer; do
         [ -f "$f" ] || continue
         cp "$f" "$CERTS_BUILD/"
         CERT_COUNT=$((CERT_COUNT + 1))
-        log_info "  Found custom certificate: $(basename "$f") (from $CERTS_SOURCE)"
+        log_info "  Found custom certificate: $(basename "$f")"
     done
-done
+fi
 
 if [ "$CERT_COUNT" -gt 0 ]; then
-    log_info "Loaded $CERT_COUNT custom certificate(s)"
+    log_info "Loaded $CERT_COUNT custom certificate(s) from $CERTS_SOURCE"
 else
-    log_warn "No custom certificates found in ${SCRIPT_SOURCE_DIR}/certs or ${SCRIPT_SOURCE_DIR}/../identity/certs"
+    log_warn "No custom certificates found in $CERTS_SOURCE"
     log_warn "If you're behind a corporate proxy (Zscaler, etc.), place your"
-    log_warn "root CA .crt files in infra/sandbox/certs/ or infra/identity/certs/"
+    log_warn "root CA .crt files in: $CERTS_SOURCE/"
     log_warn "Then re-run this script."
     # Create an empty placeholder so COPY doesn't fail
     touch "$CERTS_BUILD/.keep"
