@@ -245,6 +245,16 @@ REDIS_PORT=6379
 EOF
 echo "    .env ✓"
 
+# ── Clean up stale Docker-created directories ────────────────────────────────
+# Docker creates directories when mounting files that don't exist yet.
+# Remove any leftover dirs so we can generate the actual files.
+for stale in blazor-appsettings.json docker-compose.yml init.sh; do
+  if [ -d "$stale" ]; then
+    rm -rf "$stale"
+    echo "    Removed stale directory: $stale"
+  fi
+done
+
 # ── Generate blazor-appsettings.json ─────────────────────────────────────────
 echo ""
 echo "==> Generating blazor-appsettings.json for port ${IDS_PORT}..."
