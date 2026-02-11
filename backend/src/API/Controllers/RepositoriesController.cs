@@ -1223,9 +1223,15 @@ public class RepositoriesController : ControllerBase
         {
             return BadRequest(new { message = "Repository not found or is private. Connect GitHub to import issues from private repos." });
         }
-        catch (Octokit.ForbiddenException)
+        catch (Octokit.ForbiddenException ex)
         {
-            return BadRequest(new { message = "Repository may be private or access was denied. Connect GitHub to import." });
+            _logger.LogWarning(ex, "Forbidden when fetching issues for {Owner}/{Repo}", request.Owner, request.Repo);
+            return BadRequest(new { message = $"GitHub API access denied (may be rate-limited or blocked by proxy): {ex.Message}" });
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogError(ex, "Network error fetching issues for {Owner}/{Repo}", request.Owner, request.Repo);
+            return BadRequest(new { message = $"Network error reaching GitHub API (enterprise proxy/SSL issue?): {ex.Message}" });
         }
         catch (Exception ex)
         {
