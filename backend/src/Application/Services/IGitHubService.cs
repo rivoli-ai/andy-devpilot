@@ -33,6 +33,15 @@ public interface IGitHubService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Fetches a public repository by owner and repo name (no token required).
+    /// Fails for private repos. Use for "add repo manually" without GitHub connected.
+    /// </summary>
+    System.Threading.Tasks.Task<GitHubRepositoryDto?> GetRepositoryPublicAsync(
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Creates a pull request
     /// </summary>
     System.Threading.Tasks.Task<GitHubPullRequestDto> CreatePullRequestAsync(
@@ -98,6 +107,34 @@ public interface IGitHubService
     /// </summary>
     System.Threading.Tasks.Task<IEnumerable<RepositoryBranchDto>> GetBranchesAsync(
         string accessToken,
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the repository file tree for a public repo (no token required).
+    /// </summary>
+    System.Threading.Tasks.Task<RepositoryTreeDto> GetRepositoryTreePublicAsync(
+        string owner,
+        string repo,
+        string? path = null,
+        string? branch = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets the content of a file in a public repo (no token required).
+    /// </summary>
+    System.Threading.Tasks.Task<RepositoryFileContentDto> GetFileContentPublicAsync(
+        string owner,
+        string repo,
+        string path,
+        string? branch = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Gets branches for a public repo (no token required).
+    /// </summary>
+    System.Threading.Tasks.Task<IEnumerable<RepositoryBranchDto>> GetBranchesPublicAsync(
         string owner,
         string repo,
         CancellationToken cancellationToken = default);

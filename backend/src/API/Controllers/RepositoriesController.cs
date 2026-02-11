@@ -400,8 +400,8 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Add a GitHub repository manually by URL (e.g. https://github.com/owner/repo or owner/repo)
-    /// Requires GitHub to be connected. The user must have access to the repository.
+    /// Add a GitHub repository manually by URL (e.g. https://github.com/owner/repo or owner/repo).
+    /// Public repos can be added without connecting GitHub; private repos require a linked GitHub account.
     /// </summary>
     [HttpPost("add-github")]
     [Authorize]
@@ -431,15 +431,24 @@ public class RepositoriesController : ControllerBase
             var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
             accessToken = user?.GitHubAccessToken;
         }
-        if (string.IsNullOrWhiteSpace(accessToken))
-        {
-            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first." });
-        }
 
-        var gitHubRepo = await _gitHubService.GetRepositoryAsync(accessToken, owner, repo, cancellationToken);
-        if (gitHubRepo == null)
+        GitHubRepositoryDto? gitHubRepo;
+        if (!string.IsNullOrWhiteSpace(accessToken))
         {
-            return NotFound(new { message = $"Repository {owner}/{repo} not found or you don't have access to it" });
+            gitHubRepo = await _gitHubService.GetRepositoryAsync(accessToken, owner, repo, cancellationToken);
+            if (gitHubRepo == null)
+            {
+                return NotFound(new { message = $"Repository {owner}/{repo} not found or you don't have access to it" });
+            }
+        }
+        else
+        {
+            // No GitHub connected: allow adding public repos only via unauthenticated API
+            gitHubRepo = await _gitHubService.GetRepositoryPublicAsync(owner, repo, cancellationToken);
+            if (gitHubRepo == null)
+            {
+                return BadRequest(new { message = "Repository not found or is private. Public repos can be added without connecting GitHub; connect GitHub to add private repos." });
+            }
         }
 
         var existingRepo = await _repositoryRepository.GetByFullNameProviderAndUserIdAsync(gitHubRepo.FullName, "GitHub", userId, cancellationToken);
@@ -1586,20 +1595,31 @@ public class RepositoriesController : ControllerBase
 
     private async Task<IActionResult> GetGitHubTree(Guid userId, Repository repository, string? path, string? branch, CancellationToken cancellationToken)
     {
-        var accessToken = await GetGitHubAccessToken(userId, cancellationToken);
-        if (string.IsNullOrEmpty(accessToken))
-        {
-            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first." });
-        }
-
         var parts = repository.FullName.Split('/');
         if (parts.Length != 2)
         {
             return BadRequest("Invalid repository full name");
         }
 
-        var tree = await _gitHubService.GetRepositoryTreeAsync(accessToken, parts[0], parts[1], path, branch, cancellationToken);
-        return Ok(tree);
+        var accessToken = await GetGitHubAccessToken(userId, cancellationToken);
+        try
+        {
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                var tree = await _gitHubService.GetRepositoryTreeAsync(accessToken, parts[0], parts[1], path, branch, cancellationToken);
+                return Ok(tree);
+            }
+            var treePublic = await _gitHubService.GetRepositoryTreePublicAsync(parts[0], parts[1], path, branch, cancellationToken);
+            return Ok(treePublic);
+        }
+        catch (Octokit.NotFoundException)
+        {
+            return BadRequest(new { message = "Repository not found or is private. Connect GitHub to browse private repos." });
+        }
+        catch (Octokit.ForbiddenException)
+        {
+            return BadRequest(new { message = "Repository may be private or access was denied. Connect GitHub to browse." });
+        }
     }
 
     private async Task<IActionResult> GetAzureDevOpsTree(Guid userId, Repository repository, string? path, string? branch, CancellationToken cancellationToken)
@@ -1623,20 +1643,31 @@ public class RepositoriesController : ControllerBase
 
     private async Task<IActionResult> GetGitHubFileContent(Guid userId, Repository repository, string path, string? branch, CancellationToken cancellationToken)
     {
-        var accessToken = await GetGitHubAccessToken(userId, cancellationToken);
-        if (string.IsNullOrEmpty(accessToken))
-        {
-            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first." });
-        }
-
         var parts = repository.FullName.Split('/');
         if (parts.Length != 2)
         {
             return BadRequest("Invalid repository full name");
         }
 
-        var content = await _gitHubService.GetFileContentAsync(accessToken, parts[0], parts[1], path, branch, cancellationToken);
-        return Ok(content);
+        var accessToken = await GetGitHubAccessToken(userId, cancellationToken);
+        try
+        {
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                var content = await _gitHubService.GetFileContentAsync(accessToken, parts[0], parts[1], path, branch, cancellationToken);
+                return Ok(content);
+            }
+            var contentPublic = await _gitHubService.GetFileContentPublicAsync(parts[0], parts[1], path, branch, cancellationToken);
+            return Ok(contentPublic);
+        }
+        catch (Octokit.NotFoundException)
+        {
+            return BadRequest(new { message = "File not found or repository is private. Connect GitHub to browse private repos." });
+        }
+        catch (Octokit.ForbiddenException)
+        {
+            return BadRequest(new { message = "Repository may be private or access was denied. Connect GitHub to browse." });
+        }
     }
 
     private async Task<IActionResult> GetAzureDevOpsFileContent(Guid userId, Repository repository, string path, string? branch, CancellationToken cancellationToken)
@@ -1660,20 +1691,31 @@ public class RepositoriesController : ControllerBase
 
     private async Task<IActionResult> GetGitHubBranches(Guid userId, Repository repository, CancellationToken cancellationToken)
     {
-        var accessToken = await GetGitHubAccessToken(userId, cancellationToken);
-        if (string.IsNullOrEmpty(accessToken))
-        {
-            return BadRequest(new { message = "GitHub is not connected. Please link your GitHub account first." });
-        }
-
         var parts = repository.FullName.Split('/');
         if (parts.Length != 2)
         {
             return BadRequest("Invalid repository full name");
         }
 
-        var branches = await _gitHubService.GetBranchesAsync(accessToken, parts[0], parts[1], cancellationToken);
-        return Ok(branches);
+        var accessToken = await GetGitHubAccessToken(userId, cancellationToken);
+        try
+        {
+            if (!string.IsNullOrEmpty(accessToken))
+            {
+                var branches = await _gitHubService.GetBranchesAsync(accessToken, parts[0], parts[1], cancellationToken);
+                return Ok(branches);
+            }
+            var branchesPublic = await _gitHubService.GetBranchesPublicAsync(parts[0], parts[1], cancellationToken);
+            return Ok(branchesPublic);
+        }
+        catch (Octokit.NotFoundException)
+        {
+            return BadRequest(new { message = "Repository not found or is private. Connect GitHub to browse private repos." });
+        }
+        catch (Octokit.ForbiddenException)
+        {
+            return BadRequest(new { message = "Repository may be private or access was denied. Connect GitHub to browse." });
+        }
     }
 
     private async Task<IActionResult> GetAzureDevOpsBranches(Guid userId, Repository repository, CancellationToken cancellationToken)

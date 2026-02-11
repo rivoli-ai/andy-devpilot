@@ -213,6 +213,41 @@ public class GitHubService : IGitHubService
         return client;
     }
 
+    /// <summary>
+    /// Create a client with no credentials for public API access (rate limit 60/hour).
+    /// </summary>
+    private static GitHubClient CreateGitHubClientAnonymous()
+    {
+        return new GitHubClient(new ProductHeaderValue("DevPilot"));
+    }
+
+    public async System.Threading.Tasks.Task<GitHubRepositoryDto?> GetRepositoryPublicAsync(
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClientAnonymous();
+        try
+        {
+            var repository = await client.Repository.Get(owner, repo);
+            if (repository.Private)
+            {
+                _logger.LogInformation("Repository {Owner}/{Repo} is private; token required", owner, repo);
+                return null;
+            }
+            return MapToDto(repository);
+        }
+        catch (Octokit.NotFoundException)
+        {
+            return null;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Error fetching public repository {Owner}/{Repo}", owner, repo);
+            throw;
+        }
+    }
+
     public async System.Threading.Tasks.Task<GitHubIssuesHierarchyDto> GetIssuesAsync(
         string accessToken,
         string owner,
@@ -513,6 +548,116 @@ public class GitHubService : IGitHubService
             _logger.LogError(ex, "Error fetching branches for {Owner}/{Repo}", owner, repo);
             throw;
         }
+    }
+
+    public async System.Threading.Tasks.Task<RepositoryTreeDto> GetRepositoryTreePublicAsync(
+        string owner,
+        string repo,
+        string? path = null,
+        string? branch = null,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClientAnonymous();
+        if (string.IsNullOrEmpty(branch))
+        {
+            var repository = await client.Repository.Get(owner, repo);
+            branch = repository.DefaultBranch ?? "main";
+        }
+        var result = new RepositoryTreeDto { Path = path ?? "", Branch = branch };
+        IReadOnlyList<RepositoryContent> contents;
+        if (string.IsNullOrEmpty(path))
+            contents = await client.Repository.Content.GetAllContentsByRef(owner, repo, branch);
+        else
+            contents = await client.Repository.Content.GetAllContentsByRef(owner, repo, path, branch);
+        var sortedContents = contents
+            .OrderBy(c => c.Type.Value == ContentType.Dir ? 0 : 1)
+            .ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase);
+        foreach (var content in sortedContents)
+        {
+            result.Items.Add(new RepositoryTreeItemDto
+            {
+                Name = content.Name,
+                Path = content.Path,
+                Type = content.Type.Value == ContentType.Dir ? "dir" :
+                       content.Type.Value == ContentType.File ? "file" :
+                       content.Type.Value == ContentType.Symlink ? "symlink" : "submodule",
+                Size = content.Size,
+                Sha = content.Sha,
+                Url = content.HtmlUrl
+            });
+            if (content.Type.Value == ContentType.File && content.Name.StartsWith("README", StringComparison.OrdinalIgnoreCase))
+            {
+                try
+                {
+                    var readmeContent = await client.Repository.Content.GetAllContentsByRef(owner, repo, content.Path, branch);
+                    if (readmeContent.Count > 0 && readmeContent[0].Content != null)
+                        result.Readme = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(readmeContent[0].Content));
+                }
+                catch { /* ignore */ }
+            }
+        }
+        return result;
+    }
+
+    public async System.Threading.Tasks.Task<RepositoryFileContentDto> GetFileContentPublicAsync(
+        string owner,
+        string repo,
+        string path,
+        string? branch = null,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClientAnonymous();
+        if (string.IsNullOrEmpty(branch))
+        {
+            var repository = await client.Repository.Get(owner, repo);
+            branch = repository.DefaultBranch ?? "main";
+        }
+        var contents = await client.Repository.Content.GetAllContentsByRef(owner, repo, path, branch);
+        if (contents.Count == 0)
+            throw new FileNotFoundException($"File not found: {path}");
+        var file = contents[0];
+        var isBinary = IsBinaryFile(file.Name, file.Content);
+        var language = DetectLanguage(file.Name);
+        string content;
+        if (isBinary)
+            content = "[Binary file - cannot display]";
+        else if (file.Content != null)
+        {
+            try { content = System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(file.Content)); }
+            catch { content = file.Content; }
+        }
+        else
+            content = "";
+        return new RepositoryFileContentDto
+        {
+            Name = file.Name,
+            Path = file.Path,
+            Content = content,
+            Encoding = "utf-8",
+            Size = file.Size,
+            Sha = file.Sha,
+            Language = language,
+            IsBinary = isBinary,
+            IsTruncated = file.Size > 1_000_000
+        };
+    }
+
+    public async System.Threading.Tasks.Task<IEnumerable<RepositoryBranchDto>> GetBranchesPublicAsync(
+        string owner,
+        string repo,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClientAnonymous();
+        var repository = await client.Repository.Get(owner, repo);
+        var defaultBranch = repository.DefaultBranch;
+        var branches = await client.Repository.Branch.GetAll(owner, repo);
+        return branches.Select(b => new RepositoryBranchDto
+        {
+            Name = b.Name,
+            Sha = b.Commit.Sha,
+            IsDefault = b.Name == defaultBranch,
+            IsProtected = b.Protected
+        });
     }
 
     private bool IsBinaryFile(string fileName, string? content)
