@@ -14,6 +14,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
+# ── Fix Windows CRLF line endings (WSL) ─────────────────────────────────────
+# If this script was checked out on Windows, fix line endings for Docker/sh
+if command -v dos2unix &>/dev/null; then
+  dos2unix "$0" 2>/dev/null || true
+elif command -v sed &>/dev/null; then
+  # Fix CRLF in this script and docker-compose.yml
+  sed -i 's/\r$//' "$0" 2>/dev/null || true
+  sed -i 's/\r$//' docker-compose.yml 2>/dev/null || true
+fi
+
 # ── Defaults ─────────────────────────────────────────────────────────────────
 GENERATE_CERTS=true
 TRUST_CERT=false
@@ -165,6 +175,18 @@ with open('blazor-appsettings.json', 'w') as f:
 " 2>/dev/null || echo "    (python3 not available – blazor-appsettings.json uses default port 5001)"
 echo "    blazor-appsettings.json ✓"
 
+# ── Verify certs exist before starting ────────────────────────────────────────
+echo ""
+echo "==> Verifying certificates..."
+for f in certs/localhost.crt certs/localhost.key certs/localhost.pfx; do
+  if [ ! -f "$f" ]; then
+    echo "ERROR: $f not found. Cannot start without certificates."
+    echo "       Re-run without --no-certs to generate them."
+    exit 1
+  fi
+  echo "    $f ✓"
+done
+
 # ── Stop any existing containers ─────────────────────────────────────────────
 echo ""
 echo "==> Starting containers..."
@@ -186,7 +208,14 @@ done
 
 if [ $ELAPSED -ge $MAX_WAIT ]; then
   echo "    WARNING: Server did not become ready within ${MAX_WAIT}s."
-  echo "    Check logs: docker logs devpilot-duende"
+  echo ""
+  echo "==> Duende container status:"
+  docker ps -a --filter "name=devpilot-duende" --format "    Status: {{.Status}}"
+  echo ""
+  echo "==> Last 20 lines of Duende logs:"
+  docker logs devpilot-duende --tail 20 2>&1 | sed 's/^/    /'
+  echo ""
+  echo "    Fix any issues above and re-run: ./install.sh --no-certs"
 else
   echo "    Identity Server is ready ✓"
 fi
