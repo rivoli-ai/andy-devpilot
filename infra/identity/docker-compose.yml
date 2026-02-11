@@ -37,6 +37,7 @@ services:
       PrivateServerAuthentication__Authority: "https://localhost:${IDS_PORT:-5001}"
       PrivateServerAuthentication__ApiUrl: "https://localhost:${IDS_PORT:-5001}/api"
       PrivateServerAuthentication__HeathUrl: "https://localhost:${IDS_PORT:-5001}/healthz"
+      PrivateServerAuthentication__RequireHttpsMetadata: "false"
 
       # ── Client 0 – Admin Blazor SPA (built-in UI) ───────────────────
       InitialData__Clients__0__ClientId: "theidserveradmin"
@@ -90,7 +91,6 @@ services:
       InitialData__Users__0__Claims__2__ClaimType: "email"
       InitialData__Users__0__Claims__2__ClaimValue: "${ADMIN_EMAIL:-admin@devpilot.local}"
 
-    entrypoint: ["sh", "-c", "cp /certs/localhost.crt /usr/local/share/ca-certificates/localhost.crt && update-ca-certificates 2>/dev/null; echo 'Starting Duende...'; exec dotnet Aguacongas.TheIdServer.Duende.dll"]
     volumes:
       - duende-data:/data
       - ./certs:/certs:ro
