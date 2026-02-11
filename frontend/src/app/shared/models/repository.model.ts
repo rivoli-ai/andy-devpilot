@@ -21,4 +21,8 @@ export interface Repository {
   ownerName?: string;
   /** When shared with you: email of the person who shared it. */
   ownerEmail?: string;
+  /** LLM setting ID for this repo (null = use user default). */
+  llmSettingId?: string | null;
+  /** Display name of the selected LLM when set. */
+  llmSettingName?: string | null;
 }

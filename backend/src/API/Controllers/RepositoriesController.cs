@@ -58,6 +58,11 @@ public class ShareRepositoryRequest
     public required string Email { get; set; }
 }
 
+public class UpdateRepositoryLlmSettingRequest
+{
+    public Guid? LlmSettingId { get; set; }
+}
+
 /// <summary>
 /// Controller for managing repositories
 /// Follows Clean Architecture - no business logic, only delegates to Application layer
@@ -71,6 +76,7 @@ public class RepositoriesController : ControllerBase
     private readonly IRepositoryRepository _repositoryRepository;
     private readonly IRepositoryShareRepository _repositoryShareRepository;
     private readonly ILinkedProviderRepository _linkedProviderRepository;
+    private readonly ILlmSettingRepository _llmSettingRepository;
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
     private readonly ILogger<RepositoriesController> _logger;
@@ -81,6 +87,7 @@ public class RepositoriesController : ControllerBase
         IRepositoryRepository repositoryRepository,
         IRepositoryShareRepository repositoryShareRepository,
         ILinkedProviderRepository linkedProviderRepository,
+        ILlmSettingRepository llmSettingRepository,
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
         ILogger<RepositoriesController> logger)
@@ -90,6 +97,7 @@ public class RepositoriesController : ControllerBase
         _repositoryRepository = repositoryRepository ?? throw new ArgumentNullException(nameof(repositoryRepository));
         _repositoryShareRepository = repositoryShareRepository ?? throw new ArgumentNullException(nameof(repositoryShareRepository));
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
+        _llmSettingRepository = llmSettingRepository ?? throw new ArgumentNullException(nameof(llmSettingRepository));
         _gitHubService = gitHubService ?? throw new ArgumentNullException(nameof(gitHubService));
         _azureDevOpsService = azureDevOpsService ?? throw new ArgumentNullException(nameof(azureDevOpsService));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -166,6 +174,41 @@ public class RepositoriesController : ControllerBase
 
         _logger.LogInformation("User {UserId} deleted repository {RepositoryId} ({FullName})", userId, id, repo.FullName);
         return Ok(new { message = "Repository deleted" });
+    }
+
+    /// <summary>
+    /// Update repository's LLM setting (owner only). Set to null to use user default.
+    /// </summary>
+    [HttpPatch("{id}/llm-setting")]
+    [Authorize]
+    public async Task<IActionResult> UpdateRepositoryLlmSetting(Guid id, [FromBody] UpdateRepositoryLlmSettingRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        if (request.LlmSettingId.HasValue)
+        {
+            var llm = await _llmSettingRepository.GetByIdAsync(request.LlmSettingId.Value, cancellationToken);
+            if (llm == null || llm.UserId != userId)
+                return BadRequest(new { message = "LLM setting not found or not yours" });
+        }
+
+        _logger.LogInformation("[PATCH llm-setting] Repo {RepoId}: old LlmSettingId={Old}, new LlmSettingId={New}",
+            id, repo.LlmSettingId?.ToString() ?? "(null)", request.LlmSettingId?.ToString() ?? "(null)");
+        repo.SetLlmSetting(request.LlmSettingId);
+        await _repositoryRepository.UpdateAsync(repo, cancellationToken);
+
+        // Verify the save by re-reading from DB (untracked)
+        var verify = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        _logger.LogInformation("[PATCH llm-setting] Verify after save: Repo {RepoId} LlmSettingId={Saved}",
+            id, verify?.LlmSettingId?.ToString() ?? "(null)");
+
+        return Ok(new { message = "Repository LLM setting updated", llmSettingId = request.LlmSettingId });
     }
 
     /// <summary>

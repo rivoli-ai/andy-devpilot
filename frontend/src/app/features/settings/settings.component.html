@@ -201,90 +201,114 @@
     }
   </section>
 
-  <!-- AI Configuration -->
-  <section class="card">
+  <!-- AI providers (single section for all AI config) -->
+  <section class="card card--ai">
     <header class="card__header">
-      <h2>AI</h2>
-      <p>Provider &amp; model for code generation</p>
+      <h2>AI providers</h2>
+      <p>Add one or more providers (OpenAI, Anthropic, Ollama, etc.). Set a default; you can override per repository on the Repositories page.</p>
     </header>
 
-    <div class="ai-chips">
-      <button type="button" class="chip" [class.active]="aiProvider() === 'openai'" (click)="setAiProvider('openai')">OpenAI</button>
-      <button type="button" class="chip" [class.active]="aiProvider() === 'anthropic'" (click)="setAiProvider('anthropic')">Anthropic</button>
-      <button type="button" class="chip" [class.active]="aiProvider() === 'ollama'" (click)="setAiProvider('ollama')">Ollama</button>
-      <button type="button" class="chip" [class.active]="aiProvider() === 'custom'" (click)="setAiProvider('custom')">Custom</button>
-    </div>
-
-    <div class="field-row">
-      <!-- API Key -->
-      <div class="field field--grow">
-        <label for="aiApiKey">
-          API Key
-          @switch (aiProvider()) {
-            @case ('openai') { <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="field__link">Get key</a> }
-            @case ('anthropic') { <a href="https://console.anthropic.com/" target="_blank" rel="noopener" class="field__link">Get key</a> }
+    @if (llmFormOpen()) {
+      <div class="llm-form-block">
+        <div class="llm-form-block__head">{{ llmFormId() ? 'Edit' : 'New' }} provider</div>
+        <div class="llm-form-block__body">
+          <div class="field">
+            <label for="llmFormName">Name</label>
+            <input id="llmFormName" type="text" placeholder="e.g. OpenAI prod" [ngModel]="llmFormName()" (ngModelChange)="llmFormName.set($event)" />
+          </div>
+          <div class="field">
+            <label>Provider</label>
+            <div class="ai-chips">
+              <button type="button" class="chip" [class.active]="llmFormProvider() === 'openai'" (click)="setLlmFormProvider('openai')">OpenAI</button>
+              <button type="button" class="chip" [class.active]="llmFormProvider() === 'anthropic'" (click)="setLlmFormProvider('anthropic')">Anthropic</button>
+              <button type="button" class="chip" [class.active]="llmFormProvider() === 'ollama'" (click)="setLlmFormProvider('ollama')">Ollama</button>
+              <button type="button" class="chip" [class.active]="llmFormProvider() === 'custom'" (click)="setLlmFormProvider('custom')">Custom</button>
+            </div>
+          </div>
+          <div class="field-row">
+            <div class="field field--grow">
+              <label for="llmFormApiKey">
+                API Key {{ llmFormId() ? '(blank = keep)' : '' }}
+                @if (llmFormProvider() === 'openai') { <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="field__link">Get key</a> }
+                @if (llmFormProvider() === 'anthropic') { <a href="https://console.anthropic.com/" target="_blank" rel="noopener" class="field__link">Get key</a> }
+              </label>
+              <div class="input-secret">
+                <input id="llmFormApiKey" [type]="llmFormShowApiKey() ? 'text' : 'password'" placeholder="API key" [ngModel]="llmFormApiKey()" (ngModelChange)="llmFormApiKey.set($event)" />
+                <button type="button" class="eye-toggle" (click)="toggleLlmFormShowApiKey()">
+                  @if (llmFormShowApiKey()) {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  } @else {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  }
+                </button>
+              </div>
+            </div>
+            <div class="field">
+              <label for="llmFormModel">Model</label>
+              <input id="llmFormModel" type="text" placeholder="Model name" [ngModel]="llmFormModel()" (ngModelChange)="llmFormModel.set($event)" />
+            </div>
+          </div>
+          @if (llmFormProvider() === 'ollama' || llmFormProvider() === 'custom') {
+            <div class="field">
+              <label for="llmFormBaseUrl">Base URL</label>
+              <input id="llmFormBaseUrl" type="text" [placeholder]="llmFormProvider() === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'" [ngModel]="llmFormBaseUrl()" (ngModelChange)="llmFormBaseUrl.set($event)" />
+            </div>
           }
-        </label>
-        <div class="input-secret">
-          <input id="aiApiKey" [type]="showAiApiKey() ? 'text' : 'password'" [placeholder]="hasAiApiKey() ? '••••••••' : 'API key'" [ngModel]="aiApiKey()" (ngModelChange)="aiApiKey.set($event)" />
-          <button type="button" class="eye-toggle" (click)="toggleShowAiApiKey()">
-            @if (showAiApiKey()) {
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-            } @else {
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-            }
-          </button>
+          <div class="btn-bar">
+            <button class="btn btn--primary btn--sm" (click)="saveLlmSetting()" [disabled]="actionLoading() === 'llm-save'">
+              @if (actionLoading() === 'llm-save') { <span class="btn-spin"></span> }
+              Save
+            </button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelLlmForm()">Cancel</button>
+          </div>
         </div>
-        @if (hasAiApiKey()) { <span class="hint hint--ok">Configured</span> }
-      </div>
-
-      <!-- Model -->
-      <div class="field">
-        <label for="aiModel">Model</label>
-        @switch (aiProvider()) {
-          @case ('openai') {
-            <select id="aiModel" [ngModel]="aiModel()" (ngModelChange)="aiModel.set($event)">
-              <option value="gpt-4o">GPT-4o</option>
-              <option value="gpt-4o-mini">GPT-4o Mini</option>
-              <option value="gpt-4-turbo">GPT-4 Turbo</option>
-              <option value="o1">O1</option>
-              <option value="o1-mini">O1 Mini</option>
-            </select>
-          }
-          @case ('anthropic') {
-            <select id="aiModel" [ngModel]="aiModel()" (ngModelChange)="aiModel.set($event)">
-              <option value="claude-sonnet-4-20250514">Claude Sonnet 4</option>
-              <option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet</option>
-              <option value="claude-3-opus-20240229">Claude 3 Opus</option>
-              <option value="claude-3-haiku-20240307">Claude 3 Haiku</option>
-            </select>
-          }
-          @default {
-            <input id="aiModel" type="text" placeholder="Model name" [ngModel]="aiModel()" (ngModelChange)="aiModel.set($event)" />
-          }
-        }
-      </div>
-    </div>
-
-    <!-- Base URL (Ollama / Custom) -->
-    @if (aiProvider() === 'ollama' || aiProvider() === 'custom') {
-      <div class="field">
-        <label for="aiBaseUrl">Base URL</label>
-        <input id="aiBaseUrl" type="text" [placeholder]="aiProvider() === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'" [ngModel]="aiBaseUrl()" (ngModelChange)="aiBaseUrl.set($event)" />
       </div>
     }
 
-    <div class="btn-bar">
-      <button class="btn btn--primary btn--sm" (click)="saveAiSettings()" [disabled]="actionLoading() === 'ai-settings'">
-        @if (actionLoading() === 'ai-settings') { <span class="btn-spin"></span> }
-        Save
-      </button>
-      @if (isAiConfigured()) {
-        <button class="btn btn--ghost btn--sm" (click)="clearAiSettings()" [disabled]="actionLoading() === 'ai-clear'">
-          @if (actionLoading() === 'ai-clear') { <span class="btn-spin"></span> }
-          Clear
+    @if (llmSettings().length > 0 && !llmFormOpen()) {
+      <ul class="llm-rows">
+        @for (item of llmSettings(); track item.id) {
+          <li class="llm-row" [class.llm-row--default]="item.isDefault">
+            <span class="llm-row__dot" [attr.data-provider]="item.provider"></span>
+            <div class="llm-row__main">
+              <span class="llm-row__name">{{ item.name || item.model || 'Unnamed' }}</span>
+              <span class="llm-row__detail">{{ item.provider }} · {{ item.model }}</span>
+            </div>
+            @if (item.isDefault) {
+              <span class="llm-row__default-tag">Default</span>
+            }
+            <div class="llm-row__actions">
+              @if (!item.isDefault) {
+                <button type="button" class="llm-row__btn" (click)="setDefaultLlm(item.id)" [disabled]="actionLoading() === 'llm-default'" title="Set as default">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                </button>
+              }
+              <button type="button" class="llm-row__btn" (click)="openEditLlmForm(item)" title="Edit">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+              </button>
+              <button type="button" class="llm-row__btn llm-row__btn--danger" (click)="deleteLlmSetting(item.id)" [disabled]="actionLoading() === 'llm-delete'" title="Delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
+              </button>
+            </div>
+          </li>
+        }
+      </ul>
+      <div class="llm-add-wrap">
+        <button type="button" class="btn btn--primary btn--sm" (click)="openAddLlmForm()">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add provider
         </button>
-      }
-    </div>
+      </div>
+    }
+
+    @if (llmSettings().length === 0 && !llmFormOpen()) {
+      <div class="llm-empty">
+        <p class="llm-empty__p">No AI providers configured. Add one to use AI for code analysis, backlog suggestions, and more.</p>
+        <button type="button" class="btn btn--primary btn--sm" (click)="openAddLlmForm()">
+          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Add AI provider
+        </button>
+      </div>
+    }
   </section>
 </div>

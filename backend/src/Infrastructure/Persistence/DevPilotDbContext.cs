@@ -23,6 +23,7 @@ public class DevPilotDbContext : DbContext
     public DbSet<CodeAnalysis> CodeAnalyses => Set<CodeAnalysis>();
     public DbSet<FileAnalysis> FileAnalyses => Set<FileAnalysis>();
     public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
+    public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -48,11 +49,6 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.AzureDevOpsAccessToken).HasColumnName("azure_devops_access_token");
             entity.Property(e => e.AzureDevOpsTokenExpiresAt).HasColumnName("azure_devops_token_expires_at");
             entity.Property(e => e.AzureDevOpsOrganization).HasColumnName("azure_devops_organization").HasMaxLength(256);
-            // AI Configuration
-            entity.Property(e => e.AiProvider).HasColumnName("ai_provider").HasMaxLength(64);
-            entity.Property(e => e.AiApiKey).HasColumnName("ai_api_key");
-            entity.Property(e => e.AiModel).HasColumnName("ai_model").HasMaxLength(128);
-            entity.Property(e => e.AiBaseUrl).HasColumnName("ai_base_url").HasMaxLength(512);
             entity.HasIndex(e => e.Email).IsUnique();
             entity.HasMany(u => u.LinkedProviders).WithOne(lp => lp.User).HasForeignKey(lp => lp.UserId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -93,7 +89,25 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.OrganizationName).HasColumnName("organization_name").HasMaxLength(256);
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.DefaultBranch).HasColumnName("default_branch").HasMaxLength(128);
+            entity.Property(e => e.LlmSettingId).HasColumnName("llm_setting_id");
             entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<LlmSetting>(entity =>
+        {
+            entity.ToTable("llm_settings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(128).IsRequired();
+            entity.Property(e => e.Provider).HasColumnName("provider").HasMaxLength(64).IsRequired();
+            entity.Property(e => e.ApiKey).HasColumnName("api_key");
+            entity.Property(e => e.Model).HasColumnName("model").HasMaxLength(128).IsRequired();
+            entity.Property(e => e.BaseUrl).HasColumnName("base_url").HasMaxLength(512);
+            entity.Property(e => e.IsDefault).HasColumnName("is_default").HasDefaultValue(false);
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RepositoryShare>(entity =>

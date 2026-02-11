@@ -2,6 +2,7 @@ namespace DevPilot.Infrastructure.Services;
 
 using DevPilot.Application.Options;
 using DevPilot.Application.Services;
+using DevPilot.Infrastructure.Services;
 using DevPilot.Domain.Interfaces;
 using DevPilot.Infrastructure.AI;
 using DevPilot.Infrastructure.Auth;
@@ -42,6 +43,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ILinkedProviderRepository, PostgresLinkedProviderRepository>();
         services.AddScoped<ICodeAnalysisRepository, PostgresCodeAnalysisRepository>();
         services.AddScoped<IFileAnalysisRepository, PostgresFileAnalysisRepository>();
+        services.AddScoped<ILlmSettingRepository, PostgresLlmSettingRepository>();
+        services.AddScoped<IEffectiveAiConfigResolver, EffectiveAiConfigResolver>();
 
         // Register authentication service
         services.AddScoped<AuthenticationService>();

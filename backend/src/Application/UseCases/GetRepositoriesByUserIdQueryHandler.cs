@@ -72,7 +72,8 @@ public class GetRepositoriesByUserIdQueryHandler : IRequestHandler<GetRepositori
                 IsOwner = isOwner,
                 SharedWithCount = isOwner && shareCounts.TryGetValue(r.Id, out var count) ? count : 0,
                 OwnerName = ownerName,
-                OwnerEmail = ownerEmail
+                OwnerEmail = ownerEmail,
+                LlmSettingId = r.LlmSettingId
             };
         });
     }

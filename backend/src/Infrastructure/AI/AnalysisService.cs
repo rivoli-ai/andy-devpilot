@@ -10,31 +10,44 @@ using OpenAI.Chat;
 using System.ClientModel.Primitives;
 
 /// <summary>
-/// Implementation of IAnalysisService using OpenAI-compatible API (OpenAI, Azure OpenAI, or custom endpoints like Hugging Face)
-/// Analyzes repositories and generates structured work items
+/// Implementation of IAnalysisService using OpenAI-compatible API.
+/// Uses the repository's linked LLM (default or custom) via IEffectiveAiConfigResolver.
 /// </summary>
 public class AnalysisService : IAnalysisService
 {
     private readonly IConfiguration _configuration;
+    private readonly IEffectiveAiConfigResolver _effectiveAiConfigResolver;
     private readonly ILogger<AnalysisService> _logger;
 
-    public AnalysisService(IConfiguration configuration, ILogger<AnalysisService> logger)
+    public AnalysisService(
+        IConfiguration configuration,
+        IEffectiveAiConfigResolver effectiveAiConfigResolver,
+        ILogger<AnalysisService> logger)
     {
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _effectiveAiConfigResolver = effectiveAiConfigResolver ?? throw new ArgumentNullException(nameof(effectiveAiConfigResolver));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
     public async System.Threading.Tasks.Task<RepositoryAnalysisResult> AnalyzeRepositoryAsync(
+        Guid userId,
+        Guid repositoryId,
         string repositoryContent,
         string repositoryName,
         CancellationToken cancellationToken = default)
     {
         try
         {
-            // Get AI configuration
-            var apiKey = _configuration["AI:ApiKey"] ?? throw new InvalidOperationException("AI:ApiKey not configured");
-            var endpoint = _configuration["AI:Endpoint"]; // Optional for custom OpenAI-compatible endpoints
-            var model = _configuration["AI:Model"] ?? "gpt-4o-mini";
+            // Use repository's linked LLM (default or custom)
+            var config = await _effectiveAiConfigResolver.GetEffectiveConfigAsync(userId, repositoryId, cancellationToken);
+            var apiKey = !string.IsNullOrEmpty(config.ApiKey) ? config.ApiKey : _configuration["AI:ApiKey"];
+            var endpoint = !string.IsNullOrEmpty(config.BaseUrl) ? config.BaseUrl : _configuration["AI:Endpoint"];
+            var model = !string.IsNullOrEmpty(config.Model) ? config.Model : (_configuration["AI:Model"] ?? "gpt-4o-mini");
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                throw new InvalidOperationException("AI API key not configured. Please add an AI provider in Settings.");
+            }
 
             // Build deterministic prompt
             var prompt = BuildAnalysisPrompt(repositoryContent, repositoryName);

@@ -27,6 +27,11 @@ public class PostgresRepositoryRepository : IRepositoryRepository
             .FirstOrDefaultAsync(r => r.Id == id, cancellationToken);
     }
 
+    public async Task<Repository?> GetByIdTrackedAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return await _context.Repositories.FindAsync(new object[] { id }, cancellationToken);
+    }
+
     public async Task<IEnumerable<Repository>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return await _context.Repositories

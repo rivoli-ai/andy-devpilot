@@ -14,6 +14,8 @@ public class Repository : Entity
     public string OrganizationName { get; private set; }
     public Guid UserId { get; private set; }
     public string? DefaultBranch { get; private set; }
+    /// <summary>When set, this repo uses this LLM instead of the user's default. Null = use default.</summary>
+    public Guid? LlmSettingId { get; private set; }
 
     // Navigation properties
     public List<Epic> Epics { get; private set; } = new();
@@ -51,6 +53,12 @@ public class Repository : Entity
     public void UpdateDefaultBranch(string? defaultBranch)
     {
         DefaultBranch = defaultBranch;
+        MarkAsUpdated();
+    }
+
+    public void SetLlmSetting(Guid? llmSettingId)
+    {
+        LlmSettingId = llmSettingId;
         MarkAsUpdated();
     }
 }

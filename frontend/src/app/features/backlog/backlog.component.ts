@@ -118,6 +118,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
   
   // Sandbox state
   creatingSandboxForStory = signal<string | null>(null);
+
+  // LLM selector (repo override)
+  repoLlmUpdating = signal<boolean>(false);
   openSandboxStoryIds = signal<string[]>([]);
 
   // Computed stats (exclude Standalone epic from count – it's not shown as an epic row)
@@ -393,6 +396,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.aiConfigService.loadLlmSettings();
     const repoId = this.route.snapshot.paramMap.get('repositoryId');
     if (repoId) {
       this.repositoryId.set(repoId);
@@ -529,6 +533,28 @@ export class BacklogComponent implements OnInit, OnDestroy {
             this.repositoryName.set(fromCache.name);
           }
         }
+      }
+    });
+  }
+
+  getLlmSettings() {
+    return this.aiConfigService.llmSettings();
+  }
+
+  onRepoLlmChange(llmSettingId: string | null): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.repoLlmUpdating.set(true);
+    this.repositoryService.updateRepositoryLlmSetting(repo.id, llmSettingId).subscribe({
+      next: (updated) => {
+        // Merge updated fields into existing repo to preserve all properties
+        this.repository.set({ ...repo, ...updated });
+      },
+      error: () => {
+        this.repoLlmUpdating.set(false);
+      },
+      complete: () => {
+        this.repoLlmUpdating.set(false);
       }
     });
   }
@@ -914,50 +940,53 @@ export class BacklogComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Check if AI is configured
-    const aiConfig = this.aiConfigService.defaultProvider();
-    if (!aiConfig.apiKey) {
-      this.error.set('AI is not configured. Please configure AI settings first.');
-      return;
-    }
-
     this.creatingSandboxForStory.set(story.id);
     this.error.set(null);
 
-    const zedSettings = this.aiConfigService.getZedSettingsJson();
-    const defaultBranch = repo.defaultBranch || 'main';
-
-    const openSandboxWithBranch = (repoUrl: string, branch: string, archiveUrl?: string) => {
-      this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings, branch, archiveUrl);
-    };
-
-    // If story already has a PR, clone the PR branch so we can continue work
-    const resolveBranch = (repoUrl: string, archiveUrl?: string) => {
-      if (story.prUrl && repo.provider === 'GitHub') {
-        console.log('[Sandbox] Fetching PR head branch for:', story.prUrl);
-        this.backlogService.getPrHeadBranch(story.prUrl).subscribe({
-          next: (res) => {
-            console.log('[Sandbox] Using PR branch:', res.branch);
-            openSandboxWithBranch(repoUrl, res.branch, archiveUrl);
-          },
-          error: (err) => {
-            console.warn('[Sandbox] Failed to get PR branch, using default:', err);
-            openSandboxWithBranch(repoUrl, defaultBranch, archiveUrl);
-          }
-        });
+    // Use effective AI config for this repository (default or repo override)
+    this.aiConfigService.getEffectiveConfig(repo.id).then((aiConfig) => {
+      if (!aiConfig.apiKey) {
+        this.creatingSandboxForStory.set(null);
+        this.error.set('AI is not configured. Please configure AI settings first.');
         return;
       }
-      openSandboxWithBranch(repoUrl, defaultBranch, archiveUrl);
-    };
+      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig);
+      const defaultBranch = repo.defaultBranch || 'main';
 
-    // Fetch authenticated clone URL (and archive URL for fallback when clone is blocked)
-    this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-      next: (result) => resolveBranch(result.cloneUrl, result.archiveUrl),
-      error: (err) => {
-        console.error('Failed to get authenticated clone URL:', err);
-        const repoUrl = this.buildRepoCloneUrl(repo);
-        resolveBranch(repoUrl);
-      }
+      const openSandboxWithBranch = (repoUrl: string, branch: string, archiveUrl?: string) => {
+        this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings, branch, archiveUrl);
+      };
+
+      const resolveBranch = (repoUrl: string, archiveUrl?: string) => {
+        if (story.prUrl && repo.provider === 'GitHub') {
+          console.log('[Sandbox] Fetching PR head branch for:', story.prUrl);
+          this.backlogService.getPrHeadBranch(story.prUrl).subscribe({
+            next: (res) => {
+              console.log('[Sandbox] Using PR branch:', res.branch);
+              openSandboxWithBranch(repoUrl, res.branch, archiveUrl);
+            },
+            error: (err) => {
+              console.warn('[Sandbox] Failed to get PR branch, using default:', err);
+              openSandboxWithBranch(repoUrl, defaultBranch, archiveUrl);
+            }
+          });
+          return;
+        }
+        openSandboxWithBranch(repoUrl, defaultBranch, archiveUrl);
+      };
+
+      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+        next: (result) => resolveBranch(result.cloneUrl, result.archiveUrl),
+        error: (err) => {
+          console.error('Failed to get authenticated clone URL:', err);
+          const repoUrl = this.buildRepoCloneUrl(repo);
+          resolveBranch(repoUrl);
+        }
+      });
+    }).catch((err) => {
+      console.error('Failed to get AI config:', err);
+      this.creatingSandboxForStory.set(null);
+      this.error.set('AI is not configured. Please configure AI settings first.');
     });
   }
 
@@ -1178,23 +1207,25 @@ Start by exploring the codebase and then provide your implementation plan.`;
       return;
     }
 
-    // Check if AI is configured
-    const aiConfig = this.aiConfigService.defaultProvider();
-    if (!aiConfig.apiKey) {
+    // Use effective AI config for this repository (default or repo override)
+    this.aiConfigService.getEffectiveConfig(repo.id).then((aiConfig) => {
+      if (!aiConfig.apiKey) {
+        this.generationError.set('AI is not configured. Please configure AI settings first.');
+        this.generationState.set('error');
+        return;
+      }
+      const viewers = this.vncViewerService.getViewers();
+      const activeSandbox = viewers.find(v => v.title?.includes(repo.name)) || null;
+      if (activeSandbox?.bridgePort) {
+        this.sendBacklogPrompt(activeSandbox.bridgePort);
+      } else {
+        this.createSandboxAndGenerate();
+      }
+    }).catch((err) => {
+      console.error('Failed to get AI config:', err);
       this.generationError.set('AI is not configured. Please configure AI settings first.');
       this.generationState.set('error');
-      return;
-    }
-
-    // Check for active sandbox (find viewer by repository name)
-    const viewers = this.vncViewerService.getViewers();
-    const activeSandbox = viewers.find(v => v.title?.includes(repo.name)) || null;
-    
-    if (activeSandbox?.bridgePort) {
-      this.sendBacklogPrompt(activeSandbox.bridgePort);
-    } else {
-      this.createSandboxAndGenerate();
-    }
+    });
   }
 
   private createSandboxAndGenerate(): void {
@@ -1204,19 +1235,22 @@ Start by exploring the codebase and then provide your implementation plan.`;
     this.generationState.set('creating_sandbox');
     this.generationError.set(null);
 
-    const aiConfig = this.aiConfigService.defaultProvider();
-    const zedSettings = this.aiConfigService.getZedSettingsJson();
-
-    // Fetch authenticated clone URL (and archive URL for fallback when clone is blocked)
-    this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-      next: (result) => {
-        this.createSandboxWithConfig(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
-      },
-      error: (err) => {
-        console.error('Failed to get authenticated clone URL:', err);
-        const repoUrl = this.buildRepoCloneUrl(repo);
-        this.createSandboxWithConfig(repo, repoUrl, aiConfig, zedSettings);
-      }
+    this.aiConfigService.getEffectiveConfig(repo.id).then((aiConfig) => {
+      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig);
+      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+        next: (result) => {
+          this.createSandboxWithConfig(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
+        },
+        error: (err) => {
+          console.error('Failed to get authenticated clone URL:', err);
+          const repoUrl = this.buildRepoCloneUrl(repo);
+          this.createSandboxWithConfig(repo, repoUrl, aiConfig, zedSettings);
+        }
+      });
+    }).catch((err) => {
+      console.error('Failed to get AI config:', err);
+      this.generationError.set('AI is not configured. Please configure AI settings first.');
+      this.generationState.set('error');
     });
   }
 

@@ -73,6 +73,7 @@ public class GetRepositoriesPaginatedQueryHandler : IRequestHandler<GetRepositor
                     IsOwner = isOwner,
                     SharedWithCount = isOwner && shareCounts.TryGetValue(r.Id, out var count) ? count : 0,
                     OwnerName = ownerName,
+                    LlmSettingId = r.LlmSettingId,
                     OwnerEmail = ownerEmail
                 };
             }),

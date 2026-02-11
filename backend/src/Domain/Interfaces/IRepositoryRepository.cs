@@ -8,6 +8,8 @@ using DevPilot.Domain.Entities;
 public interface IRepositoryRepository
 {
     System.Threading.Tasks.Task<Repository?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    /// <summary>Get by id with tracking (for updates).</summary>
+    System.Threading.Tasks.Task<Repository?> GetByIdTrackedAsync(Guid id, CancellationToken cancellationToken = default);
     System.Threading.Tasks.Task<IEnumerable<Repository>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default);
 
     /// <summary>

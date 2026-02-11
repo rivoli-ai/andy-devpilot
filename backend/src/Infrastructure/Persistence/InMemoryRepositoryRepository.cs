@@ -23,6 +23,12 @@ public class InMemoryRepositoryRepository : IRepositoryRepository
         return System.Threading.Tasks.Task.FromResult<Repository?>(repository);
     }
 
+    public System.Threading.Tasks.Task<Repository?> GetByIdTrackedAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        _repositories.TryGetValue(id, out var repository);
+        return System.Threading.Tasks.Task.FromResult<Repository?>(repository);
+    }
+
     public System.Threading.Tasks.Task<IEnumerable<Repository>> GetByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         var repositories = _repositories.Values

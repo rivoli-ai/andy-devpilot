@@ -517,28 +517,31 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Check if AI is configured
-    const aiConfig = this.aiConfigService.defaultProvider();
-    if (!aiConfig.apiKey) {
+    this.state.set('creating_sandbox');
+    this.errorMessage.set('');
+
+    // Use effective AI config for this repository (default or repo override)
+    this.aiConfigService.getEffectiveConfig(repo.id).then((aiConfig) => {
+      if (!aiConfig.apiKey) {
+        this.state.set('error');
+        this.errorMessage.set('AI is not configured. Please configure AI settings first.');
+        return;
+      }
+      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig);
+      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+        next: (result) => {
+          this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
+        },
+        error: (err) => {
+          console.error('Failed to get authenticated clone URL:', err);
+          const repoUrl = this.buildRepoCloneUrl(repo);
+          this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings);
+        }
+      });
+    }).catch((err) => {
+      console.error('Failed to get AI config:', err);
       this.state.set('error');
       this.errorMessage.set('AI is not configured. Please configure AI settings first.');
-      return;
-    }
-
-    this.state.set('creating_sandbox');
-
-    const zedSettings = this.aiConfigService.getZedSettingsJson();
-
-    // Fetch authenticated clone URL (and archive URL for fallback when clone is blocked)
-    this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-      next: (result) => {
-        this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
-      },
-      error: (err) => {
-        console.error('Failed to get authenticated clone URL:', err);
-        const repoUrl = this.buildRepoCloneUrl(repo);
-        this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings);
-      }
     });
   }
 

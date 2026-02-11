@@ -24,4 +24,8 @@ public class RepositoryDto
     public string? OwnerName { get; set; }
     /// <summary>When shared with you: email of the person who shared it (repo owner).</summary>
     public string? OwnerEmail { get; set; }
+    /// <summary>LLM setting ID for this repo (null = use user default).</summary>
+    public Guid? LlmSettingId { get; set; }
+    /// <summary>Display name of the selected LLM (e.g. "OpenAI GPT-4") when set.</summary>
+    public string? LlmSettingName { get; set; }
 }

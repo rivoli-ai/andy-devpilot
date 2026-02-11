@@ -360,6 +360,19 @@ export class RepositoryService {
   }
 
   /**
+   * Set the LLM configuration for a repository. Pass null to use the user's default LLM.
+   */
+  updateRepositoryLlmSetting(repositoryId: string, llmSettingId: string | null): Observable<Repository> {
+    return this.apiService.patch<Repository>(`/repositories/${repositoryId}/llm-setting`, { llmSettingId }).pipe(
+      tap(updated => {
+        this.repositoriesSignal.update(repos =>
+          repos.map(r => (String(r.id) === String(repositoryId) ? { ...r, ...updated } : r))
+        );
+      })
+    );
+  }
+
+  /**
    * Get list of repositories available from GitHub (for selective sync).
    */
   getAvailableGitHubRepositories(): Observable<AvailableRepoItem[]> {

@@ -77,6 +77,9 @@ export class CodeComponent implements OnInit, OnDestroy {
   fileAnalysisError = signal<string | null>(null);
   showFileExplanation = signal<boolean>(false);
 
+  // LLM selector (repo override)
+  repoLlmUpdating = signal<boolean>(false);
+
   // Subscriptions for cleanup
   private analysisSubscription?: Subscription;
 
@@ -148,6 +151,7 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   ngOnInit(): void {
+    this.aiConfigService.loadLlmSettings();
     const repoId = this.route.snapshot.paramMap.get('repositoryId');
     if (repoId) {
       this.repositoryId.set(repoId);
@@ -158,6 +162,28 @@ export class CodeComponent implements OnInit, OnDestroy {
     } else {
       this.error.set('Repository ID is required');
     }
+  }
+
+  getLlmSettings() {
+    return this.aiConfigService.llmSettings();
+  }
+
+  onRepoLlmChange(llmSettingId: string | null): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.repoLlmUpdating.set(true);
+    this.repositoryService.updateRepositoryLlmSetting(repo.id, llmSettingId).subscribe({
+      next: (updated) => {
+        // Merge updated fields into existing repo to preserve all properties
+        this.repository.set({ ...repo, ...updated });
+      },
+      error: () => {
+        this.repoLlmUpdating.set(false);
+      },
+      complete: () => {
+        this.repoLlmUpdating.set(false);
+      }
+    });
   }
 
   /**
@@ -555,34 +581,39 @@ export class CodeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    // Check if AI is configured
-    const aiProviderConfig = this.aiConfigService.defaultProvider();
-    if (!aiProviderConfig.apiKey) {
-      this.analysisError.set('AI is not configured. Please configure AI settings first.');
-      return;
-    }
-
     this.analysisLoading.set(true);
     this.analysisError.set(null);
-    this.analysisStatus.set('Creating sandbox...');
+    this.analysisStatus.set('Checking AI configuration...');
 
-    // Build AI config for sandbox
-    const aiConfig = {
-      provider: aiProviderConfig.provider,
-      api_key: aiProviderConfig.apiKey,
-      model: aiProviderConfig.model,
-      base_url: aiProviderConfig.baseUrl
-    };
-
-    // Get authenticated clone URL (and archive URL for fallback when clone is blocked)
-    this.repositoryService.getAuthenticatedCloneUrl(repoId).subscribe({
-      next: (result) => {
-        this.createAnalysisSandbox(repo, result.cloneUrl, branch, aiConfig, result.archiveUrl);
-      },
-      error: (err) => {
-        console.error('Failed to get authenticated clone URL:', err);
-        this.createAnalysisSandbox(repo, repo.cloneUrl, branch, aiConfig);
+    // Use effective AI config for this repository (default or repo override)
+    this.aiConfigService.getEffectiveConfig(repo.id).then((aiProviderConfig) => {
+      if (!aiProviderConfig.apiKey) {
+        this.analysisLoading.set(false);
+        this.analysisStatus.set('');
+        this.analysisError.set('AI is not configured. Please configure AI settings first.');
+        return;
       }
+      this.analysisStatus.set('Creating sandbox...');
+      const aiConfig = {
+        provider: aiProviderConfig.provider,
+        api_key: aiProviderConfig.apiKey,
+        model: aiProviderConfig.model,
+        base_url: aiProviderConfig.baseUrl
+      };
+      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+        next: (result) => {
+          this.createAnalysisSandbox(repo, result.cloneUrl, branch, aiConfig, result.archiveUrl);
+        },
+        error: (err) => {
+          console.error('Failed to get authenticated clone URL:', err);
+          this.createAnalysisSandbox(repo, repo.cloneUrl, branch, aiConfig);
+        }
+      });
+    }).catch((err) => {
+      console.error('Failed to get AI config:', err);
+      this.analysisLoading.set(false);
+      this.analysisStatus.set('');
+      this.analysisError.set('AI is not configured. Please configure AI settings first.');
     });
   }
 

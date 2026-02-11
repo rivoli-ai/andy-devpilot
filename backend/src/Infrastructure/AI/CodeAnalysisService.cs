@@ -18,6 +18,7 @@ public class CodeAnalysisService : ICodeAnalysisService
 {
     private readonly IRepositoryRepository _repositoryRepository;
     private readonly IUserRepository _userRepository;
+    private readonly IEffectiveAiConfigResolver _effectiveAiConfigResolver;
     private readonly ICodeAnalysisRepository _codeAnalysisRepository;
     private readonly IFileAnalysisRepository _fileAnalysisRepository;
     private readonly IHttpClientFactory _httpClientFactory;
@@ -27,6 +28,7 @@ public class CodeAnalysisService : ICodeAnalysisService
     public CodeAnalysisService(
         IRepositoryRepository repositoryRepository,
         IUserRepository userRepository,
+        IEffectiveAiConfigResolver effectiveAiConfigResolver,
         ICodeAnalysisRepository codeAnalysisRepository,
         IFileAnalysisRepository fileAnalysisRepository,
         IHttpClientFactory httpClientFactory,
@@ -35,6 +37,7 @@ public class CodeAnalysisService : ICodeAnalysisService
     {
         _repositoryRepository = repositoryRepository ?? throw new ArgumentNullException(nameof(repositoryRepository));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
+        _effectiveAiConfigResolver = effectiveAiConfigResolver ?? throw new ArgumentNullException(nameof(effectiveAiConfigResolver));
         _codeAnalysisRepository = codeAnalysisRepository ?? throw new ArgumentNullException(nameof(codeAnalysisRepository));
         _fileAnalysisRepository = fileAnalysisRepository ?? throw new ArgumentNullException(nameof(fileAnalysisRepository));
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
@@ -126,18 +129,16 @@ public class CodeAnalysisService : ICodeAnalysisService
         var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken)
             ?? throw new InvalidOperationException($"Repository {repositoryId} not found");
 
-        var user = await _userRepository.GetByIdAsync(userId, cancellationToken)
-            ?? throw new InvalidOperationException($"User {userId} not found");
-
         var effectiveBranch = branch ?? repository.DefaultBranch ?? "main";
         
         _logger.LogInformation("Starting file analysis for {FilePath} in repository {RepositoryName}", 
             filePath, repository.Name);
 
-        // Get user's AI settings (fallback to global config)
-        var apiKey = user.AiApiKey ?? _configuration["AI:ApiKey"];
-        var endpoint = user.AiBaseUrl ?? _configuration["AI:Endpoint"];
-        var model = user.AiModel ?? _configuration["AI:Model"] ?? "gpt-4o-mini";
+        // Resolve effective AI config (repo override or user default)
+        var config = await _effectiveAiConfigResolver.GetEffectiveConfigAsync(userId, repositoryId, cancellationToken);
+        var apiKey = !string.IsNullOrEmpty(config.ApiKey) ? config.ApiKey : _configuration["AI:ApiKey"];
+        var endpoint = !string.IsNullOrEmpty(config.BaseUrl) ? config.BaseUrl : _configuration["AI:Endpoint"];
+        var model = !string.IsNullOrEmpty(config.Model) ? config.Model : (_configuration["AI:Model"] ?? "gpt-4o-mini");
 
         if (string.IsNullOrEmpty(apiKey))
         {
@@ -147,8 +148,8 @@ public class CodeAnalysisService : ICodeAnalysisService
         // Use direct AI chat completion (no sandbox needed)
         var response = await AnalyzeFileWithAIAsync(filePath, fileContent, apiKey, endpoint, model, cancellationToken);
         
-        // Parse response
-        var result = ParseFileAnalysisResponse(response, repositoryId, filePath, effectiveBranch);
+        // Parse response (pass actual model used, not appsettings default)
+        var result = ParseFileAnalysisResponse(response, repositoryId, filePath, effectiveBranch, model);
         
         // Store in database
         var existing = await _fileAnalysisRepository.GetByRepositoryAndPathAsync(repositoryId, filePath, effectiveBranch, cancellationToken);
@@ -579,7 +580,7 @@ Please read and analyze the file '{filePath}' thoroughly.";
         };
     }
 
-    private FileAnalysisResult ParseFileAnalysisResponse(string response, Guid repositoryId, string filePath, string branch)
+    private FileAnalysisResult ParseFileAnalysisResponse(string response, Guid repositoryId, string filePath, string branch, string model)
     {
         var sections = ParseMarkdownSections(response);
 
@@ -593,7 +594,7 @@ Please read and analyze the file '{filePath}' thoroughly.";
             Complexity = sections.GetValueOrDefault("Complexity"),
             Suggestions = sections.GetValueOrDefault("Suggestions"),
             AnalyzedAt = DateTime.UtcNow,
-            Model = _configuration["AI:Model"] ?? "gpt-4o"
+            Model = model
         };
     }
 

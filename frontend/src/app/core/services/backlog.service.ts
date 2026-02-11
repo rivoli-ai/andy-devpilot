@@ -109,21 +109,25 @@ export class BacklogService {
   /**
    * Use AI to suggest improved description or acceptance criteria for a backlog item.
    * Requires AI to be configured (API key set).
+   * @param repositoryId Optional; when provided, backend uses this repo's LLM override for the suggestion.
    */
   suggestWithAI(
     field: 'description' | 'acceptanceCriteria',
     itemType: string,
     title: string,
     currentContent?: string,
-    description?: string
+    description?: string,
+    repositoryId?: string
   ): Observable<{ suggestion: string }> {
-    return this.apiService.post<{ suggestion: string }>('/backlog/ai/suggest', {
+    const body: Record<string, unknown> = {
       field,
       itemType,
       title,
       currentContent,
       description
-    });
+    };
+    if (repositoryId) body['repositoryId'] = repositoryId;
+    return this.apiService.post<{ suggestion: string }>('/backlog/ai/suggest', body);
   }
 
   /**

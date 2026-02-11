@@ -7,10 +7,12 @@ namespace DevPilot.Application.Services;
 public interface IAnalysisService
 {
     /// <summary>
-    /// Analyzes a repository and generates structured work items (Epics, Features, User Stories, Tasks)
-    /// Uses deterministic prompts and returns structured JSON
+    /// Analyzes a repository and generates structured work items (Epics, Features, User Stories, Tasks).
+    /// Uses the repository's linked LLM (default or custom) for the user.
     /// </summary>
     System.Threading.Tasks.Task<RepositoryAnalysisResult> AnalyzeRepositoryAsync(
+        Guid userId,
+        Guid repositoryId,
         string repositoryContent,
         string repositoryName,
         CancellationToken cancellationToken = default);

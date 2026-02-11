@@ -22,6 +22,8 @@ public class AuthController : ControllerBase
 {
     private readonly IUserRepository _userRepository;
     private readonly ILinkedProviderRepository _linkedProviderRepository;
+    private readonly ILlmSettingRepository _llmSettingRepository;
+    private readonly IEffectiveAiConfigResolver _effectiveAiConfigResolver;
     private readonly AuthenticationService _authenticationService;
     private readonly AuthProviderRegistry _providerRegistry;
     private readonly IMediator _mediator;
@@ -31,6 +33,8 @@ public class AuthController : ControllerBase
     public AuthController(
         IUserRepository userRepository,
         ILinkedProviderRepository linkedProviderRepository,
+        ILlmSettingRepository llmSettingRepository,
+        IEffectiveAiConfigResolver effectiveAiConfigResolver,
         AuthenticationService authenticationService,
         AuthProviderRegistry providerRegistry,
         IMediator mediator,
@@ -39,6 +43,8 @@ public class AuthController : ControllerBase
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
+        _llmSettingRepository = llmSettingRepository ?? throw new ArgumentNullException(nameof(llmSettingRepository));
+        _effectiveAiConfigResolver = effectiveAiConfigResolver ?? throw new ArgumentNullException(nameof(effectiveAiConfigResolver));
         _authenticationService = authenticationService ?? throw new ArgumentNullException(nameof(authenticationService));
         _providerRegistry = providerRegistry ?? throw new ArgumentNullException(nameof(providerRegistry));
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
@@ -615,7 +621,7 @@ public class AuthController : ControllerBase
 
     #endregion
 
-    #region AI Configuration
+    #region AI Configuration (from LLM providers only)
 
     [HttpGet("settings/ai")]
     [Authorize]
@@ -624,67 +630,152 @@ public class AuthController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
-        if (user == null) return NotFound("User not found");
+        var defaultLlm = await _llmSettingRepository.GetDefaultByUserIdAsync(userId.Value, cancellationToken);
+        if (defaultLlm == null)
+        {
+            return Ok(new AiSettingsDto
+            {
+                Provider = "openai",
+                HasApiKey = false,
+                Model = "gpt-4o",
+                BaseUrl = null
+            });
+        }
 
         return Ok(new AiSettingsDto
         {
-            Provider = user.AiProvider,
-            HasApiKey = !string.IsNullOrEmpty(user.AiApiKey),
-            Model = user.AiModel,
-            BaseUrl = user.AiBaseUrl
+            Provider = defaultLlm.Provider,
+            HasApiKey = !string.IsNullOrEmpty(defaultLlm.ApiKey),
+            Model = defaultLlm.Model,
+            BaseUrl = defaultLlm.BaseUrl
         });
-    }
-
-    [HttpPost("settings/ai")]
-    [Authorize]
-    public async Task<IActionResult> SaveAiSettings([FromBody] AiSettingsRequest request, CancellationToken cancellationToken)
-    {
-        var userId = GetCurrentUserId();
-        if (userId == null) return Unauthorized();
-
-        var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
-        if (user == null) return NotFound("User not found");
-
-        user.UpdateAiSettings(request.Provider, request.ApiKey, request.Model, request.BaseUrl);
-        await _userRepository.UpdateAsync(user, cancellationToken);
-
-        return Ok(new { message = "AI settings saved successfully" });
-    }
-
-    [HttpDelete("settings/ai")]
-    [Authorize]
-    public async Task<IActionResult> ClearAiSettings(CancellationToken cancellationToken)
-    {
-        var userId = GetCurrentUserId();
-        if (userId == null) return Unauthorized();
-
-        var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
-        if (user == null) return NotFound("User not found");
-
-        user.ClearAiSettings();
-        await _userRepository.UpdateAsync(user, cancellationToken);
-
-        return Ok(new { message = "AI settings cleared" });
     }
 
     [HttpGet("settings/ai/full")]
     [Authorize]
-    public async Task<IActionResult> GetFullAiSettings(CancellationToken cancellationToken)
+    public async Task<IActionResult> GetFullAiSettings([FromQuery] Guid? repositoryId, CancellationToken cancellationToken = default)
     {
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
-        if (user == null) return NotFound("User not found");
-
+        var config = await _effectiveAiConfigResolver.GetEffectiveConfigAsync(userId.Value, repositoryId, cancellationToken);
         return Ok(new AiSettingsFullDto
         {
-            Provider = user.AiProvider ?? "openai",
-            ApiKey = user.AiApiKey,
-            Model = user.AiModel ?? "gpt-4",
-            BaseUrl = user.AiBaseUrl
+            Provider = config.Provider,
+            ApiKey = config.ApiKey,
+            Model = config.Model,
+            BaseUrl = config.BaseUrl
         });
+    }
+
+    #endregion
+
+    #region LLM Settings (multiple configs + default)
+
+    [HttpGet("settings/llm")]
+    [Authorize]
+    public async Task<IActionResult> GetLlmSettings(CancellationToken cancellationToken = default)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var list = await _llmSettingRepository.GetByUserIdAsync(userId.Value, cancellationToken);
+        return Ok(list.Select(s => new LlmSettingDto
+        {
+            Id = s.Id,
+            Name = s.Name,
+            Provider = s.Provider,
+            Model = s.Model,
+            BaseUrl = s.BaseUrl,
+            IsDefault = s.IsDefault,
+            HasApiKey = !string.IsNullOrEmpty(s.ApiKey)
+        }).ToList());
+    }
+
+    [HttpPost("settings/llm")]
+    [Authorize]
+    public async Task<IActionResult> CreateLlmSetting([FromBody] CreateLlmSettingRequest request, CancellationToken cancellationToken = default)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var entity = new LlmSetting(
+            userId.Value,
+            request.Name ?? "Unnamed",
+            request.Provider ?? "openai",
+            request.ApiKey,
+            request.Model ?? "gpt-4o",
+            request.BaseUrl,
+            request.IsDefault);
+        entity = await _llmSettingRepository.AddAsync(entity, cancellationToken);
+        return Ok(new LlmSettingDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Provider = entity.Provider,
+            Model = entity.Model,
+            BaseUrl = entity.BaseUrl,
+            IsDefault = entity.IsDefault,
+            HasApiKey = !string.IsNullOrEmpty(entity.ApiKey)
+        });
+    }
+
+    [HttpPatch("settings/llm/{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> UpdateLlmSetting(Guid id, [FromBody] UpdateLlmSettingRequest request, CancellationToken cancellationToken = default)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
+        if (entity == null || entity.UserId != userId.Value) return NotFound();
+
+        entity.Update(
+            request.Name ?? entity.Name,
+            request.ApiKey,
+            request.Model ?? entity.Model,
+            request.BaseUrl);
+        if (request.IsDefault.HasValue) entity.SetDefault(request.IsDefault.Value);
+        await _llmSettingRepository.UpdateAsync(entity, cancellationToken);
+        return Ok(new LlmSettingDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Provider = entity.Provider,
+            Model = entity.Model,
+            BaseUrl = entity.BaseUrl,
+            IsDefault = entity.IsDefault,
+            HasApiKey = !string.IsNullOrEmpty(entity.ApiKey)
+        });
+    }
+
+    [HttpDelete("settings/llm/{id:guid}")]
+    [Authorize]
+    public async Task<IActionResult> DeleteLlmSetting(Guid id, CancellationToken cancellationToken = default)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
+        if (entity == null || entity.UserId != userId.Value) return NotFound();
+
+        await _llmSettingRepository.DeleteAsync(id, cancellationToken);
+        return Ok(new { message = "LLM setting deleted" });
+    }
+
+    [HttpPost("settings/llm/{id:guid}/set-default")]
+    [Authorize]
+    public async Task<IActionResult> SetDefaultLlmSetting(Guid id, CancellationToken cancellationToken = default)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
+        if (entity == null || entity.UserId != userId.Value) return NotFound();
+
+        entity.SetDefault(true);
+        await _llmSettingRepository.UpdateAsync(entity, cancellationToken);
+        return Ok(new { message = "Default LLM setting updated" });
     }
 
     #endregion
@@ -834,16 +925,38 @@ public class AuthController : ControllerBase
     {
         public required string Provider { get; set; }
         public string? ApiKey { get; set; }
-        public required string Model { get; set; }
+        public string? Model { get; set; }
         public string? BaseUrl { get; set; }
     }
 
-    public class AiSettingsRequest
+    public class LlmSettingDto
     {
+        public Guid Id { get; set; }
+        public required string Name { get; set; }
+        public required string Provider { get; set; }
+        public required string Model { get; set; }
+        public string? BaseUrl { get; set; }
+        public bool IsDefault { get; set; }
+        public bool HasApiKey { get; set; }
+    }
+
+    public class CreateLlmSettingRequest
+    {
+        public string? Name { get; set; }
         public string? Provider { get; set; }
         public string? ApiKey { get; set; }
         public string? Model { get; set; }
         public string? BaseUrl { get; set; }
+        public bool IsDefault { get; set; }
+    }
+
+    public class UpdateLlmSettingRequest
+    {
+        public string? Name { get; set; }
+        public string? ApiKey { get; set; }
+        public string? Model { get; set; }
+        public string? BaseUrl { get; set; }
+        public bool? IsDefault { get; set; }
     }
 
     #endregion

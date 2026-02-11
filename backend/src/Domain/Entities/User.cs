@@ -19,12 +19,6 @@ public class User : Entity
     public string? AzureDevOpsAccessToken { get; private set; }
     public DateTime? AzureDevOpsTokenExpiresAt { get; private set; }
     public string? AzureDevOpsOrganization { get; private set; }
-    
-    // AI Configuration
-    public string? AiProvider { get; private set; }  // openai, anthropic, ollama, custom
-    public string? AiApiKey { get; private set; }
-    public string? AiModel { get; private set; }
-    public string? AiBaseUrl { get; private set; }
 
     // Navigation properties
     public List<Repository> Repositories { get; private set; } = new();
@@ -110,27 +104,6 @@ public class User : Entity
         AzureDevOpsOrganization = null;
         AzureDevOpsAccessToken = null;
         AzureDevOpsTokenExpiresAt = null;
-        MarkAsUpdated();
-    }
-
-    public void UpdateAiSettings(string? provider, string? apiKey, string? model, string? baseUrl)
-    {
-        AiProvider = provider;
-        if (apiKey != null)
-        {
-            AiApiKey = apiKey;
-        }
-        AiModel = model;
-        AiBaseUrl = baseUrl;
-        MarkAsUpdated();
-    }
-
-    public void ClearAiSettings()
-    {
-        AiProvider = null;
-        AiApiKey = null;
-        AiModel = null;
-        AiBaseUrl = null;
         MarkAsUpdated();
     }
 }

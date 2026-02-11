@@ -756,6 +756,8 @@ export class AddBacklogItemModalComponent implements OnInit {
   features = input<FeatureOption[]>([]);
   /** If provided, modal is in edit mode */
   editData = input<EditItemData | null>(null);
+  /** Repository ID for this backlog; when set, AI suggest uses this repo's LLM config */
+  repositoryId = input<string | null>(null);
 
   add = output<{
     id?: string; // Present when editing
@@ -863,7 +865,9 @@ export class AddBacklogItemModalComponent implements OnInit {
       'description',
       this.itemType(),
       this.title.trim(),
-      this.description.trim() || undefined
+      this.description.trim() || undefined,
+      undefined,
+      this.repositoryId() ?? undefined
     ).subscribe({
       next: (res) => {
         this.description = res.suggestion;
@@ -890,7 +894,8 @@ export class AddBacklogItemModalComponent implements OnInit {
       this.itemType(),
       this.title.trim(),
       this.acceptanceCriteria.trim() || undefined,
-      this.description.trim() || undefined
+      this.description.trim() || undefined,
+      this.repositoryId() ?? undefined
     ).subscribe({
       next: (res) => {
         this.acceptanceCriteria = res.suggestion;

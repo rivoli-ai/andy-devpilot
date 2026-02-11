@@ -30,6 +30,7 @@ public class BacklogController : ControllerBase
     private readonly ILinkedProviderRepository _linkedProviderRepository;
     private readonly IUserRepository _userRepository;
     private readonly IRepositoryRepository _repositoryRepository;
+    private readonly IEffectiveAiConfigResolver _effectiveAiConfigResolver;
     private readonly IConfiguration _configuration;
 
     public BacklogController(
@@ -43,6 +44,7 @@ public class BacklogController : ControllerBase
         ILinkedProviderRepository linkedProviderRepository,
         IUserRepository userRepository,
         IRepositoryRepository repositoryRepository,
+        IEffectiveAiConfigResolver effectiveAiConfigResolver,
         IConfiguration configuration)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
@@ -55,6 +57,7 @@ public class BacklogController : ControllerBase
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _repositoryRepository = repositoryRepository ?? throw new ArgumentNullException(nameof(repositoryRepository));
+        _effectiveAiConfigResolver = effectiveAiConfigResolver ?? throw new ArgumentNullException(nameof(effectiveAiConfigResolver));
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
@@ -731,16 +734,11 @@ public class BacklogController : ControllerBase
             return Unauthorized(new { error = "Invalid user token" });
         }
 
-        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
-        if (user == null)
-        {
-            return Unauthorized(new { error = "User not found" });
-        }
-
-        // Get user's AI settings with fallback to global config
-        var apiKey = user.AiApiKey ?? _configuration["AI:ApiKey"];
-        var endpoint = user.AiBaseUrl ?? _configuration["AI:Endpoint"];
-        var model = user.AiModel ?? _configuration["AI:Model"] ?? "gpt-4o-mini";
+        // Resolve effective AI config (repo override or user default)
+        var config = await _effectiveAiConfigResolver.GetEffectiveConfigAsync(userId, request.RepositoryId, cancellationToken);
+        var apiKey = !string.IsNullOrEmpty(config.ApiKey) ? config.ApiKey : _configuration["AI:ApiKey"];
+        var endpoint = !string.IsNullOrEmpty(config.BaseUrl) ? config.BaseUrl : _configuration["AI:Endpoint"];
+        var model = !string.IsNullOrEmpty(config.Model) ? config.Model : (_configuration["AI:Model"] ?? "gpt-4o-mini");
 
         if (string.IsNullOrEmpty(apiKey))
         {
@@ -1047,4 +1045,5 @@ public class AISuggestRequest
     public string Title { get; set; } = string.Empty;
     public string? CurrentContent { get; set; }
     public string? Description { get; set; } // For AC suggestions, the story description for context
+    public Guid? RepositoryId { get; set; } // When set, use this repo's LLM; otherwise user default
 }

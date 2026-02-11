@@ -276,22 +276,61 @@ export class AuthService {
     return this.apiService.get<AiSettings>('/auth/settings/ai');
   }
 
-  getFullAiSettings(): Observable<AiSettingsFull> {
-    return this.apiService.get<AiSettingsFull>('/auth/settings/ai/full');
+  getFullAiSettings(repositoryId?: string): Observable<AiSettingsFull> {
+    const q = repositoryId ? `?repositoryId=${encodeURIComponent(repositoryId)}` : '';
+    return this.apiService.get<AiSettingsFull>(`/auth/settings/ai/full${q}`);
   }
 
-  saveAiSettings(provider?: string, apiKey?: string, model?: string, baseUrl?: string): Observable<{ message: string }> {
-    return this.apiService.post<{ message: string }>('/auth/settings/ai', {
-      provider,
-      apiKey,
-      model,
-      baseUrl
-    });
+  // ============================================
+  // LLM Settings (AI providers – single source of truth)
+  // ============================================
+
+  getLlmSettings(): Observable<LlmSettingDto[]> {
+    return this.apiService.get<LlmSettingDto[]>('/auth/settings/llm');
   }
 
-  clearAiSettings(): Observable<{ message: string }> {
-    return this.apiService.delete<{ message: string }>('/auth/settings/ai');
+  createLlmSetting(body: CreateLlmSettingRequest): Observable<LlmSettingDto> {
+    return this.apiService.post<LlmSettingDto>('/auth/settings/llm', body);
   }
+
+  updateLlmSetting(id: string, body: UpdateLlmSettingRequest): Observable<LlmSettingDto> {
+    return this.apiService.patch<LlmSettingDto>(`/auth/settings/llm/${id}`, body);
+  }
+
+  deleteLlmSetting(id: string): Observable<{ message: string }> {
+    return this.apiService.delete<{ message: string }>(`/auth/settings/llm/${id}`);
+  }
+
+  setDefaultLlmSetting(id: string): Observable<{ message: string }> {
+    return this.apiService.post<{ message: string }>(`/auth/settings/llm/${id}/set-default`, {});
+  }
+}
+
+export interface LlmSettingDto {
+  id: string;
+  name: string;
+  provider: string;
+  model: string;
+  baseUrl?: string;
+  isDefault: boolean;
+  hasApiKey: boolean;
+}
+
+export interface CreateLlmSettingRequest {
+  name?: string;
+  provider?: string;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  isDefault?: boolean;
+}
+
+export interface UpdateLlmSettingRequest {
+  name?: string;
+  apiKey?: string;
+  model?: string;
+  baseUrl?: string;
+  isDefault?: boolean;
 }
 
 export interface ProviderSettings {

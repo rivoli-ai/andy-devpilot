@@ -869,6 +869,62 @@
   color: #4da6ff;
 }
 
+/* AI model in meta row (same line as branch, provider) */
+.meta-item--llm {
+  position: relative;
+  padding: 4px 8px 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.12));
+  background: var(--surface-primary, rgba(255, 255, 255, 0.05));
+}
+
+.meta-llm-select {
+  appearance: none;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted, rgba(255, 255, 255, 0.7));
+  background: transparent;
+  border: none;
+  padding: 0 18px 0 0;
+  cursor: pointer;
+  min-width: 88px;
+  font-family: inherit;
+}
+
+.meta-llm-select:hover:not(:disabled) {
+  color: var(--text-primary);
+}
+
+.meta-llm-select:focus {
+  outline: none;
+  color: var(--text-primary);
+}
+
+.meta-llm-select:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.meta-llm-select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%239ca3af' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+}
+
+.meta-llm-spinner {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 10px;
+  height: 10px;
+  border: 2px solid var(--border-light);
+  border-top-color: var(--brand-primary, #6366f1);
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+  pointer-events: none;
+}
+
 /* Light theme for provider badges on cards */
 :host-context([data-theme="light"]) .meta-item.provider.github {
   background: rgba(36, 41, 46, 0.1);
@@ -1035,6 +1091,20 @@
 :host-context([data-theme="light"]) .repo-card-meta {
   background: #f9fafb;
   border-top-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .meta-item--llm {
+  border-color: #e5e7eb;
+  background: #f3f4f6;
+}
+
+:host-context([data-theme="light"]) .meta-llm-select {
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .meta-llm-select:hover:not(:disabled),
+:host-context([data-theme="light"]) .meta-llm-select:focus {
+  color: #1f2937;
 }
 
 :host-context([data-theme="light"]) .meta-item {

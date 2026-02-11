@@ -3,8 +3,9 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
-import { AuthService, LinkedProvider, User, ProviderSettings } from '../../core/services/auth.service';
+import { AuthService, LinkedProvider, User, ProviderSettings, LlmSettingDto } from '../../core/services/auth.service';
 import { AuthProviderConfig } from '../../core/auth/oidc-config.loader';
+import { AIConfigService } from '../../core/services/ai-config.service';
 import { firstValueFrom } from 'rxjs';
 
 /**
@@ -38,13 +39,15 @@ export class SettingsComponent implements OnInit {
   showGitHubPat = signal<boolean>(false);
   hasGitHubPat = signal<boolean>(false);
 
-  // AI Configuration
-  aiProvider = signal<'openai' | 'anthropic' | 'ollama' | 'custom'>('openai');
-  aiApiKey = signal<string>('');
-  aiModel = signal<string>('gpt-4o');
-  aiBaseUrl = signal<string>('');
-  showAiApiKey = signal<boolean>(false);
-  hasAiApiKey = signal<boolean>(false);
+  // AI providers (multiple configs + default)
+  llmFormOpen = signal<boolean>(false);
+  llmFormId = signal<string | null>(null);
+  llmFormName = signal<string>('');
+  llmFormProvider = signal<'openai' | 'anthropic' | 'ollama' | 'custom'>('openai');
+  llmFormModel = signal<string>('gpt-4o');
+  llmFormBaseUrl = signal<string>('');
+  llmFormApiKey = signal<string>('');
+  llmFormShowApiKey = signal<boolean>(false);
 
   /** Providers that can be linked in Connected Providers. Excludes Duende, Azure AD, and GitHub (GitHub has its own row with OAuth/PAT choice). */
   readonly linkableProviders = computed(() => {
@@ -64,6 +67,7 @@ export class SettingsComponent implements OnInit {
 
   constructor(
     private authService: AuthService,
+    private aiConfigService: AIConfigService,
     private oidcSecurityService: OidcSecurityService,
     private router: Router,
     private route: ActivatedRoute
@@ -82,6 +86,7 @@ export class SettingsComponent implements OnInit {
 
     this.loadLinkedProviders();
     this.loadProviderSettings();
+    await this.aiConfigService.loadLlmSettings();
 
     // Check for success message from OAuth callback
     this.route.queryParams.subscribe(params => {
@@ -111,21 +116,6 @@ export class SettingsComponent implements OnInit {
       console.error('Failed to load provider settings:', err);
     }
 
-    try {
-      const aiSettings = await firstValueFrom(this.authService.getAiSettings());
-      if (aiSettings.provider) {
-        this.aiProvider.set(aiSettings.provider as any);
-      }
-      if (aiSettings.model) {
-        this.aiModel.set(aiSettings.model);
-      }
-      if (aiSettings.baseUrl) {
-        this.aiBaseUrl.set(aiSettings.baseUrl);
-      }
-      this.hasAiApiKey.set(aiSettings.hasApiKey);
-    } catch (err) {
-      console.error('Failed to load AI settings:', err);
-    }
   }
 
   // ---- Linked providers ----
@@ -329,78 +319,109 @@ export class SettingsComponent implements OnInit {
     this.showGitHubPat.update(v => !v);
   }
 
-  // ---- AI Configuration ----
+  // ---- AI providers ----
 
-  setAiProvider(provider: 'openai' | 'anthropic' | 'ollama' | 'custom'): void {
-    this.aiProvider.set(provider);
+  llmSettings(): LlmSettingDto[] {
+    return this.aiConfigService.llmSettings();
+  }
+
+  openAddLlmForm(): void {
+    this.llmFormId.set(null);
+    this.llmFormName.set('');
+    this.llmFormProvider.set('openai');
+    this.llmFormModel.set('gpt-4o');
+    this.llmFormBaseUrl.set('');
+    this.llmFormApiKey.set('');
+    this.llmFormOpen.set(true);
+  }
+
+  openEditLlmForm(item: LlmSettingDto): void {
+    this.llmFormId.set(item.id);
+    this.llmFormName.set(item.name || '');
+    this.llmFormProvider.set((item.provider as any) || 'openai');
+    this.llmFormModel.set(item.model || 'gpt-4o');
+    this.llmFormBaseUrl.set(item.baseUrl || '');
+    this.llmFormApiKey.set(''); // Never show existing key
+    this.llmFormOpen.set(true);
+  }
+
+  cancelLlmForm(): void {
+    this.llmFormOpen.set(false);
+    this.llmFormId.set(null);
+  }
+
+  toggleLlmFormShowApiKey(): void {
+    this.llmFormShowApiKey.update(v => !v);
+  }
+
+  setLlmFormProvider(provider: 'openai' | 'anthropic' | 'ollama' | 'custom'): void {
+    this.llmFormProvider.set(provider);
     switch (provider) {
-      case 'openai':
-        this.aiModel.set('gpt-4o');
-        break;
-      case 'anthropic':
-        this.aiModel.set('claude-sonnet-4-20250514');
-        break;
-      case 'ollama':
-        this.aiModel.set('llama3.1');
-        break;
-      case 'custom':
-        this.aiModel.set('');
-        break;
+      case 'openai': this.llmFormModel.set('gpt-4o'); break;
+      case 'anthropic': this.llmFormModel.set('claude-sonnet-4-20250514'); break;
+      case 'ollama': this.llmFormModel.set('llama3.1'); break;
+      default: this.llmFormModel.set(''); break;
     }
   }
 
-  toggleShowAiApiKey(): void {
-    this.showAiApiKey.update(v => !v);
-  }
+  async saveLlmSetting(): Promise<void> {
+    const id = this.llmFormId();
+    const name = this.llmFormName().trim() || undefined;
+    const provider = this.llmFormProvider();
+    const model = this.llmFormModel().trim() || undefined;
+    const baseUrl = this.llmFormBaseUrl().trim() || undefined;
+    const apiKey = this.llmFormApiKey().trim() || undefined;
 
-  async saveAiSettings(): Promise<void> {
-    this.actionLoading.set('ai-settings');
+    this.actionLoading.set('llm-save');
     this.error.set(null);
-
     try {
-      const provider = this.aiProvider();
-      const apiKey = this.aiApiKey().trim() || undefined;
-      const model = this.aiModel().trim() || undefined;
-      const baseUrl = this.aiBaseUrl().trim() || undefined;
-
-      await firstValueFrom(this.authService.saveAiSettings(provider, apiKey, model, baseUrl));
-
-      this.aiApiKey.set('');
-      this.hasAiApiKey.set(!!apiKey || this.hasAiApiKey());
-
-      this.successMessage.set('AI settings saved successfully!');
+      if (id) {
+        await firstValueFrom(this.authService.updateLlmSetting(id, { name, apiKey, model, baseUrl }));
+        this.successMessage.set('LLM configuration updated');
+      } else {
+        await firstValueFrom(this.authService.createLlmSetting({ name, provider, apiKey, model, baseUrl }));
+        this.successMessage.set('LLM configuration added');
+      }
+      await this.aiConfigService.loadLlmSettings();
+      this.cancelLlmForm();
       setTimeout(() => this.successMessage.set(null), 3000);
     } catch (err: any) {
-      this.error.set(err.error?.message || 'Failed to save AI settings');
+      this.error.set(err?.error?.message || err?.message || 'Failed to save');
     } finally {
       this.actionLoading.set(null);
     }
   }
 
-  async clearAiSettings(): Promise<void> {
-    if (!confirm('Are you sure you want to clear AI settings?')) {
-      return;
-    }
-
-    this.actionLoading.set('ai-clear');
+  async setDefaultLlm(id: string): Promise<void> {
+    this.actionLoading.set('llm-default');
+    this.error.set(null);
     try {
-      await firstValueFrom(this.authService.clearAiSettings());
-      this.aiProvider.set('openai');
-      this.aiApiKey.set('');
-      this.aiModel.set('gpt-4o');
-      this.aiBaseUrl.set('');
-      this.hasAiApiKey.set(false);
-      this.successMessage.set('AI settings cleared');
+      await firstValueFrom(this.authService.setDefaultLlmSetting(id));
+      await this.aiConfigService.loadLlmSettings();
+      this.successMessage.set('Default LLM updated');
       setTimeout(() => this.successMessage.set(null), 3000);
     } catch (err: any) {
-      this.error.set(err.error?.message || 'Failed to clear settings');
+      this.error.set(err?.error?.message || err?.message || 'Failed to set default');
     } finally {
       this.actionLoading.set(null);
     }
   }
 
-  isAiConfigured(): boolean {
-    return this.hasAiApiKey();
+  async deleteLlmSetting(id: string): Promise<void> {
+    if (!confirm('Delete this LLM configuration? Repositories using it will fall back to your default.')) return;
+    this.actionLoading.set('llm-delete');
+    this.error.set(null);
+    try {
+      await firstValueFrom(this.authService.deleteLlmSetting(id));
+      await this.aiConfigService.loadLlmSettings();
+      if (this.llmFormId() === id) this.cancelLlmForm();
+      this.successMessage.set('LLM configuration deleted');
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to delete');
+    } finally {
+      this.actionLoading.set(null);
+    }
   }
 
   // ---- Misc ----

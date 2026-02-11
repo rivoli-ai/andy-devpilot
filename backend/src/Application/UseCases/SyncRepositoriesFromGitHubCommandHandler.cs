@@ -93,7 +93,8 @@ public class SyncRepositoriesFromGitHubCommandHandler : IRequestHandler<SyncRepo
             OrganizationName = repository.OrganizationName,
             DefaultBranch = repository.DefaultBranch,
             CreatedAt = repository.CreatedAt,
-            UpdatedAt = repository.UpdatedAt
+            UpdatedAt = repository.UpdatedAt,
+            LlmSettingId = repository.LlmSettingId
         };
     }
 }
