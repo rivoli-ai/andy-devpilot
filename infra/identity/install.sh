@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # ──────────────────────────────────────────────────────────────────────────────
-# DevPilot Identity Server – install script (macOS / Linux)
+# DevPilot Identity Server – single-file install script (macOS / Linux / WSL)
+#
+# This script generates ALL required files (docker-compose.yml, blazor config,
+# certs, CA bundle) and starts the identity server. No other files needed.
 #
 # Usage:
 #   ./install.sh                       # generate certs + start
@@ -15,13 +18,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$SCRIPT_DIR"
 
 # ── Fix Windows CRLF line endings (WSL) ─────────────────────────────────────
-# If this script was checked out on Windows, fix line endings for Docker/sh
 if command -v dos2unix &>/dev/null; then
   dos2unix "$0" 2>/dev/null || true
 elif command -v sed &>/dev/null; then
-  # Fix CRLF in this script and docker-compose.yml
   sed -i 's/\r$//' "$0" 2>/dev/null || true
-  sed -i 's/\r$//' docker-compose.yml 2>/dev/null || true
 fi
 
 # ── Defaults ─────────────────────────────────────────────────────────────────
@@ -81,10 +81,6 @@ echo "    docker  ✓"
 echo "    openssl ✓"
 
 # ── Install enterprise/proxy CA certificates (SSL interception) ──────────────
-# Looks for .crt/.pem files in:
-#   1. ./enterprise-certs/    (identity-specific)
-#   2. ../sandbox/certs/      (shared with sandbox)
-# Installs them into the host OS trust store so Docker can pull images correctly.
 echo ""
 echo "==> Checking for enterprise CA certificates..."
 ENTERPRISE_CERT_COUNT=0
@@ -96,7 +92,6 @@ install_host_certs() {
       [ -f "$f" ] || continue
       local fname
       fname=$(basename "$f")
-      # Skip localhost certs (those are for the identity server itself)
       [[ "$fname" == localhost* ]] && continue
       echo "    Found: $fname (from $src_dir)"
       sudo cp "$f" /usr/local/share/ca-certificates/"$fname" 2>/dev/null || \
@@ -128,7 +123,6 @@ if [ "$ENTERPRISE_CERT_COUNT" -gt 0 ]; then
   sudo update-ca-certificates 2>/dev/null || update-ca-certificates 2>/dev/null || true
   echo "    Restarting Docker to pick up new CAs..."
   sudo systemctl restart docker 2>/dev/null || sudo service docker restart 2>/dev/null || true
-  # Wait for Docker to be ready again
   for i in $(seq 1 15); do
     docker info &>/dev/null && break
     sleep 1
@@ -163,7 +157,6 @@ if [ "$GENERATE_CERTS" = true ]; then
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
     2>/dev/null
 
-  # Generate PFX with legacy algorithms for .NET container compatibility
   openssl pkcs12 -export \
     -out certs/localhost.pfx \
     -inkey certs/localhost.key \
@@ -184,30 +177,26 @@ else
 fi
 
 # ── Build CA bundle for the container ─────────────────────────────────────────
-# The Duende image has no shell, so we can't run update-ca-certificates inside it.
-# Instead, we build a combined CA bundle and mount it directly.
 echo ""
 echo "==> Building CA bundle for container..."
 
-# Start with the system CA bundle
 CA_BUNDLE="certs/ca-bundle.crt"
 if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
   cp /etc/ssl/certs/ca-certificates.crt "$CA_BUNDLE"
 elif [ -f /etc/pki/tls/certs/ca-bundle.crt ]; then
   cp /etc/pki/tls/certs/ca-bundle.crt "$CA_BUNDLE"
+elif [ -f /etc/ssl/cert.pem ]; then
+  cp /etc/ssl/cert.pem "$CA_BUNDLE"
 else
-  # Start empty if no system bundle found
   > "$CA_BUNDLE"
 fi
 
-# Append localhost self-signed cert
 if [ -f certs/localhost.crt ]; then
   echo "" >> "$CA_BUNDLE"
   echo "# DevPilot localhost self-signed" >> "$CA_BUNDLE"
   cat certs/localhost.crt >> "$CA_BUNDLE"
 fi
 
-# Append enterprise certs
 for dir in ./enterprise-certs ../sandbox/certs; do
   if [ -d "$dir" ]; then
     for f in "$dir"/*.crt "$dir"/*.pem; do
@@ -223,7 +212,7 @@ done
 BUNDLE_CERTS=$(grep -c "BEGIN CERTIFICATE" "$CA_BUNDLE" 2>/dev/null || echo "0")
 echo "    $CA_BUNDLE ✓ ($BUNDLE_CERTS certificates)"
 
-# ── Trust certificate (macOS only) ──────────────────────────────────────────
+# ── Trust certificate (macOS / Linux) ────────────────────────────────────────
 if [ "$TRUST_CERT" = true ]; then
   if [[ "$(uname)" == "Darwin" ]]; then
     echo ""
@@ -256,30 +245,168 @@ REDIS_PORT=6379
 EOF
 echo "    .env ✓"
 
-# ── Update blazor-appsettings.json with the correct port ────────────────────
+# ── Generate blazor-appsettings.json ─────────────────────────────────────────
 echo ""
-echo "==> Updating blazor-appsettings.json for port ${IDS_PORT}..."
-python3 -c "
-import json
-with open('blazor-appsettings.json', 'r') as f:
-    d = json.load(f)
-port = '${IDS_PORT}'
-base = f'https://localhost:{port}'
-d['apiBaseUrl'] = f'{base}/api'
-d['providerOptions']['authority'] = f'{base}/'
-d['providerOptions']['redirectUri'] = f'{base}/authentication/login-callback'
-d['providerOptions']['postLogoutRedirectUri'] = f'{base}/authentication/logout-callback'
-d['settingsOptions']['apiUrl'] = f'{base}/api/api/configuration'
-with open('blazor-appsettings.json', 'w') as f:
-    json.dump(d, f, indent=2)
-    f.write('\n')
-" 2>/dev/null || echo "    (python3 not available – blazor-appsettings.json uses default port 5001)"
+echo "==> Generating blazor-appsettings.json for port ${IDS_PORT}..."
+BASE_URL="https://localhost:${IDS_PORT}"
+cat > blazor-appsettings.json <<EOF
+{
+  "prerendered": true,
+  "administratorEmail": "${ADMIN_EMAIL}",
+  "apiBaseUrl": "${BASE_URL}/api",
+  "loggingOptions": {
+    "minimum": "Warning"
+  },
+  "authenticationPaths": {
+    "remoteRegisterPath": "/identity/account/register",
+    "remoteProfilePath": "/identity/account/manage"
+  },
+  "userOptions": {
+    "roleClaim": "role"
+  },
+  "providerOptions": {
+    "authority": "${BASE_URL}/",
+    "clientId": "theidserveradmin",
+    "defaultScopes": [
+      "openid",
+      "profile",
+      "theidserveradminapi"
+    ],
+    "postLogoutRedirectUri": "${BASE_URL}/authentication/logout-callback",
+    "redirectUri": "${BASE_URL}/authentication/login-callback",
+    "responseType": "code"
+  },
+  "welcomeContenUrl": "/api/welcomefragment",
+  "settingsOptions": {
+    "typeName": "Aguacongas.TheIdServer.BlazorApp.Models.ServerConfig, Aguacongas.TheIdServer.BlazorApp.Infrastructure",
+    "apiUrl": "${BASE_URL}/api/api/configuration"
+  },
+  "menuOptions": {
+    "showSettings": true
+  }
+}
+EOF
 echo "    blazor-appsettings.json ✓"
+
+# ── Generate docker-compose.yml ──────────────────────────────────────────────
+echo ""
+echo "==> Generating docker-compose.yml..."
+cat > docker-compose.yml <<'COMPOSE_EOF'
+services:
+  redis:
+    image: redis:7
+    container_name: devpilot-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  duende:
+    image: aguacongas/theidserver.duende:6.0.0
+    container_name: devpilot-duende
+    platform: linux/amd64
+    ports:
+      - "${IDS_PORT:-5001}:${IDS_PORT:-5001}"
+    environment:
+      # ── Kestrel / HTTPS ──────────────────────────────────────────────
+      ASPNETCORE_URLS: "https://+:${IDS_PORT:-5001}"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: "/certs/localhost.pfx"
+      ASPNETCORE_Kestrel__Certificates__Default__Password: "${CERT_PASSWORD:-devpassword}"
+
+      # ── Storage ──────────────────────────────────────────────────────
+      RedisConfigurationOptions__ConnectionString: "redis:6379,abortConnect=False"
+      DbType: "Sqlite"
+      ConnectionStrings__DefaultConnection: "Data Source=/data/theidserver.db"
+      Seed: "true"
+
+      # ── IdentityServer issuer & internal API auth ────────────────────
+      IdentityServer__IssuerUri: "https://localhost:${IDS_PORT:-5001}"
+      ApiAuthentication__Authority: "https://localhost:${IDS_PORT:-5001}"
+      ApiAuthentication__RequireHttpsMetadata: "false"
+      PrivateServerAuthentication__Authority: "https://localhost:${IDS_PORT:-5001}"
+      PrivateServerAuthentication__ApiUrl: "https://localhost:${IDS_PORT:-5001}/api"
+      PrivateServerAuthentication__HeathUrl: "https://localhost:${IDS_PORT:-5001}/healthz"
+      PrivateServerAuthentication__RequireHttpsMetadata: "false"
+
+      # ── SSL / Enterprise proxy ─────────────────────────────────────
+      SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt"
+
+      # ── Client 0 – Admin Blazor SPA (built-in UI) ───────────────────
+      InitialData__Clients__0__ClientId: "theidserveradmin"
+      InitialData__Clients__0__ClientName: "DevPilot Admin UI"
+      InitialData__Clients__0__ClientClaimsPrefix: ""
+      InitialData__Clients__0__AllowedGrantTypes__0: "authorization_code"
+      InitialData__Clients__0__RequirePkce: "true"
+      InitialData__Clients__0__RequireClientSecret: "false"
+      InitialData__Clients__0__BackChannelLogoutSessionRequired: "false"
+      InitialData__Clients__0__FrontChannelLogoutSessionRequired: "false"
+      InitialData__Clients__0__AccessTokenType: "Reference"
+      InitialData__Clients__0__RedirectUris__0: "https://localhost:${IDS_PORT:-5001}/authentication/login-callback"
+      InitialData__Clients__0__PostLogoutRedirectUris__0: "https://localhost:${IDS_PORT:-5001}/authentication/logout-callback"
+      InitialData__Clients__0__AllowedCorsOrigins__0: "https://localhost:${IDS_PORT:-5001}"
+      InitialData__Clients__0__AllowedScopes__0: "openid"
+      InitialData__Clients__0__AllowedScopes__1: "profile"
+      InitialData__Clients__0__AllowedScopes__2: "theidserveradminapi"
+
+      # ── Client 1 – Internal server-to-server (keep default) ─────────
+      # public-server client is inherited from the image defaults
+
+      # ── Client 2 – DevPilot SPA (replaces swagger client) ───────────
+      InitialData__Clients__2__ClientId: "devpilot-spa"
+      InitialData__Clients__2__ClientName: "DevPilot SPA"
+      InitialData__Clients__2__ClientClaimsPrefix: ""
+      InitialData__Clients__2__AllowedGrantTypes__0: "authorization_code"
+      InitialData__Clients__2__RequirePkce: "true"
+      InitialData__Clients__2__RequireClientSecret: "false"
+      InitialData__Clients__2__AllowAccessTokensViaBrowser: "true"
+      InitialData__Clients__2__AccessTokenType: "Jwt"
+      InitialData__Clients__2__FrontChannelLogoutSessionRequired: "false"
+      InitialData__Clients__2__BackChannelLogoutSessionRequired: "false"
+      InitialData__Clients__2__RedirectUris__0: "http://localhost:4200/auth/callback/Duende"
+      InitialData__Clients__2__PostLogoutRedirectUris__0: "http://localhost:4200"
+      InitialData__Clients__2__AllowedCorsOrigins__0: "http://localhost:4200"
+      InitialData__Clients__2__AllowedScopes__0: "openid"
+      InitialData__Clients__2__AllowedScopes__1: "profile"
+      InitialData__Clients__2__AllowedScopes__2: "email"
+
+      # ── Admin user (replaces default alice) ──────────────────────────
+      InitialData__Users__0__UserName: "${ADMIN_USERNAME:-admin}"
+      InitialData__Users__0__Email: "${ADMIN_EMAIL:-admin@devpilot.local}"
+      InitialData__Users__0__EmailConfirmed: "true"
+      InitialData__Users__0__Password: "${ADMIN_PASSWORD:-DevPilot123!}"
+      InitialData__Users__0__Roles__0: "Is4-Writer"
+      InitialData__Users__0__Roles__1: "Is4-Reader"
+      InitialData__Users__0__Claims__0__ClaimType: "name"
+      InitialData__Users__0__Claims__0__ClaimValue: "${ADMIN_DISPLAY_NAME:-DevPilot Admin}"
+      InitialData__Users__0__Claims__1__ClaimType: "given_name"
+      InitialData__Users__0__Claims__1__ClaimValue: "${ADMIN_USERNAME:-admin}"
+      InitialData__Users__0__Claims__2__ClaimType: "email"
+      InitialData__Users__0__Claims__2__ClaimValue: "${ADMIN_EMAIL:-admin@devpilot.local}"
+
+    volumes:
+      - duende-data:/data
+      - ./certs:/certs:ro
+      - ./blazor-appsettings.json:/app/wwwroot/appsettings.json:ro
+      - ./certs/ca-bundle.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  duende-data:
+COMPOSE_EOF
+echo "    docker-compose.yml ✓"
 
 # ── Verify certs exist before starting ────────────────────────────────────────
 echo ""
 echo "==> Verifying certificates..."
-for f in certs/localhost.crt certs/localhost.key certs/localhost.pfx; do
+for f in certs/localhost.crt certs/localhost.key certs/localhost.pfx certs/ca-bundle.crt; do
   if [ ! -f "$f" ]; then
     echo "ERROR: $f not found. Cannot start without certificates."
     echo "       Re-run without --no-certs to generate them."
