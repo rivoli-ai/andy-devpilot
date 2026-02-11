@@ -808,6 +808,29 @@
 }
 
 /* Empty State */
+/* Filter empty – compact inline (no scroll) */
+.filter-empty-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.filter-empty-message .filter-empty-icon {
+  width: 20px;
+  height: 20px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.filter-empty-message p {
+  margin: 0;
+}
+
 .empty-state {
   display: flex;
   flex-direction: column;

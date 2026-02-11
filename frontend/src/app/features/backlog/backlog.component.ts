@@ -294,6 +294,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.standaloneStoriesForTree().length > 0
   );
 
+  /** True when backlog has any raw data (before filtering). Keeps stats bar + filters visible when filter yields 0 items. */
+  hasRawBacklogItems = computed(() => this.epics().length > 0);
+
   // Standalone epic (used for deleteFeature parent - never displayed)
   standaloneEpic = computed(() =>
     this.epics().find(e => e.title === STANDALONE_EPIC_TITLE)

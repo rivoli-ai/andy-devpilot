@@ -44,6 +44,8 @@ export interface ZedConversation {
 export interface ZedConversationsResponse {
   conversations: ZedConversation[];
   count: number;
+  /** From /all-conversations: true while bridge is handling a chat request (LLM streaming/processing) */
+  request_in_progress?: boolean;
 }
 
 @Injectable({
@@ -339,9 +341,9 @@ export class SandboxBridgeService {
 
   /**
    * Wait for implementation to complete.
-   * Polls the conversations endpoint and detects when the AI has finished responding.
-   * Waits for a conversation to appear and then stabilize (no new conversations for a while).
-   * 
+   * Polls /all-conversations and detects when the AI has finished responding.
+   * Uses bridge's request_in_progress flag (no hardcoded delay).
+   *
    * @param bridgePort The bridge port
    * @param promptSentTimestamp The timestamp when the prompt was sent (to ignore older conversations)
    * @param pollIntervalMs Poll interval in milliseconds (default 5000 = 5s)
@@ -355,64 +357,46 @@ export class SandboxBridgeService {
   ): Observable<ZedConversation> {
     const stop$ = new Subject<void>();
     const startTime = Date.now();
-    let lastConversationId: string | null = null;
-    let lastChangeTime: number = Date.now();
-    let latestConversation: ZedConversation | null = null;
-    const stabilityThresholdMs = 30000; // Wait 30s without changes to consider "done"
 
     console.log('[WaitForImpl] Starting to monitor for implementation completion...');
-    console.log('[WaitForImpl] Will wait for AI to be idle for 30s before marking as ready');
+    console.log('[WaitForImpl] Using bridge request_in_progress (no fixed delay)');
 
     return interval(pollIntervalMs).pipe(
       takeUntil(stop$),
       switchMap(() => {
         const elapsed = Date.now() - startTime;
-        
-        // Check timeout
+
         if (elapsed > timeoutMs) {
           console.log('[WaitForImpl] Timeout waiting for implementation');
           stop$.next();
           throw new Error('Timeout waiting for implementation to complete');
         }
 
-        console.log(`[WaitForImpl] Polling... (${Math.round(elapsed/1000)}s elapsed)`);
-        return this.getZedConversations(bridgePort);
+        console.log(`[WaitForImpl] Polling... (${Math.round(elapsed / 1000)}s elapsed)`);
+        return this.getAllConversations(bridgePort);
       }),
       map(response => {
-        // Find conversations that happened after we sent the prompt
         const recentConversations = response.conversations.filter(
           c => c.timestamp > promptSentTimestamp
         );
 
-        if (recentConversations.length > 0) {
-          // Get the most recent one
-          const latest = recentConversations[recentConversations.length - 1];
-          
-          // Check if this is a new conversation we haven't seen
-          if (latest.id !== lastConversationId) {
-            lastConversationId = latest.id;
-            lastChangeTime = Date.now();
-            latestConversation = latest;
-            console.log('[WaitForImpl] New conversation detected:', {
-              id: latest.id,
-              responseLength: latest.assistant_message?.length || 0,
-              hadToolExecution: latest.had_tool_execution
-            });
-          }
-          
-          // Check if we have a conversation and it's been stable for a while
-          const timeSinceLastChange = Date.now() - lastChangeTime;
-          if (latestConversation && timeSinceLastChange >= stabilityThresholdMs) {
-            console.log(`[WaitForImpl] AI has been idle for ${Math.round(timeSinceLastChange/1000)}s - marking as complete`);
-            return latestConversation;
-          } else if (latestConversation) {
-            console.log(`[WaitForImpl] Waiting for stability... ${Math.round(timeSinceLastChange/1000)}s since last change`);
-          }
+        if (recentConversations.length === 0) {
+          return null;
         }
-        return null;
+
+        const latest = recentConversations[recentConversations.length - 1];
+        const inProgress = response.request_in_progress === true;
+
+        if (inProgress) {
+          console.log('[WaitForImpl] Bridge still processing, waiting...');
+          return null;
+        }
+
+        console.log('[WaitForImpl] Bridge idle + conversation present - marking as complete');
+        return latest;
       }),
       filter((conv): conv is ZedConversation => conv !== null),
-      take(1), // Complete after stable conversation detected
+      take(1),
       tap(conv => {
         console.log('[WaitForImpl] Implementation complete!', conv.id);
         stop$.next();

@@ -892,6 +892,10 @@ except ImportError:
 # Store all Zed conversations (for frontend access)
 zed_conversations = []
 
+# True while handling a chat/completions request (LLM streaming or processing)
+# Frontend uses this to know when implementation is truly done (no 30s guess)
+bridge_request_in_progress = False
+
 # Patterns to filter out system/internal Zed messages
 SYSTEM_MESSAGE_PATTERNS = [
     "Generate a concise",
@@ -1016,6 +1020,8 @@ def openai_chat_completions():
     
     logger.info(f"Extracted user message: {user_message[:200] if user_message else '(none)'}...")
     
+    global bridge_request_in_progress
+    bridge_request_in_progress = True
     try:
         import requests as http_requests
         import time
@@ -1041,6 +1047,7 @@ def openai_chat_completions():
         if stream:
             # Streaming response with full tool call support
             def generate_stream():
+                global bridge_request_in_progress
                 full_text_response = ""
                 has_tool_calls = False
                 tool_calls_buffer = []  # Buffer to collect tool call chunks
@@ -1156,6 +1163,8 @@ def openai_chat_completions():
                     error_data = {"error": {"message": str(e), "type": "api_error"}}
                     yield f"data: {json.dumps(error_data)}\n\n"
                     yield "data: [DONE]\n\n"
+                finally:
+                    bridge_request_in_progress = False
             
             from flask import Response
             return Response(
@@ -1275,6 +1284,9 @@ def openai_chat_completions():
                 "type": "api_error"
             }
         }), 500
+    finally:
+        if not stream:
+            bridge_request_in_progress = False
 
 @app.route('/v1/models', methods=['GET'])
 def openai_list_models():
@@ -1503,7 +1515,8 @@ def get_all_conversations():
     
     return jsonify({
         "conversations": all_convs,
-        "count": len(all_convs)
+        "count": len(all_convs),
+        "request_in_progress": bridge_request_in_progress
     })
 
 @app.route('/chat', methods=['POST'])
