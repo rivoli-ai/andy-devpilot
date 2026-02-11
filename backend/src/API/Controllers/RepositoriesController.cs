@@ -1924,6 +1924,18 @@ public class RepositoriesController : ControllerBase
             }
         }
 
-        return Ok(new { cloneUrl });
+        // For GitHub, also return archive URL (zipball) so sandbox can download code without git clone when clone is blocked
+        string? archiveUrl = null;
+        if (repository.Provider == ProviderTypes.GitHub)
+        {
+            var parts = repository.FullName.Split('/');
+            if (parts.Length == 2)
+            {
+                var branch = repository.DefaultBranch ?? "main";
+                archiveUrl = $"https://api.github.com/repos/{parts[0]}/{parts[1]}/zipball/{branch}";
+            }
+        }
+
+        return Ok(new { cloneUrl, archiveUrl });
     }
 }

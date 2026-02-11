@@ -574,24 +574,24 @@ export class CodeComponent implements OnInit, OnDestroy {
       base_url: aiProviderConfig.baseUrl
     };
 
-    // Get authenticated clone URL
+    // Get authenticated clone URL (and archive URL for fallback when clone is blocked)
     this.repositoryService.getAuthenticatedCloneUrl(repoId).subscribe({
       next: (result) => {
-        this.createAnalysisSandbox(repo, result.cloneUrl, branch, aiConfig);
+        this.createAnalysisSandbox(repo, result.cloneUrl, branch, aiConfig, result.archiveUrl);
       },
       error: (err) => {
         console.error('Failed to get authenticated clone URL:', err);
-        // Fallback to regular URL using cloneUrl from repo
         this.createAnalysisSandbox(repo, repo.cloneUrl, branch, aiConfig);
       }
     });
   }
 
-  private createAnalysisSandbox(repo: Repository, cloneUrl: string, branch: string, aiConfig: any): void {
+  private createAnalysisSandbox(repo: Repository, cloneUrl: string, branch: string, aiConfig: any, repoArchiveUrl?: string): void {
     this.sandboxService.createSandbox({
       repo_url: cloneUrl,
       repo_name: repo.name,
       repo_branch: branch,
+      repo_archive_url: repoArchiveUrl,
       ai_config: aiConfig
     }).subscribe({
       next: (sandbox) => {

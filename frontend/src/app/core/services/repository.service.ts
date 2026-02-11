@@ -425,10 +425,11 @@ export class RepositoryService {
   }
 
   /**
-   * Get authenticated clone URL (with PAT embedded for private repos)
+   * Get authenticated clone URL (with PAT embedded for private repos).
+   * For GitHub repos also returns archiveUrl (zipball) so sandbox can download code without git clone when clone is blocked.
    */
-  getAuthenticatedCloneUrl(repositoryId: string): Observable<{ cloneUrl: string }> {
-    return this.apiService.get<{ cloneUrl: string }>(`/repositories/${repositoryId}/clone-url`);
+  getAuthenticatedCloneUrl(repositoryId: string): Observable<{ cloneUrl: string; archiveUrl?: string }> {
+    return this.apiService.get<{ cloneUrl: string; archiveUrl?: string }>(`/repositories/${repositoryId}/clone-url`);
   }
 
   /**

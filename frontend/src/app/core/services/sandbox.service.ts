@@ -28,6 +28,8 @@ export interface CreateSandboxRequest {
   repo_url?: string;
   repo_name?: string;
   repo_branch?: string;
+  /** GitHub zipball URL (e.g. api.github.com/.../zipball/main) to download code without git clone when clone is blocked */
+  repo_archive_url?: string;
   github_token?: string; // For cloning private GitHub repos
   azure_devops_pat?: string; // For cloning Azure DevOps repos
   ai_config?: {

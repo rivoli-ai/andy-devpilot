@@ -529,26 +529,26 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
 
     const zedSettings = this.aiConfigService.getZedSettingsJson();
 
-    // Fetch authenticated clone URL (with PAT embedded for private repos)
+    // Fetch authenticated clone URL (and archive URL for fallback when clone is blocked)
     this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
       next: (result) => {
-        this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings);
+        this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
       },
       error: (err) => {
         console.error('Failed to get authenticated clone URL:', err);
-        // Fallback to regular clone URL
         const repoUrl = this.buildRepoCloneUrl(repo);
         this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings);
       }
     });
   }
 
-  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object): void {
+  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string): void {
     // Create sandbox
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
+      repo_archive_url: repoArchiveUrl,
       ai_config: {
         provider: aiConfig.provider,
         api_key: aiConfig.apiKey,

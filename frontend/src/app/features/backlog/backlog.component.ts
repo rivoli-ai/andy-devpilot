@@ -927,32 +927,32 @@ export class BacklogComponent implements OnInit, OnDestroy {
     const zedSettings = this.aiConfigService.getZedSettingsJson();
     const defaultBranch = repo.defaultBranch || 'main';
 
-    const openSandboxWithBranch = (repoUrl: string, branch: string) => {
-      this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings, branch);
+    const openSandboxWithBranch = (repoUrl: string, branch: string, archiveUrl?: string) => {
+      this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings, branch, archiveUrl);
     };
 
     // If story already has a PR, clone the PR branch so we can continue work
-    const resolveBranch = (repoUrl: string) => {
+    const resolveBranch = (repoUrl: string, archiveUrl?: string) => {
       if (story.prUrl && repo.provider === 'GitHub') {
         console.log('[Sandbox] Fetching PR head branch for:', story.prUrl);
         this.backlogService.getPrHeadBranch(story.prUrl).subscribe({
           next: (res) => {
             console.log('[Sandbox] Using PR branch:', res.branch);
-            openSandboxWithBranch(repoUrl, res.branch);
+            openSandboxWithBranch(repoUrl, res.branch, archiveUrl);
           },
           error: (err) => {
             console.warn('[Sandbox] Failed to get PR branch, using default:', err);
-            openSandboxWithBranch(repoUrl, defaultBranch);
+            openSandboxWithBranch(repoUrl, defaultBranch, archiveUrl);
           }
         });
         return;
       }
-      openSandboxWithBranch(repoUrl, defaultBranch);
+      openSandboxWithBranch(repoUrl, defaultBranch, archiveUrl);
     };
 
-    // Fetch authenticated clone URL (with PAT embedded for private repos)
+    // Fetch authenticated clone URL (and archive URL for fallback when clone is blocked)
     this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-      next: (result) => resolveBranch(result.cloneUrl),
+      next: (result) => resolveBranch(result.cloneUrl, result.archiveUrl),
       error: (err) => {
         console.error('Failed to get authenticated clone URL:', err);
         const repoUrl = this.buildRepoCloneUrl(repo);
@@ -969,13 +969,15 @@ export class BacklogComponent implements OnInit, OnDestroy {
     epicTitle: string,
     aiConfig: any,
     zedSettings: object,
-    branch: string
+    branch: string,
+    repoArchiveUrl?: string
   ): void {
     // Create sandbox (branch may be PR head branch when story already has a PR)
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
       repo_branch: branch,
+      repo_archive_url: repoArchiveUrl,
       ai_config: {
         provider: aiConfig.provider,
         api_key: aiConfig.apiKey,
@@ -1205,14 +1207,13 @@ Start by exploring the codebase and then provide your implementation plan.`;
     const aiConfig = this.aiConfigService.defaultProvider();
     const zedSettings = this.aiConfigService.getZedSettingsJson();
 
-    // Fetch authenticated clone URL (with PAT embedded for private repos)
+    // Fetch authenticated clone URL (and archive URL for fallback when clone is blocked)
     this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
       next: (result) => {
-        this.createSandboxWithConfig(repo, result.cloneUrl, aiConfig, zedSettings);
+        this.createSandboxWithConfig(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
       },
       error: (err) => {
         console.error('Failed to get authenticated clone URL:', err);
-        // Fallback to regular clone URL
         const repoUrl = this.buildRepoCloneUrl(repo);
         this.createSandboxWithConfig(repo, repoUrl, aiConfig, zedSettings);
       }
@@ -1223,12 +1224,14 @@ Start by exploring the codebase and then provide your implementation plan.`;
     repo: Repository, 
     repoUrl: string, 
     aiConfig: any, 
-    zedSettings: object
+    zedSettings: object,
+    repoArchiveUrl?: string
   ): void {
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
+      repo_archive_url: repoArchiveUrl,
       ai_config: {
         provider: aiConfig.provider,
         api_key: aiConfig.apiKey,
