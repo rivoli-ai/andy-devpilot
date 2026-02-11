@@ -106,6 +106,41 @@ cd $PROJECT_DIR
 log_info "Creating desktop image..."
 mkdir -p desktop
 
+# ── Custom certificates ──────────────────────────────────────────────────
+# Users can place .crt/.pem files in sandbox/certs/ BEFORE running this script.
+# These are copied into the container's CA trust store at build time.
+# Typical use case: Zscaler, corporate proxies, or any custom Root CA.
+# Resolve script source dir (works when run directly; falls back to $PROJECT_DIR when piped)
+if [ -n "${BASH_SOURCE[0]}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
+    SCRIPT_SOURCE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+else
+    SCRIPT_SOURCE_DIR="$PROJECT_DIR"
+fi
+CERTS_SOURCE="${SCRIPT_SOURCE_DIR}/certs"
+CERTS_BUILD="desktop/certs"
+mkdir -p "$CERTS_BUILD"
+
+CERT_COUNT=0
+if [ -d "$CERTS_SOURCE" ]; then
+    for f in "$CERTS_SOURCE"/*.crt "$CERTS_SOURCE"/*.pem "$CERTS_SOURCE"/*.cer; do
+        [ -f "$f" ] || continue
+        cp "$f" "$CERTS_BUILD/"
+        CERT_COUNT=$((CERT_COUNT + 1))
+        log_info "  Found custom certificate: $(basename "$f")"
+    done
+fi
+
+if [ "$CERT_COUNT" -gt 0 ]; then
+    log_info "Loaded $CERT_COUNT custom certificate(s) from $CERTS_SOURCE"
+else
+    log_warn "No custom certificates found in $CERTS_SOURCE"
+    log_warn "If you're behind a corporate proxy (Zscaler, etc.), place your"
+    log_warn "root CA .crt files in: $CERTS_SOURCE/"
+    log_warn "Then re-run this script."
+    # Create an empty placeholder so COPY doesn't fail
+    touch "$CERTS_BUILD/.keep"
+fi
+
 # Create Zed installation script - download directly like Firefox (no install script)
 cat > desktop/install-zed.sh << 'INSTALL_ZED_SCRIPT'
 #!/bin/bash
@@ -256,76 +291,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── SSL certificate fix (build-time) ──
-# Enterprise uses Zscaler SSL inspection which replaces all HTTPS certs
-# with Zscaler-signed ones. Install Zscaler Root CA + known DigiCert/Microsoft certs.
-# Phase 1: Install Zscaler Root CA (embedded - can't download if Zscaler intercepts!)
-RUN echo '-----BEGIN CERTIFICATE-----' > /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'MIIE0zCCA7ugAwIBAgIJANu+mC2Jt3uTMA0GCSqGSIb3DQEBCwUAMIGhMQswCQYD' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'VQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTERMA8GA1UEBxMIU2FuIEpvc2Ux' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'FTATBgNVBAoTDFpzY2FsZXIgSW5jLjEVMBMGA1UECxMMWnNjYWxlciBJbmMuMRgw' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'FgYDVQQDEw9ac2NhbGVyIFJvb3QgQ0ExIjAgBgkqhkiG9w0BCQEWE3N1cHBvcnRA' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'enNjYWxlci5jb20wHhcNMTQxMjE5MDAyNzU1WhcNNDIwNTA2MDAyNzU1WjCBoTEL' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'MAkGA1UEBhMCVVMxEzARBgNVBAgTCkNhbGlmb3JuaWExETAPBgNVBAcTCFNhbiBK' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'b3NlMRUwEwYDVQQKEwxac2NhbGVyIEluYy4xFTATBgNVBAsTDFpzY2FsZXIgSW5j' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'LjEYMBYGA1UEAxMPWnNjYWxlciBSb290IENBMSIwIAYJKoZIhvcNAQkBFhNzdXBw' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'b3J0QHpzY2FsZXIuY29tMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'qT7STSxZRTgEFFf6doHajSc1vk5jmzmM6BWuOo044EsaTc9eVEV/HjH/1DWzZtcr' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'fTj+ni205apMTlKBW3UYR+lyLHQ9FoZiDXYXK8poKSV5+Tm0Vls/5Kb8mkhVVqv7' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'LgYEmvEY7HPY+i1nEGZCa46ZXCOohJ0mBEtB9JVlpDIO+nN0hUMAYYdZ1KZWCMNf' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo '5J/aTZiShsorN2A38iSOhdd+mcRM4iNL3gsLu99XhKnRqKoHeH83lVdfu1XBeoQz' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'z5V6gA3kbRvhDwoIlTBeMa5l4yRdJAfdpkbFzqiwSgNdhbxTHnYYorDzKfr2rEFM' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'dsMU0DHdeAZf711+1CunuQIDAQABo4IBCjCCAQYwHQYDVR0OBBYEFLm33UrNww4M' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'hp1d3+wcBGnFTpjfMIHWBgNVHSMEgc4wgcuAFLm33UrNww4Mhp1d3+wcBGnFTpjf' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'oYGnpIGkMIGhMQswCQYDVQQGEwJVUzETMBEGA1UECBMKQ2FsaWZvcm5pYTERMA8G' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'A1UEBxMIU2FuIEpvc2UxFTATBgNVBAoTDFpzY2FsZXIgSW5jLjEVMBMGA1UECxMM' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'WnNjYWxlciBJbmMuMRgwFgYDVQQDEw9ac2NhbGVyIFJvb3QgQ0ExIjAgBgkqhkiG' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo '9w0BCQEWE3N1cHBvcnRAenNjYWxlci5jb22CCQDbvpgtibd7kzAMBgNVHRMEBTAD' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'AQH/MA0GCSqGSIb3DQEBCwUAA4IBAQAw0NdJh8w3NsJu4KHuVZUrmZgIohnTm0j+' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'RTmYQ9IKA/pvxAcA6K1i/LO+Bt+tCX+C0yxqB8qzuo+4vAzoY5JEBhyhBhf1uK+P' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo '/WVWFZN/+hTgpSbZgzUEnWQG2gOVd24msex+0Sr7hyr9vn6OueH+jj+vCMiAm5+u' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'kd7lLvJsBu3AO3jGWVLyPkS3i6Gf+rwAp1OsRrv3WnbkYcFf9xjuaf4z0hRCrLN2' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'xFNjavxrHmsH8jPHVvgc1VD0Opja0l/BRVauTrUaoW6tE+wFG5rEcPGS80jjHK4S' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo 'pB5iDj2mUZH1T8lzYtuZy0ZPirxmtsk3135+CKNa2OCAhhFjE0xd' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt && \
-    echo '-----END CERTIFICATE-----' >> /usr/local/share/ca-certificates/ZscalerRootCA.crt
-
-# Phase 2: Download known DigiCert/Microsoft root and intermediate certs
-RUN update-ca-certificates && \
-    curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootG2.crt \
-        https://cacerts.digicert.com/DigiCertGlobalRootG2.crt.pem || true && \
-    curl -ksL -o /usr/local/share/ca-certificates/DigiCertGlobalRootCA.crt \
-        https://cacerts.digicert.com/DigiCertGlobalRootCA.crt.pem || true && \
-    curl -ksL -o /tmp/DigiCertSHA2ExtendedValidationServerCA.crt.der \
-        https://cacerts.digicert.com/DigiCertSHA2ExtendedValidationServerCA.crt && \
-    openssl x509 -inform DER -in /tmp/DigiCertSHA2ExtendedValidationServerCA.crt.der \
-        -out /usr/local/share/ca-certificates/DigiCertSHA2ExtendedValidationServerCA.crt 2>/dev/null || true && \
-    curl -ksL -o /tmp/DigiCertTLSRSASHA2562020CA1-1.crt.der \
-        https://cacerts.digicert.com/DigiCertTLSRSASHA2562020CA1-1.crt && \
-    openssl x509 -inform DER -in /tmp/DigiCertTLSRSASHA2562020CA1-1.crt.der \
-        -out /usr/local/share/ca-certificates/DigiCertTLSRSASHA2562020CA1.crt 2>/dev/null || true && \
-    curl -ksL -o /tmp/MicrosoftAzureTLSIssuingCA01.der \
-        https://www.microsoft.com/pkiops/certs/Microsoft%20Azure%20TLS%20Issuing%20CA%2001%20-%20xsign.crt && \
-    openssl x509 -inform DER -in /tmp/MicrosoftAzureTLSIssuingCA01.der \
-        -out /usr/local/share/ca-certificates/MicrosoftAzureTLSIssuingCA01.crt 2>/dev/null || true && \
-    curl -ksL -o /tmp/MicrosoftAzureTLSIssuingCA02.der \
-        https://www.microsoft.com/pkiops/certs/Microsoft%20Azure%20TLS%20Issuing%20CA%2002%20-%20xsign.crt && \
-    openssl x509 -inform DER -in /tmp/MicrosoftAzureTLSIssuingCA02.der \
-        -out /usr/local/share/ca-certificates/MicrosoftAzureTLSIssuingCA02.crt 2>/dev/null || true && \
-    curl -ksL -o /tmp/MicrosoftRSATLS.der \
-        https://www.microsoft.com/pkiops/certs/Microsoft%20RSA%20TLS%20CA%2001.crt && \
-    openssl x509 -inform DER -in /tmp/MicrosoftRSATLS.der \
-        -out /usr/local/share/ca-certificates/MicrosoftRSATLSCA01.crt 2>/dev/null || true && \
-    curl -ksL -o /tmp/MicrosoftRSATLS02.der \
-        https://www.microsoft.com/pkiops/certs/Microsoft%20RSA%20TLS%20CA%2002.crt && \
-    openssl x509 -inform DER -in /tmp/MicrosoftRSATLS02.der \
-        -out /usr/local/share/ca-certificates/MicrosoftRSATLSCA02.crt 2>/dev/null || true && \
-    rm -f /tmp/*.der && \
+# ── SSL certificates (build-time) ──
+# Custom certificates (Zscaler, corporate proxy, etc.) are loaded from the
+# sandbox/certs/ folder. Users place their .crt/.pem files there BEFORE building.
+# The setup script copies them into the Docker build context automatically.
+COPY certs/ /usr/local/share/ca-certificates/custom/
+RUN find /usr/local/share/ca-certificates/custom/ -name '.keep' -delete 2>/dev/null || true && \
     update-ca-certificates
 
-# Phase 2: Extract LIVE certificate chains from actual servers using openssl s_client.
-# CRITICAL FIX: Split each cert into its OWN file. When multiple certs are in one file,
-# c_rehash only indexes the FIRST cert. The root CA (last in chain) gets missed,
-# causing .NET's X509Chain to fail with "partial chain" even though curl works.
+# Extract LIVE certificate chains from actual servers using openssl s_client.
+# Splits each cert into its OWN file so c_rehash indexes ALL of them.
+# This catches any intermediate/root CAs that the corporate proxy injects.
 RUN for HOST in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do \
         echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
             awk -v host=${HOST} \
@@ -453,21 +429,29 @@ RUN echo '# SSL bypass for sandbox (dev environment)' >> /home/sandbox/.bashrc &
     chown sandbox:sandbox /home/sandbox/.bashrc
 
 # Create fix-ssl helper script (user can type "fix-ssl" in terminal if SSL issues persist)
-# Splits each cert into individual files so c_rehash indexes ALL of them
-RUN echo '#!/bin/bash' > /usr/local/bin/fix-ssl && \
-    echo 'echo "Extracting SSL certs (individual files)..."' >> /usr/local/bin/fix-ssl && \
-    echo 'for H in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do' >> /usr/local/bin/fix-ssl && \
-    echo '  echo | openssl s_client -showcerts -connect $H:443 -servername $H 2>/dev/null | \'  >> /usr/local/bin/fix-ssl && \
-    echo '    awk -v h=$H "BEGIN{n=0}/BEGIN CERT/{n++;f=\"/tmp/c-\"h\"-\"n\".pem\"}/BEGIN CERT/,/END CERT/{print>f}" 2>/dev/null' >> /usr/local/bin/fix-ssl && \
-    echo '  for F in /tmp/c-$H-*.pem; do' >> /usr/local/bin/fix-ssl && \
-    echo '    [ -f "$F" ] && sudo cp "$F" /usr/local/share/ca-certificates/$(basename $F .pem).crt && rm -f "$F"' >> /usr/local/bin/fix-ssl && \
-    echo '  done' >> /usr/local/bin/fix-ssl && \
-    echo '  echo "  $H: done"' >> /usr/local/bin/fix-ssl && \
-    echo 'done' >> /usr/local/bin/fix-ssl && \
-    echo 'sudo update-ca-certificates 2>/dev/null' >> /usr/local/bin/fix-ssl && \
-    echo 'sudo c_rehash /etc/ssl/certs 2>/dev/null' >> /usr/local/bin/fix-ssl && \
-    echo 'echo "Done. Try dotnet restore again."' >> /usr/local/bin/fix-ssl && \
-    chmod +x /usr/local/bin/fix-ssl
+# Re-extracts live certs from servers and updates the trust store
+RUN cat > /usr/local/bin/fix-ssl << 'FIX_SSL_SCRIPT'
+#!/bin/bash
+echo "==> Extracting live SSL certs from servers..."
+for H in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do
+  echo | openssl s_client -showcerts -connect $H:443 -servername $H 2>/dev/null | \
+    awk -v h=$H 'BEGIN{n=0}/BEGIN CERT/{n++;f="/tmp/c-"h"-"n".pem"}/BEGIN CERT/,/END CERT/{print>f}' 2>/dev/null
+  for F in /tmp/c-$H-*.pem; do
+    [ -f "$F" ] && sudo cp "$F" /usr/local/share/ca-certificates/$(basename $F .pem).crt && rm -f "$F"
+  done
+  echo "  $H: done"
+done
+echo ""
+echo "==> Updating trust store..."
+sudo update-ca-certificates 2>/dev/null
+sudo c_rehash /etc/ssl/certs 2>/dev/null
+echo ""
+echo "Done. Try 'dotnet restore' again."
+echo ""
+echo "TIP: If this keeps failing, export your corporate root CA (Zscaler, etc.)"
+echo "     and place it in sandbox/certs/ then re-run setup.sh"
+FIX_SSL_SCRIPT
+chmod +x /usr/local/bin/fix-ssl
 
 # Configure nginx for noVNC proxy (port 6080)
 RUN echo 'server {' > /etc/nginx/sites-available/novnc && \

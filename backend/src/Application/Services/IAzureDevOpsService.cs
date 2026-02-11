@@ -159,6 +159,16 @@ public interface IAzureDevOpsService
         string? status = "all",
         CancellationToken cancellationToken = default,
         bool useBasicAuth = false);
+
+    /// <summary>
+    /// Gets the status of a single pull request by parsing an Azure DevOps PR URL.
+    /// URL format: https://dev.azure.com/{organization}/{project}/_git/{repo}/pullrequest/{prId}
+    /// </summary>
+    System.Threading.Tasks.Task<PullRequestStatusDto> GetPullRequestStatusAsync(
+        string accessToken,
+        string prUrl,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
 }
 
 /// <summary>

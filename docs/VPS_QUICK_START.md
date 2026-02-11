@@ -46,7 +46,7 @@ Expected response: `{"status": "ok"}`
 
 ### 5. Configure DevPilot Backend
 
-In `src/API/appsettings.Development.json`:
+In `backend/src/API/appsettings.Development.json`:
 
 ```json
 {

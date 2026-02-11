@@ -492,6 +492,21 @@ export class BacklogComponent implements OnInit, OnDestroy {
           response.updatedStories.forEach(s => {
             console.log(`  - ${s.storyTitle}: ${s.oldStatus} -> ${s.newStatus} (PR merged: ${s.prMerged})`);
           });
+
+          // Update local epics signal with new statuses from sync response
+          const updatedStatusMap = new Map(
+            response.updatedStories.map(s => [s.storyId, s.newStatus])
+          );
+          this.epics.update(currentEpics => currentEpics.map(epic => ({
+            ...epic,
+            features: epic.features.map(feature => ({
+              ...feature,
+              userStories: feature.userStories.map(story => {
+                const newStatus = updatedStatusMap.get(story.id);
+                return newStatus ? { ...story, status: newStatus } : story;
+              })
+            }))
+          })));
         }
       },
       error: (err) => {

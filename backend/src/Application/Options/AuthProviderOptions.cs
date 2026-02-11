@@ -69,4 +69,10 @@ public class ProviderConfig
     /// to retrieve the external user profile (e.g. Azure DevOps profile API).
     /// </summary>
     public string? ProfileEndpoint { get; set; }
+
+    /// <summary>
+    /// When true, skips SSL certificate validation for this provider's authority
+    /// and profile endpoints. Use only for local development with self-signed certs.
+    /// </summary>
+    public bool DangerousAcceptAnyServerCertificate { get; set; }
 }

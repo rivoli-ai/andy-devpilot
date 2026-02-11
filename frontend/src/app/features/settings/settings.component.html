@@ -45,15 +45,81 @@
       </div>
     } @else {
       <ul class="provider-list">
-        <!-- OAuth providers (e.g. GitHub) -->
+        <!-- GitHub: one section, choose OAuth2 or PAT -->
+        <li class="provider-row provider-row--expandable">
+          <span class="prov-icon github">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          </span>
+          <div class="prov-meta">
+            <strong>GitHub</strong>
+            @if (isProviderLinked('GitHub')) {
+              <span class="status status--ok">Connected (OAuth){{ getProviderUsername('GitHub') ? ' as ' + getProviderUsername('GitHub') : '' }}</span>
+            } @else if (hasGitHubPat()) {
+              <span class="status status--ok">Connected (PAT)</span>
+            } @else {
+              <span class="status">Not connected</span>
+            }
+          </div>
+          <div class="github-mode-toggle">
+            <button type="button" class="btn btn--ghost btn--sm" [class.active]="githubConnectionMode() === 'oauth'" (click)="githubConnectionMode.set('oauth')">OAuth2</button>
+            <button type="button" class="btn btn--ghost btn--sm" [class.active]="githubConnectionMode() === 'pat'" (click)="githubConnectionMode.set('pat')">PAT</button>
+          </div>
+          @if (githubConnectionMode() === 'oauth') {
+            @if (isProviderLinked('GitHub')) {
+              <button class="btn btn--ghost btn--sm" (click)="unlinkProvider('GitHub')" [disabled]="actionLoading() === 'github'">
+                @if (actionLoading() === 'github') { <span class="btn-spin"></span> }
+                Disconnect
+              </button>
+            } @else {
+              @if (githubProviderConfig(); as cfg) {
+                <button class="btn btn--primary btn--sm" (click)="linkProvider(cfg)" [disabled]="actionLoading() === 'github'">
+                  @if (actionLoading() === 'github') { <span class="btn-spin"></span> }
+                  Connect with OAuth
+                </button>
+              }
+            }
+          } @else {
+            @if (hasGitHubPat()) {
+              <button class="btn btn--ghost btn--sm" (click)="clearGitHubSettings()" [disabled]="actionLoading() === 'github-clear'">
+                @if (actionLoading() === 'github-clear') { <span class="btn-spin"></span> }
+                Disconnect
+              </button>
+            } @else {
+              <button class="btn btn--primary btn--sm" (click)="saveGitHubSettings()" [disabled]="actionLoading() === 'github-settings' || !githubPat()">
+                @if (actionLoading() === 'github-settings') { <span class="btn-spin"></span> }
+                Connect with PAT
+              </button>
+            }
+          }
+
+          @if (githubConnectionMode() === 'pat' && !hasGitHubPat()) {
+            <div class="pat-form">
+              <div class="field field--grow">
+                <label for="githubPat">
+                  PAT
+                  <a href="https://github.com/settings/tokens?type=classic" target="_blank" rel="noopener" class="field__link">Create</a>
+                </label>
+                <div class="input-secret">
+                  <input id="githubPat" [type]="showGitHubPat() ? 'text' : 'password'" placeholder="Paste PAT (repo scope)" [ngModel]="githubPat()" (ngModelChange)="githubPat.set($event)" />
+                  <button type="button" class="eye-toggle" (click)="toggleShowGitHubPat()">
+                    @if (showGitHubPat()) {
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                    } @else {
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                    }
+                  </button>
+                </div>
+              </div>
+              <span class="hint">Scopes: repo (or public_repo)</span>
+            </div>
+          }
+        </li>
+
+        <!-- Other OAuth providers -->
         @for (cfg of linkableProviders(); track cfg.name) {
           <li class="provider-row">
             <span class="prov-icon" [class]="cfg.name.toLowerCase()">
-              @if (cfg.name.toLowerCase() === 'github') {
-                <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-              } @else {
-                <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
-              }
+              <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
             </span>
             <div class="prov-meta">
               <strong>{{ getProviderDisplayName(cfg.name) }}</strong>

@@ -326,11 +326,12 @@ export class BacklogService {
   }
 
   /**
-   * Check PR status for a single story
+   * Check PR status for a single story.
+   * Supports both GitHub and Azure DevOps PR URLs (uses JWT auth).
    */
-  checkStoryPrStatus(storyId: string, accessToken: string): Observable<StoryPrStatusResponse> {
+  checkStoryPrStatus(storyId: string): Observable<StoryPrStatusResponse> {
     return this.apiService.get<StoryPrStatusResponse>(
-      `/backlog/story/${storyId}/pr-status?accessToken=${encodeURIComponent(accessToken)}`
+      `/backlog/story/${storyId}/pr-status`
     ).pipe(
       tap(response => {
         if (response.statusUpdated && response.storyStatus) {

@@ -96,7 +96,7 @@ curl http://localhost:8090/health
 
 ### Backend Configuration
 
-In `src/API/appsettings.Development.json`:
+In `backend/src/API/appsettings.Development.json`:
 
 ```json
 {

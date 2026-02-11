@@ -23,6 +23,7 @@ public class BacklogController : ControllerBase
     private readonly IMediator _mediator;
     private readonly ILogger<BacklogController> _logger;
     private readonly IGitHubService _gitHubService;
+    private readonly IAzureDevOpsService _azureDevOpsService;
     private readonly IUserStoryRepository _userStoryRepository;
     private readonly IEpicRepository _epicRepository;
     private readonly IFeatureRepository _featureRepository;
@@ -35,6 +36,7 @@ public class BacklogController : ControllerBase
         IMediator mediator, 
         ILogger<BacklogController> logger,
         IGitHubService gitHubService,
+        IAzureDevOpsService azureDevOpsService,
         IUserStoryRepository userStoryRepository,
         IEpicRepository epicRepository,
         IFeatureRepository featureRepository,
@@ -46,6 +48,7 @@ public class BacklogController : ControllerBase
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _gitHubService = gitHubService ?? throw new ArgumentNullException(nameof(gitHubService));
+        _azureDevOpsService = azureDevOpsService ?? throw new ArgumentNullException(nameof(azureDevOpsService));
         _userStoryRepository = userStoryRepository ?? throw new ArgumentNullException(nameof(userStoryRepository));
         _epicRepository = epicRepository ?? throw new ArgumentNullException(nameof(epicRepository));
         _featureRepository = featureRepository ?? throw new ArgumentNullException(nameof(featureRepository));
@@ -393,11 +396,11 @@ public class BacklogController : ControllerBase
     }
 
     /// <summary>
-    /// Sync PR statuses for all stories with PRs in a repository
-    /// Checks GitHub for PR status and updates story status accordingly:
+    /// Sync PR statuses for all stories with PRs in a repository.
+    /// Checks GitHub or Azure DevOps (based on PR URL) for PR status and updates story status accordingly:
     /// - PR open -> PendingReview
-    /// - PR merged -> Done
-    /// Uses the authenticated user's GitHub token from the database.
+    /// - PR merged/completed -> Done
+    /// Uses the authenticated user's provider tokens from the database.
     /// </summary>
     /// <param name="repositoryId">The ID of the repository</param>
     [HttpPost("repository/{repositoryId}/sync-pr-status")]
@@ -417,12 +420,12 @@ public class BacklogController : ControllerBase
         var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repo == null) return Forbid();
 
-        // Get GitHub access token from database
-        var accessToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
-        if (string.IsNullOrEmpty(accessToken))
-        {
-            return BadRequest(new { error = "GitHub is not connected. Please link your GitHub account first." });
-        }
+        // Pre-fetch tokens (lazy — only resolve when needed)
+        string? gitHubToken = null;
+        bool gitHubTokenResolved = false;
+        string? adoToken = null;
+        bool adoUseBasicAuth = false;
+        bool adoTokenResolved = false;
 
         // Get all stories for this repository
         var query = new GetBacklogByRepositoryIdQuery(repositoryId);
@@ -446,11 +449,49 @@ public class BacklogController : ControllerBase
 
                     try
                     {
-                        // Get PR status from GitHub
-                        var prStatus = await _gitHubService.GetPullRequestStatusAsync(
-                            accessToken,
-                            story.PrUrl,
-                            cancellationToken);
+                        PullRequestStatusDto prStatus;
+
+                        if (IsAzureDevOpsPrUrl(story.PrUrl))
+                        {
+                            // Lazy-resolve Azure DevOps token
+                            if (!adoTokenResolved)
+                            {
+                                (adoToken, adoUseBasicAuth) = await GetAzureDevOpsAccessTokenAsync(userId, cancellationToken);
+                                adoTokenResolved = true;
+                            }
+
+                            if (string.IsNullOrEmpty(adoToken))
+                            {
+                                _logger.LogWarning("No Azure DevOps token available, skipping PR status check for story {StoryId}", story.Id);
+                                continue;
+                            }
+
+                            prStatus = await _azureDevOpsService.GetPullRequestStatusAsync(
+                                adoToken,
+                                story.PrUrl,
+                                cancellationToken,
+                                adoUseBasicAuth);
+                        }
+                        else
+                        {
+                            // Lazy-resolve GitHub token
+                            if (!gitHubTokenResolved)
+                            {
+                                gitHubToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
+                                gitHubTokenResolved = true;
+                            }
+
+                            if (string.IsNullOrEmpty(gitHubToken))
+                            {
+                                _logger.LogWarning("No GitHub token available, skipping PR status check for story {StoryId}", story.Id);
+                                continue;
+                            }
+
+                            prStatus = await _gitHubService.GetPullRequestStatusAsync(
+                                gitHubToken,
+                                story.PrUrl,
+                                cancellationToken);
+                        }
 
                         string newStatus;
                         if (prStatus.IsMerged)
@@ -459,7 +500,7 @@ public class BacklogController : ControllerBase
                         }
                         else if (prStatus.State == "closed")
                         {
-                            // PR closed without merge - keep as PendingReview or set to specific status
+                            // PR closed without merge - keep as PendingReview
                             newStatus = "PendingReview";
                         }
                         else
@@ -508,12 +549,13 @@ public class BacklogController : ControllerBase
     }
 
     /// <summary>
-    /// Check PR status for a single story
+    /// Check PR status for a single story.
+    /// Supports both GitHub and Azure DevOps PR URLs.
     /// </summary>
     [HttpGet("story/{storyId}/pr-status")]
+    [Authorize]
     public async Task<IActionResult> CheckStoryPrStatus(
         Guid storyId,
-        [FromQuery] string accessToken,
         CancellationToken cancellationToken)
     {
         var story = await _userStoryRepository.GetByIdAsync(storyId, cancellationToken);
@@ -527,12 +569,44 @@ public class BacklogController : ControllerBase
             return Ok(new { storyId, hasPr = false });
         }
 
+        // Get user ID from JWT token
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized(new { error = "Invalid user token" });
+        }
+
         try
         {
-            var prStatus = await _gitHubService.GetPullRequestStatusAsync(
-                accessToken,
-                story.PrUrl,
-                cancellationToken);
+            PullRequestStatusDto prStatus;
+
+            if (IsAzureDevOpsPrUrl(story.PrUrl))
+            {
+                var (adoToken, useBasicAuth) = await GetAzureDevOpsAccessTokenAsync(userId, cancellationToken);
+                if (string.IsNullOrEmpty(adoToken))
+                {
+                    return BadRequest(new { error = "Azure DevOps is not connected. Please link your Azure DevOps account or configure a PAT in Settings." });
+                }
+
+                prStatus = await _azureDevOpsService.GetPullRequestStatusAsync(
+                    adoToken,
+                    story.PrUrl,
+                    cancellationToken,
+                    useBasicAuth);
+            }
+            else
+            {
+                var gitHubToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
+                if (string.IsNullOrEmpty(gitHubToken))
+                {
+                    return BadRequest(new { error = "GitHub is not connected. Please link your GitHub account first." });
+                }
+
+                prStatus = await _gitHubService.GetPullRequestStatusAsync(
+                    gitHubToken,
+                    story.PrUrl,
+                    cancellationToken);
+            }
 
             // Determine the expected status based on PR state
             string expectedStatus;
@@ -817,6 +891,40 @@ Rules:
         // Fallback to legacy GitHubAccessToken field on User
         var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
         return user?.GitHubAccessToken;
+    }
+
+    /// <summary>
+    /// Get Azure DevOps access token from linked providers or legacy user field.
+    /// Returns the token and whether it uses Basic auth (PAT).
+    /// </summary>
+    private async Task<(string? accessToken, bool useBasicAuth)> GetAzureDevOpsAccessTokenAsync(Guid userId, CancellationToken cancellationToken)
+    {
+        // PRIORITY: Use PAT if user has configured one
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        if (user != null && !string.IsNullOrEmpty(user.AzureDevOpsAccessToken))
+        {
+            var encodedPat = Convert.ToBase64String(
+                System.Text.Encoding.ASCII.GetBytes($":{user.AzureDevOpsAccessToken}"));
+            return (encodedPat, true);
+        }
+
+        // Fall back to OAuth token from LinkedProvider
+        var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(userId, ProviderTypes.AzureDevOps, cancellationToken);
+        if (linkedProvider != null && !string.IsNullOrEmpty(linkedProvider.AccessToken))
+        {
+            return (linkedProvider.AccessToken, false);
+        }
+
+        return (null, false);
+    }
+
+    /// <summary>
+    /// Determines whether a PR URL is an Azure DevOps URL.
+    /// </summary>
+    private static bool IsAzureDevOpsPrUrl(string prUrl)
+    {
+        return prUrl.Contains("dev.azure.com", StringComparison.OrdinalIgnoreCase)
+            || prUrl.Contains("visualstudio.com", StringComparison.OrdinalIgnoreCase);
     }
 }
 

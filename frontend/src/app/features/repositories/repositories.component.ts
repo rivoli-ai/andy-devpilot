@@ -427,11 +427,27 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   syncFromAzureDevOps(organizationName?: string): void {
-    // If no organization provided, show prompt first
-    if (!organizationName) {
-      this.showAzureDevOpsOrgPrompt.set(true);
+    if (organizationName?.trim()) {
+      this.openAzureDevOpsSyncModal(organizationName.trim());
       return;
     }
+    // Use organization from settings if available
+    this.authService.getProviderSettings().subscribe({
+      next: (settings) => {
+        const orgFromSettings = settings.azureDevOpsOrganization?.trim();
+        if (orgFromSettings) {
+          this.openAzureDevOpsSyncModal(orgFromSettings);
+        } else {
+          this.showAzureDevOpsOrgPrompt.set(true);
+        }
+      },
+      error: () => {
+        this.showAzureDevOpsOrgPrompt.set(true);
+      }
+    });
+  }
+
+  private openAzureDevOpsSyncModal(organizationName: string): void {
     this.closeSyncMenu();
     this.syncSelectProvider.set('AzureDevOps');
     this.syncSelectOrg.set(organizationName);

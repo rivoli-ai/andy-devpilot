@@ -1,0 +1,35 @@
+{
+  "prerendered": true,
+  "administratorEmail": "admin@devpilot.local",
+  "apiBaseUrl": "https://localhost:5001/api",
+  "loggingOptions": {
+    "minimum": "Warning"
+  },
+  "authenticationPaths": {
+    "remoteRegisterPath": "/identity/account/register",
+    "remoteProfilePath": "/identity/account/manage"
+  },
+  "userOptions": {
+    "roleClaim": "role"
+  },
+  "providerOptions": {
+    "authority": "https://localhost:5001/",
+    "clientId": "theidserveradmin",
+    "defaultScopes": [
+      "openid",
+      "profile",
+      "theidserveradminapi"
+    ],
+    "postLogoutRedirectUri": "https://localhost:5001/authentication/logout-callback",
+    "redirectUri": "https://localhost:5001/authentication/login-callback",
+    "responseType": "code"
+  },
+  "welcomeContenUrl": "/api/welcomefragment",
+  "settingsOptions": {
+    "typeName": "Aguacongas.TheIdServer.BlazorApp.Models.ServerConfig, Aguacongas.TheIdServer.BlazorApp.Infrastructure",
+    "apiUrl": "https://localhost:5001/api/api/configuration"
+  },
+  "menuOptions": {
+    "showSettings": true
+  }
+}

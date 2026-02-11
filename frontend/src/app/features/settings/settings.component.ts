@@ -32,6 +32,12 @@ export class SettingsComponent implements OnInit {
   showAzurePat = signal<boolean>(false);
   hasAzureDevOpsPat = signal<boolean>(false);
 
+  // GitHub: OAuth or PAT (same section, user selects)
+  githubConnectionMode = signal<'oauth' | 'pat'>('oauth');
+  githubPat = signal<string>('');
+  showGitHubPat = signal<boolean>(false);
+  hasGitHubPat = signal<boolean>(false);
+
   // AI Configuration
   aiProvider = signal<'openai' | 'anthropic' | 'ollama' | 'custom'>('openai');
   aiApiKey = signal<string>('');
@@ -40,15 +46,21 @@ export class SettingsComponent implements OnInit {
   showAiApiKey = signal<boolean>(false);
   hasAiApiKey = signal<boolean>(false);
 
-  /** Providers that can be linked in Connected Providers. Excludes Duende and Azure AD; Azure DevOps is PAT-only in Personal Access Tokens. */
+  /** Providers that can be linked in Connected Providers. Excludes Duende, Azure AD, and GitHub (GitHub has its own row with OAuth/PAT choice). */
   readonly linkableProviders = computed(() => {
     return this.authService.providerConfigs().filter(p => {
       if (p.type === 'Local') return false;
       if (p.name.toLowerCase() === 'duende') return false;
       if (p.name.toLowerCase() === 'azuread') return false;
+      if (p.name.toLowerCase() === 'github') return false;
       return true;
     });
   });
+
+  /** GitHub provider config for OAuth connect (used in the combined GitHub row). */
+  readonly githubProviderConfig = computed(() =>
+    this.authService.providerConfigs().find(p => p.name.toLowerCase() === 'github') ?? null
+  );
 
   constructor(
     private authService: AuthService,
@@ -94,6 +106,7 @@ export class SettingsComponent implements OnInit {
         this.azureDevOpsOrg.set(settings.azureDevOpsOrganization);
       }
       this.hasAzureDevOpsPat.set(settings.hasAzureDevOpsPat);
+      this.hasGitHubPat.set(settings.hasGitHubPat);
     } catch (err) {
       console.error('Failed to load provider settings:', err);
     }
@@ -272,6 +285,48 @@ export class SettingsComponent implements OnInit {
 
   hasAzureDevOpsConfig(): boolean {
     return !!(this.azureDevOpsOrg() || this.hasAzureDevOpsPat());
+  }
+
+  // ---- GitHub PAT settings ----
+
+  async saveGitHubSettings(): Promise<void> {
+    this.actionLoading.set('github-settings');
+    this.error.set(null);
+
+    try {
+      const pat = this.githubPat().trim() || undefined;
+      await firstValueFrom(this.authService.saveGitHubSettings(pat));
+      this.githubPat.set('');
+      this.hasGitHubPat.set(!!pat || this.hasGitHubPat());
+      this.successMessage.set('GitHub PAT saved successfully!');
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err.error?.message || 'Failed to save GitHub settings');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async clearGitHubSettings(): Promise<void> {
+    if (!confirm('Are you sure you want to clear your GitHub PAT? You can still use GitHub via OAuth if connected.')) {
+      return;
+    }
+    this.actionLoading.set('github-clear');
+    try {
+      await firstValueFrom(this.authService.clearGitHubSettings());
+      this.githubPat.set('');
+      this.hasGitHubPat.set(false);
+      this.successMessage.set('GitHub PAT cleared');
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err.error?.message || 'Failed to clear GitHub PAT');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  toggleShowGitHubPat(): void {
+    this.showGitHubPat.update(v => !v);
   }
 
   // ---- AI Configuration ----

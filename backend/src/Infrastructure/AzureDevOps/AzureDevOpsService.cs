@@ -1315,4 +1315,109 @@ public class AzureDevOpsService : IAzureDevOpsService
             throw;
         }
     }
+
+    public async System.Threading.Tasks.Task<PullRequestStatusDto> GetPullRequestStatusAsync(
+        string accessToken,
+        string prUrl,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+
+        try
+        {
+            // Parse Azure DevOps PR URL:
+            // https://dev.azure.com/{organization}/{project}/_git/{repo}/pullrequest/{prId}
+            var (organization, project, repositoryId, prId) = ParseAzureDevOpsPrUrl(prUrl);
+
+            _logger.LogInformation("Checking Azure DevOps PR status for {Organization}/{Project}/{Repo}#{PrId}",
+                organization, project, repositoryId, prId);
+
+            var url = $"https://dev.azure.com/{organization}/{project}/_apis/git/pullrequests/{prId}?api-version={AzureDevOpsApiVersion}";
+
+            var response = await httpClient.GetAsync(url, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (content.TrimStart().StartsWith("<"))
+            {
+                throw new InvalidOperationException("Azure DevOps authentication failed. Please use a valid token.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Azure DevOps PR status API failed: {StatusCode} - {Content}", response.StatusCode, content);
+                throw new HttpRequestException($"Azure DevOps API returned {response.StatusCode}");
+            }
+
+            var pr = JsonDocument.Parse(content);
+            var prStatus = pr.RootElement.TryGetProperty("status", out var s) ? s.GetString() ?? "unknown" : "unknown";
+
+            // Azure DevOps PR statuses: "active", "completed", "abandoned"
+            // "completed" = merged (completed PRs are merged)
+            var isMerged = prStatus.Equals("completed", StringComparison.OrdinalIgnoreCase);
+            var state = prStatus.ToLowerInvariant() switch
+            {
+                "active" => "open",
+                "completed" => "closed",
+                "abandoned" => "closed",
+                _ => prStatus
+            };
+
+            string? mergedAt = null;
+            if (isMerged && pr.RootElement.TryGetProperty("closedDate", out var closedDate) && closedDate.ValueKind != JsonValueKind.Null)
+            {
+                mergedAt = closedDate.GetString();
+            }
+
+            return new PullRequestStatusDto
+            {
+                State = state,
+                IsMerged = isMerged,
+                MergedAt = mergedAt
+            };
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting PR status for Azure DevOps PR {PrUrl}", prUrl);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Parses an Azure DevOps PR URL to extract organization, project, repository, and PR ID.
+    /// Expected format: https://dev.azure.com/{organization}/{project}/_git/{repo}/pullrequest/{prId}
+    /// </summary>
+    private static (string organization, string project, string repositoryId, int prId) ParseAzureDevOpsPrUrl(string prUrl)
+    {
+        prUrl = prUrl.TrimEnd('/');
+
+        if (!Uri.TryCreate(prUrl, UriKind.Absolute, out var uri))
+        {
+            throw new ArgumentException($"Invalid Azure DevOps PR URL format: {prUrl}");
+        }
+
+        var segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+
+        // Expected: /{organization}/{project}/_git/{repo}/pullrequest/{prId}
+        // segments: [organization, project, _git, repo, pullrequest, prId]
+        if (segments.Length < 6 || segments[2] != "_git" || segments[4] != "pullrequest")
+        {
+            throw new ArgumentException($"Invalid Azure DevOps PR URL format. Expected: https://dev.azure.com/org/project/_git/repo/pullrequest/123, got: {prUrl}");
+        }
+
+        var organization = segments[0];
+        var project = segments[1];
+        var repositoryId = segments[3];
+
+        if (!int.TryParse(segments[5], out var prId))
+        {
+            throw new ArgumentException($"Invalid PR ID in Azure DevOps URL: {prUrl}");
+        }
+
+        return (organization, project, repositoryId, prId);
+    }
 }

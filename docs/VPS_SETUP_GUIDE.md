@@ -227,7 +227,7 @@ curl http://localhost:8090/health
 
 ### 6.1 Backend Configuration
 
-Edit `src/API/appsettings.Development.json`:
+Edit `backend/src/API/appsettings.Development.json`:
 
 ```json
 {

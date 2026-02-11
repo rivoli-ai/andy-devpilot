@@ -29,7 +29,7 @@ Installation directory: **`/opt/devpilot-sandbox`** (manager, `run.sh`, `manager
   `frontend/src/app/core/config/vps.config.ts` should already use `ip: 'localhost'` and `sandboxApiPort: 8090`. If you use a different host/port, change them there.
 
 - **Backend**  
-  In `src/API/appsettings.Development.json` add (or merge) a `VPS` section so the API talks to your local manager:
+  In `backend/src/API/appsettings.Development.json` add (or merge) a `VPS` section so the API talks to your local manager:
 
 ```json
 {

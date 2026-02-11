@@ -33,9 +33,25 @@ public class OidcAuthProvider : IAuthProvider
         var authority = config.Authority ?? throw new InvalidOperationException($"Authority is required for OIDC provider '{name}'");
         var metadataAddress = authority.TrimEnd('/') + "/.well-known/openid-configuration";
 
-        _configManager = new ConfigurationManager<OpenIdConnectConfiguration>(
-            metadataAddress,
-            new OpenIdConnectConfigurationRetriever());
+        if (config.DangerousAcceptAnyServerCertificate)
+        {
+            // Use a custom HttpClient that ignores SSL certificate errors (dev-only)
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+            };
+            var httpClient = new HttpClient(handler);
+            _configManager = new ConfigurationManager<OpenIdConnectConfiguration>(
+                metadataAddress,
+                new OpenIdConnectConfigurationRetriever(),
+                new HttpDocumentRetriever(httpClient) { RequireHttps = false });
+        }
+        else
+        {
+            _configManager = new ConfigurationManager<OpenIdConnectConfiguration>(
+                metadataAddress,
+                new OpenIdConnectConfigurationRetriever());
+        }
 
         // Build valid audiences list: accept tokens issued for either
         // the backend (confidential) client or the frontend (SPA) client.
@@ -103,7 +119,20 @@ public class OidcAuthProvider : IAuthProvider
 
     private async Task<ExternalUserProfile> FetchProfileFromEndpoint(string accessToken, CancellationToken ct)
     {
-        using var httpClient = _httpClientFactory.CreateClient();
+        HttpClient httpClient;
+        if (_config.DangerousAcceptAnyServerCertificate)
+        {
+            var handler = new HttpClientHandler
+            {
+                ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator
+            };
+            httpClient = new HttpClient(handler);
+        }
+        else
+        {
+            httpClient = _httpClientFactory.CreateClient();
+        }
+        using var _ = httpClient;
         httpClient.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
 
