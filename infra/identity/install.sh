@@ -187,16 +187,22 @@ for f in certs/localhost.crt certs/localhost.key certs/localhost.pfx; do
   echo "    $f ✓"
 done
 
-# ── Enable QEMU emulation for cross-arch images (needed on ARM WSL for amd64) ─
+# ── Enable QEMU emulation for cross-arch images (needed on ARM for amd64) ────
 ARCH=$(uname -m)
+echo ""
+echo "==> Host architecture: $ARCH"
 if [[ "$ARCH" != "x86_64" && "$ARCH" != "amd64" ]]; then
-  echo ""
-  echo "==> Detected architecture: $ARCH (non-amd64)"
-  echo "    Enabling QEMU emulation for amd64 containers..."
-  docker run --privileged --rm tonistiigi/binfmt --install amd64 2>/dev/null || {
-    echo "    WARNING: Could not install QEMU binfmt. amd64 containers may fail."
-    echo "    You can install it manually: docker run --privileged --rm tonistiigi/binfmt --install all"
-  }
+  echo "    The Duende image is amd64-only. Installing QEMU emulation..."
+  if docker run --privileged --rm tonistiigi/binfmt --install amd64; then
+    echo "    QEMU amd64 emulation enabled ✓"
+  else
+    echo "    ERROR: Could not install QEMU binfmt emulation."
+    echo "    Run manually: docker run --privileged --rm tonistiigi/binfmt --install all"
+    echo "    Then re-run this script."
+    exit 1
+  fi
+else
+  echo "    amd64 native — no emulation needed ✓"
 fi
 
 # ── Stop any existing containers ─────────────────────────────────────────────
@@ -208,7 +214,7 @@ docker compose up -d
 # ── Wait for health ──────────────────────────────────────────────────────────
 echo ""
 echo "==> Waiting for Identity Server to be ready..."
-MAX_WAIT=60
+MAX_WAIT=120
 ELAPSED=0
 while [ $ELAPSED -lt $MAX_WAIT ]; do
   if curl -sk -o /dev/null -w "%{http_code}" "https://localhost:${IDS_PORT}/.well-known/openid-configuration" 2>/dev/null | grep -q "200"; then

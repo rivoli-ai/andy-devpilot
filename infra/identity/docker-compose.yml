@@ -15,6 +15,7 @@ services:
   duende:
     image: aguacongas/theidserver.duende:6.0.0
     container_name: devpilot-duende
+    platform: linux/amd64
     ports:
       - "${IDS_PORT:-5001}:${IDS_PORT:-5001}"
     environment:
