@@ -278,7 +278,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb x11vnc novnc websockify nginx \
     xfce4 xfce4-terminal xterm screen thunar mousepad \
     xterm screen \
-    sudo wget curl git ca-certificates openssl \
+    sudo wget curl git ca-certificates openssl unzip \
     python3 python3-pip python3-venv dbus-x11 \
     fonts-dejavu fonts-liberation \
     libxkbcommon0 libvulkan1 libasound2t64 libgbm1 \
