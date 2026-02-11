@@ -1,6 +1,7 @@
 services:
   redis:
     image: redis:7
+    platform: linux/amd64
     container_name: devpilot-redis
     ports:
       - "${REDIS_PORT:-6379}:6379"
