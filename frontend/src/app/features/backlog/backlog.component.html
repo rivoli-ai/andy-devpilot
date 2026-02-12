@@ -596,7 +596,7 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <p class="detail-text">{{ epic.description || 'No description provided' }}</p>
+                      <div class="detail-text markdown-content" [innerHTML]="(epic.description || 'No description provided') | markdown"></div>
                     </div>
                     <div class="detail-sidebar">
                       <div class="detail-meta-item">
@@ -717,7 +717,7 @@
                         <div class="detail-grid">
                           <div class="detail-main">
                             <h4 class="detail-label">Description</h4>
-                            <p class="detail-text">{{ feature.description || 'No description provided' }}</p>
+                            <div class="detail-text markdown-content" [innerHTML]="(feature.description || 'No description provided') | markdown"></div>
                           </div>
                           <div class="detail-sidebar">
                             <div class="detail-meta-item">
@@ -877,11 +877,31 @@
                             <div class="detail-grid">
                               <div class="detail-main">
                                 <h4 class="detail-label">Description</h4>
-                                <p class="detail-text">{{ story.description || 'No description provided' }}</p>
+                                <div class="detail-text markdown-content" [innerHTML]="(story.description || 'No description provided') | markdown"></div>
                                 
                                 @if (story.acceptanceCriteria) {
                                   <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
-                                  <p class="detail-text acceptance-criteria">{{ story.acceptanceCriteria }}</p>
+                                  <div class="ac-rendered">
+                                    @for (criterion of parseCriteria(story.acceptanceCriteria); track $index) {
+                                      <div class="ac-card">
+                                        <span class="ac-number">{{ $index + 1 }}</span>
+                                        <div class="ac-content">
+                                          @if (criterion.given) {
+                                            <div class="ac-part"><span class="ac-keyword given">Given</span> {{ criterion.given }}</div>
+                                          }
+                                          @if (criterion.when) {
+                                            <div class="ac-part"><span class="ac-keyword when">When</span> {{ criterion.when }}</div>
+                                          }
+                                          @if (criterion.then) {
+                                            <div class="ac-part"><span class="ac-keyword then">Then</span> {{ criterion.then }}</div>
+                                          }
+                                          @if (!criterion.given && !criterion.when && !criterion.then) {
+                                            <div class="ac-part ac-plain">{{ criterion.raw }}</div>
+                                          }
+                                        </div>
+                                      </div>
+                                    }
+                                  </div>
                                 }
                               </div>
                               <div class="detail-sidebar">
@@ -1047,7 +1067,7 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <p class="detail-text">{{ feature.description || 'No description provided' }}</p>
+                      <div class="detail-text markdown-content" [innerHTML]="(feature.description || 'No description provided') | markdown"></div>
                     </div>
                     <div class="detail-sidebar">
                       <div class="detail-meta-item"><span class="meta-label">User Stories</span><span class="meta-value">{{ feature.userStories.length }}</span></div>
@@ -1135,8 +1155,31 @@
                         <div class="detail-grid">
                           <div class="detail-main">
                             <h4 class="detail-label">Description</h4>
-                            <p class="detail-text">{{ story.description || 'No description provided' }}</p>
-                            @if (story.acceptanceCriteria) { <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4><p class="detail-text acceptance-criteria">{{ story.acceptanceCriteria }}</p> }
+                            <div class="detail-text markdown-content" [innerHTML]="(story.description || 'No description provided') | markdown"></div>
+                            @if (story.acceptanceCriteria) {
+                              <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
+                              <div class="ac-rendered">
+                                @for (criterion of parseCriteria(story.acceptanceCriteria); track $index) {
+                                  <div class="ac-card">
+                                    <span class="ac-number">{{ $index + 1 }}</span>
+                                    <div class="ac-content">
+                                      @if (criterion.given) {
+                                        <div class="ac-part"><span class="ac-keyword given">Given</span> {{ criterion.given }}</div>
+                                      }
+                                      @if (criterion.when) {
+                                        <div class="ac-part"><span class="ac-keyword when">When</span> {{ criterion.when }}</div>
+                                      }
+                                      @if (criterion.then) {
+                                        <div class="ac-part"><span class="ac-keyword then">Then</span> {{ criterion.then }}</div>
+                                      }
+                                      @if (!criterion.given && !criterion.when && !criterion.then) {
+                                        <div class="ac-part ac-plain">{{ criterion.raw }}</div>
+                                      }
+                                    </div>
+                                  </div>
+                                }
+                              </div>
+                            }
                           </div>
                           <div class="detail-sidebar">
                             <div class="detail-meta-item"><span class="meta-label">Story Points</span><span class="meta-value">{{ story.storyPoints || '-' }}</span></div>
@@ -1232,8 +1275,31 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <p class="detail-text">{{ item.story.description || 'No description provided' }}</p>
-                      @if (item.story.acceptanceCriteria) { <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4><p class="detail-text acceptance-criteria">{{ item.story.acceptanceCriteria }}</p> }
+                      <div class="detail-text markdown-content" [innerHTML]="(item.story.description || 'No description provided') | markdown"></div>
+                      @if (item.story.acceptanceCriteria) {
+                        <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
+                        <div class="ac-rendered">
+                          @for (criterion of parseCriteria(item.story.acceptanceCriteria); track $index) {
+                            <div class="ac-card">
+                              <span class="ac-number">{{ $index + 1 }}</span>
+                              <div class="ac-content">
+                                @if (criterion.given) {
+                                  <div class="ac-part"><span class="ac-keyword given">Given</span> {{ criterion.given }}</div>
+                                }
+                                @if (criterion.when) {
+                                  <div class="ac-part"><span class="ac-keyword when">When</span> {{ criterion.when }}</div>
+                                }
+                                @if (criterion.then) {
+                                  <div class="ac-part"><span class="ac-keyword then">Then</span> {{ criterion.then }}</div>
+                                }
+                                @if (!criterion.given && !criterion.when && !criterion.then) {
+                                  <div class="ac-part ac-plain">{{ criterion.raw }}</div>
+                                }
+                              </div>
+                            </div>
+                          }
+                        </div>
+                      }
                     </div>
                     <div class="detail-sidebar">
                       <div class="detail-meta-item"><span class="meta-label">Story Points</span><span class="meta-value">{{ item.story.storyPoints || '-' }}</span></div>
@@ -1390,11 +1456,31 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <p class="detail-text">{{ item.story.description || 'No description provided' }}</p>
+                      <div class="detail-text markdown-content" [innerHTML]="(item.story.description || 'No description provided') | markdown"></div>
                       
                       @if (item.story.acceptanceCriteria) {
                         <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
-                        <p class="detail-text acceptance-criteria">{{ item.story.acceptanceCriteria }}</p>
+                        <div class="ac-rendered">
+                          @for (criterion of parseCriteria(item.story.acceptanceCriteria); track $index) {
+                            <div class="ac-card">
+                              <span class="ac-number">{{ $index + 1 }}</span>
+                              <div class="ac-content">
+                                @if (criterion.given) {
+                                  <div class="ac-part"><span class="ac-keyword given">Given</span> {{ criterion.given }}</div>
+                                }
+                                @if (criterion.when) {
+                                  <div class="ac-part"><span class="ac-keyword when">When</span> {{ criterion.when }}</div>
+                                }
+                                @if (criterion.then) {
+                                  <div class="ac-part"><span class="ac-keyword then">Then</span> {{ criterion.then }}</div>
+                                }
+                                @if (!criterion.given && !criterion.when && !criterion.then) {
+                                  <div class="ac-part ac-plain">{{ criterion.raw }}</div>
+                                }
+                              </div>
+                            </div>
+                          }
+                        </div>
                       }
                     </div>
                     <div class="detail-sidebar">
@@ -2386,3 +2472,13 @@
   }
 </div>
 
+@if (lightboxImageSrc) {
+  <div class="lightbox-overlay" (click)="closeLightbox()">
+    <button class="lightbox-close" (click)="closeLightbox()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
+        <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+    </button>
+    <img [src]="lightboxImageSrc" class="lightbox-image" (click)="$event.stopPropagation()" alt="Preview" />
+  </div>
+}

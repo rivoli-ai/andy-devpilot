@@ -141,9 +141,15 @@ export class MarkdownPipe implements PipeTransform {
     if (!value) return '';
     
     try {
+      // Convert raw HTML img tags to markdown so they render (marked escapes raw HTML by default)
+      let processedValue = value.replace(
+        /<img\s+[^>]*src\s*=\s*["']([^"']+)["'][^>]*(?:alt\s*=\s*["']([^"']*)["'])?[^>]*\/?>/gi,
+        (_, src, alt = '') => `![${alt}](${src})`
+      );
+      
       // Extract mermaid blocks before parsing
       const mermaidBlocks: { id: string; code: string }[] = [];
-      let processedValue = value.replace(
+      processedValue = processedValue.replace(
         /```mermaid\s*([\s\S]*?)```/g,
         (_, code) => {
           const id = `mermaid-${++mermaidIdCounter}`;
