@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, signal, computed, effect } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, computed, effect, HostListener, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
@@ -15,6 +15,7 @@ import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
 import { AddBacklogItemModalComponent, AddItemType, EditItemData } from '../../components/add-backlog-item-modal/add-backlog-item-modal.component';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { Subject, interval, takeUntil, filter, switchMap, forkJoin } from 'rxjs';
 
 type WorkItemType = 'epic' | 'feature' | 'story';
@@ -31,7 +32,7 @@ interface ExpandedState {
 @Component({
   selector: 'app-backlog',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, AddBacklogItemModalComponent],
+  imports: [CommonModule, FormsModule, RouterLink, AddBacklogItemModalComponent, MarkdownPipe],
   templateUrl: './backlog.component.html',
   styleUrl: './backlog.component.css'
 })
@@ -42,6 +43,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
   repositoryId = signal<string>('');
   repositoryName = signal<string>('');
   repository = signal<Repository | null>(null);
+
+  // Lightbox
+  lightboxImageSrc: string | null = null;
   
   // Backlog generation state
   generationState = signal<'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sending' | 'waiting_response' | 'parsing' | 'saving' | 'complete' | 'error'>('idle');
@@ -2621,5 +2625,44 @@ ${jsonFormatRequirement}`;
 
   hasGitHubLabel(issue: GitHubIssue, label: string): boolean {
     return issue.labels.some(l => l.toLowerCase() === label.toLowerCase());
+  }
+
+  // Lightbox: intercept clicks on images inside markdown-content
+  @HostListener('click', ['$event'])
+  onHostClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (target.tagName === 'IMG' && target.closest('.markdown-content')) {
+      event.preventDefault();
+      event.stopPropagation();
+      this.lightboxImageSrc = (target as HTMLImageElement).src;
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscapeKey() {
+    this.closeLightbox();
+  }
+
+  closeLightbox() {
+    this.lightboxImageSrc = null;
+  }
+
+  parseCriteria(ac: string | undefined | null): { given: string; when: string; then: string; raw: string }[] {
+    if (!ac?.trim()) return [];
+    return ac
+      .split('\n')
+      .map(line => line.replace(/^[-•*]\s*/, '').trim())
+      .filter(line => line.length > 0)
+      .map(line => {
+        const givenMatch = line.match(/^Given\s+(.+?)(?:,\s*When\s+|$)/i);
+        const whenMatch = line.match(/When\s+(.+?)(?:,\s*Then\s+|$)/i);
+        const thenMatch = line.match(/Then\s+(.+)$/i);
+        return {
+          given: givenMatch?.[1]?.trim() || '',
+          when: whenMatch?.[1]?.trim() || '',
+          then: thenMatch?.[1]?.trim() || '',
+          raw: line
+        };
+      });
   }
 }
