@@ -5,10 +5,10 @@ import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { Subscription, interval, firstValueFrom } from 'rxjs';
 import { takeWhile, switchMap } from 'rxjs/operators';
-import { 
-  RepositoryService, 
-  RepositoryTree, 
-  RepositoryTreeItem, 
+import {
+  RepositoryService,
+  RepositoryTree,
+  RepositoryTreeItem,
   RepositoryFileContent,
   RepositoryBranch,
   PullRequest,
@@ -18,6 +18,7 @@ import {
 import { SandboxService, CreateSandboxResponse } from '../../core/services/sandbox.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
+import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { Repository } from '../../shared/models/repository.model';
 import { CodeHighlightPipe } from '../../shared/pipes/code-highlight.pipe';
@@ -57,7 +58,7 @@ export class CodeComponent implements OnInit, OnDestroy {
   fileLoading = signal<boolean>(false);
   error = signal<string | null>(null);
   showBranchDropdown = signal<boolean>(false);
-  
+
   // Tab and PR state
   activeTab = signal<TabType>('code');
   pullRequests = signal<PullRequest[]>([]);
@@ -142,8 +143,9 @@ export class CodeComponent implements OnInit, OnDestroy {
     private sandboxService: SandboxService,
     private aiConfigService: AIConfigService,
     private vncViewerService: VncViewerService,
+    private sandboxBridgeService: SandboxBridgeService,
     private http: HttpClient
-  ) {}
+  ) { }
 
   ngOnDestroy(): void {
     this.analysisSubscription?.unsubscribe();
@@ -157,7 +159,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     if (repoId) {
       this.repositoryId.set(repoId);
       this.loadRepository(repoId);
-      
+
       // Check for existing analysis sandbox to reconnect after refresh
       this.checkForExistingAnalysisSandbox();
     } else {
@@ -211,36 +213,34 @@ export class CodeComponent implements OnInit, OnDestroy {
   private checkForExistingAnalysisSandbox(): void {
     const currentRepoId = this.repositoryId();
     const viewers = this.vncViewerService.getViewers();
-    
+
     // Only reconnect to analysis sandbox for the CURRENT repository
-    const analysisViewer = viewers.find(v => 
-      v.title?.includes('Analysis') && 
+    const analysisViewer = viewers.find(v =>
+      v.title?.includes('Analysis') &&
       v.implementationContext?.repositoryId === currentRepoId
     );
-    
+
     if (analysisViewer && analysisViewer.bridgePort) {
       console.log('Found existing analysis sandbox for this repo, reconnecting...', analysisViewer.id);
-      
+
       this.analysisSandboxId.set(analysisViewer.id);
       this.analysisLoading.set(true);
       this.analysisStatus.set('Reconnecting to analysis...');
-      
-      // Resume polling for the response
-      const bridgeUrl = `http://${VPS_CONFIG.ip}:${analysisViewer.bridgePort}`;
-      this.resumeAnalysisPolling(bridgeUrl, analysisViewer.id);
+
+      this.resumeAnalysisPolling(analysisViewer.bridgePort, analysisViewer.id);
     }
   }
 
   /**
    * Resume polling for analysis response after reconnecting to an existing sandbox
    */
-  private async resumeAnalysisPolling(bridgeUrl: string, sandboxId: string): Promise<void> {
+  private async resumeAnalysisPolling(bridgePort: number, sandboxId: string): Promise<void> {
     const branch = this.currentBranch() || 'main';
-    
+
     try {
       this.analysisStatus.set('Waiting for AI response...');
-      const response = await this.waitForZedResponse(bridgeUrl);
-      
+      const response = await this.waitForZedResponse(bridgePort);
+
       // Save the response
       this.analysisStatus.set('Saving results...');
       this.repositoryService.saveCodeAnalysis(this.repositoryId(), {
@@ -271,7 +271,7 @@ export class CodeComponent implements OnInit, OnDestroy {
 
   private async loadRepository(repositoryId: string): Promise<void> {
     let repo = this.repositoryService.getRepositoryById(repositoryId);
-    
+
     if (!repo) {
       this.repositoryService.getRepositories().subscribe({
         next: () => {
@@ -366,10 +366,10 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.repositoryService.getRepositoryTree(repoId, node.path, branch || undefined).subscribe({
       next: (tree) => {
         const children = this.convertToTreeNodes(tree.items, node.depth + 1);
-        this.updateNode(node.path, { 
-          children, 
-          isExpanded: true, 
-          isLoading: false 
+        this.updateNode(node.path, {
+          children,
+          isExpanded: true,
+          isLoading: false
         });
       },
       error: (err) => {
@@ -409,7 +409,7 @@ export class CodeComponent implements OnInit, OnDestroy {
 
     this.fileLoading.set(true);
     this.selectedFilePath.set(path);
-    
+
     // Clear previous file analysis
     this.fileAnalysisResult.set(null);
     this.fileAnalysisError.set(null);
@@ -419,7 +419,7 @@ export class CodeComponent implements OnInit, OnDestroy {
       next: (content) => {
         this.selectedFile.set(content);
         this.fileLoading.set(false);
-        
+
         // Try to load stored analysis for this file
         this.loadFileAnalysis(path);
       },
@@ -463,7 +463,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     if (item.type === 'dir') {
       return 'folder';
     }
-    
+
     const ext = item.name.split('.').pop()?.toLowerCase() || '';
     const iconMap: Record<string, string> = {
       'ts': 'typescript',
@@ -593,7 +593,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     const repo = this.repository();
     const repoId = this.repositoryId();
     const branch = this.currentBranch();
-    
+
     if (!repo) {
       this.analysisError.set('Repository not loaded');
       return;
@@ -646,12 +646,12 @@ export class CodeComponent implements OnInit, OnDestroy {
       next: (sandbox) => {
         this.analysisSandboxId.set(sandbox.id);
         this.analysisStatus.set('Waiting for environment...');
-        
+
         // Open VNC viewer in minimized state after delay
         setTimeout(() => {
           this.vncViewerService.open(
             {
-              url: getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
@@ -666,9 +666,12 @@ export class CodeComponent implements OnInit, OnDestroy {
               defaultBranch: branch,
               storyTitle: 'Code Analysis',
               storyId: `analysis-${this.repositoryId()}`
-            }
+            },
+            sandbox.sandbox_token,
+            sandbox.bridge_url,
+            sandbox.vnc_password
           );
-          
+
           // Start analysis after viewer is opened
           this.waitForZedAndAnalyze(sandbox, repo.name, branch);
         }, VPS_CONFIG.sandboxReadyDelayMs);
@@ -690,25 +693,23 @@ export class CodeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    const bridgeUrl = `http://${VPS_CONFIG.ip}:${bridgePort}`;
-    
     try {
       // Wait for Zed to be ready (poll health endpoint)
       this.analysisStatus.set('Waiting for Zed IDE...');
-      await this.waitForZedReady(bridgeUrl);
+      await this.waitForZedReady(bridgePort);
 
       // Send analysis prompt
       this.analysisStatus.set('Analyzing repository...');
       const prompt = this.buildAnalysisPrompt(repoName);
-      await this.sendPromptToZed(bridgeUrl, prompt);
+      await this.sendPromptToZed(bridgePort, prompt);
 
       // Wait for response
       this.analysisStatus.set('Waiting for AI response...');
-      const response = await this.waitForZedResponse(bridgeUrl);
+      const response = await this.waitForZedResponse(bridgePort);
 
       // Parse and save response
       this.analysisStatus.set('Saving results...');
-      
+
       // Store the full response as summary for comprehensive display
       this.repositoryService.saveCodeAnalysis(this.repositoryId(), {
         branch,
@@ -737,14 +738,13 @@ export class CodeComponent implements OnInit, OnDestroy {
     }
   }
 
-  private async waitForZedReady(bridgeUrl: string, maxAttempts = 60): Promise<void> {
+  private async waitForZedReady(bridgePort: number, maxAttempts = 60): Promise<void> {
     for (let i = 0; i < maxAttempts; i++) {
       try {
         const response = await firstValueFrom(
-          this.http.get<{ status: string }>(`${bridgeUrl}/health`)
+          this.sandboxBridgeService.health(bridgePort)
         );
         if (response.status === 'ok') {
-          // Wait a bit more for Zed to fully initialize
           await this.delay(3000);
           return;
         }
@@ -756,22 +756,22 @@ export class CodeComponent implements OnInit, OnDestroy {
     throw new Error('Zed IDE did not become ready in time');
   }
 
-  private async sendPromptToZed(bridgeUrl: string, prompt: string): Promise<void> {
+  private async sendPromptToZed(bridgePort: number, prompt: string): Promise<void> {
     await firstValueFrom(
-      this.http.post(`${bridgeUrl}/zed/send-prompt`, { prompt })
+      this.sandboxBridgeService.sendZedPrompt(bridgePort, prompt)
     );
   }
 
-  private async waitForZedResponse(bridgeUrl: string, maxAttempts = 600): Promise<string> {
+  private async waitForZedResponse(bridgePort: number, maxAttempts = 600): Promise<string> {
     // 600 attempts * 2 seconds = 20 minutes max wait time for comprehensive analysis
     let lastMessageLength = 0;
     let stableCount = 0;
     let initialConversationId: string | null = null;
-    
+
     // First, get the current conversation ID to detect new responses
     try {
       const initial = await firstValueFrom(
-        this.http.get<{ id: string; assistant_message: string } | null>(`${bridgeUrl}/zed/latest`)
+        this.sandboxBridgeService.getLatestZedConversation(bridgePort)
       );
       if (initial) {
         initialConversationId = initial.id;
@@ -779,27 +779,27 @@ export class CodeComponent implements OnInit, OnDestroy {
     } catch {
       // No existing conversation
     }
-    
+
     for (let i = 0; i < maxAttempts; i++) {
       try {
         const response = await firstValueFrom(
-          this.http.get<{ id: string; assistant_message: string; user_message: string } | null>(`${bridgeUrl}/zed/latest`)
+          this.sandboxBridgeService.getLatestZedConversation(bridgePort)
         );
-        
+
         if (response && response.assistant_message) {
           const content = response.assistant_message;
-          
+
           // Only consider responses from our prompt (new conversation or updated one)
           const isNewConversation = !initialConversationId || response.id !== initialConversationId;
           const hasContent = content.length > 100;
-          
+
           // Update status with progress
           if (hasContent) {
             const elapsedMinutes = Math.floor((i * 2) / 60);
             const charCount = Math.floor(content.length / 1000);
             this.analysisStatus.set(`Analyzing... ${charCount}k chars received (${elapsedMinutes}m elapsed)`);
           }
-          
+
           if (isNewConversation && hasContent) {
             // Check if response is complete (stable for a few polls)
             if (content.length === lastMessageLength) {
@@ -924,7 +924,7 @@ Be thorough and specific. Use the markdown formatting exactly as shown above for
   } {
     const sections: Record<string, string> = {};
     const sectionNames = ['Summary', 'Architecture', 'Key Components', 'Dependencies', 'Recommendations'];
-    
+
     for (const name of sectionNames) {
       const regex = new RegExp(`##\\s*${name}[\\s\\S]*?(?=##|$)`, 'i');
       const match = response.match(regex);
@@ -949,7 +949,7 @@ Be thorough and specific. Use the markdown formatting exactly as shown above for
     if (sandboxId) {
       // Close VNC viewer
       this.vncViewerService.close(sandboxId);
-      
+
       // Delete sandbox
       this.sandboxService.deleteSandbox(sandboxId).subscribe({
         next: () => console.log('Analysis sandbox cleaned up'),
@@ -965,7 +965,7 @@ Be thorough and specific. Use the markdown formatting exactly as shown above for
 
   refreshAnalysis(): void {
     const repoId = this.repositoryId();
-    
+
     // Delete existing analysis first, then trigger new one
     this.repositoryService.deleteAnalysis(repoId).subscribe({
       next: () => {
@@ -982,9 +982,9 @@ Be thorough and specific. Use the markdown formatting exactly as shown above for
 
   formatAnalysisDate(dateStr: string): string {
     const date = new Date(dateStr);
-    return date.toLocaleDateString('en-US', { 
-      year: 'numeric', 
-      month: 'short', 
+    return date.toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
       day: 'numeric',
       hour: '2-digit',
       minute: '2-digit'

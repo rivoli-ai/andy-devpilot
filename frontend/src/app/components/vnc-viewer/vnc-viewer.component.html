@@ -5,9 +5,9 @@
 
 <!-- Minimized Widget (not shown when embedded) -->
 @if (dockPosition() === 'minimized' && !embedded()) {
-  <div class="vnc-minimized" [class.ready-for-pr]="readyForPr()" (click)="toggleMinimize()" [style.right]="minimizedStyle().right">
-    <!-- Ready for PR Alert Badge -->
-    @if (readyForPr()) {
+  <div class="vnc-minimized" [class.ready-for-pr]="readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()" (click)="toggleMinimize()" [style.right]="minimizedStyle().right">
+    <!-- Ready for PR Alert Badge (only for story implementation sandboxes) -->
+    @if (readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()) {
       <div class="pr-alert-badge" (click)="toggleMinimize(); $event.stopPropagation()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
           <circle cx="18" cy="18" r="3"/>
@@ -47,7 +47,7 @@
       }
     </div>
     <div class="minimized-info">
-      @if (readyForPr()) {
+      @if (readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()) {
         <span class="minimized-pr-ready">Ready for PR!</span>
         <span class="minimized-story">{{ implementationContext()?.storyTitle || viewerTitle() }}</span>
       } @else {
@@ -253,8 +253,8 @@
       <!-- AI Conversations Panel (Right Side) -->
       @if (bridgePort()) {
         <div class="conversations-panel" [class.collapsed]="!showConversations()">
-          <!-- Push & Create PR Button (when implementing user story) -->
-          @if (implementationContext()) {
+          <!-- Push & Create PR Button (only for story implementation, not backlog/analysis sandboxes) -->
+          @if (implementationContext() && !isBacklogSandbox() && !isAnalysisSandbox()) {
             <div class="push-pr-section">
               @if (pushPrSuccess()) {
                 <div class="push-pr-success">

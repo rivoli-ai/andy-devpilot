@@ -845,7 +845,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={r"/*": {"origins": "*", "allow_headers": ["Authorization", "Content-Type"]}})
+
+# Per-sandbox token — injected as SANDBOX_TOKEN env var by the manager at container creation
+SANDBOX_TOKEN = os.environ.get('SANDBOX_TOKEN', '')
+
+@app.before_request
+def require_token():
+    """
+    Protect all external-facing routes with the sandbox bearer token.
+    Exemptions:
+    - OPTIONS requests: CORS preflight — browsers never send auth headers here
+    - /v1/* routes: OpenAI proxy called by Zed from inside the container on localhost
+    """
+    if not SANDBOX_TOKEN:
+        return  # Auth disabled when no token configured
+    if request.method == 'OPTIONS':
+        return  # Let Flask-CORS handle preflight freely
+    if request.path.startswith('/v1/'):
+        return  # Zed internal calls — no auth header available
+    auth = request.headers.get('Authorization', '')
+    if auth != f'Bearer {SANDBOX_TOKEN}':
+        return jsonify({'error': 'Unauthorized'}), 401
 
 # SSL Configuration - try to fix SSL issues in sandbox
 SSL_CERT_FILE = os.environ.get('SSL_CERT_FILE', '/etc/ssl/certs/ca-certificates.crt')
@@ -2527,7 +2548,7 @@ sleep 1
 echo "Panel restarted with Terminal, Firefox, Zed" >> /tmp/sandbox-debug.log
 
 # Start VNC server
-x11vnc -display $DISPLAY -forever -shared -rfbport 5900 -nopw -xkb &
+x11vnc -display $DISPLAY -forever -shared -rfbport 5900 -passwd "${VNC_PASSWORD:-devpilot}" -xkb &
 sleep 1
 
 # Start websockify on internal port 6081
@@ -2880,8 +2901,10 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import docker
 import uuid
+import secrets
 import threading
 import time
+import os
 
 app = Flask(__name__)
 CORS(app)
@@ -2890,12 +2913,23 @@ SANDBOX_MANAGER_VERSION = "2.3.0"  # Bump this when deploying changes
 
 client = docker.from_env()
 
-# Track active sandboxes: {sandbox_id: {container_id, port, created_at}}
+# API key protecting the manager — set via MANAGER_API_KEY env var on the host
+MANAGER_API_KEY = os.environ.get('MANAGER_API_KEY', '')
+
+# Track active sandboxes: {sandbox_id: {container_id, port, created_at, sandbox_token, vnc_password}}
 sandboxes = {}
 PORT_START = 6100
 PORT_END = 6200
 used_ports = set()
 lock = threading.Lock()
+
+def require_api_key():
+    """Return a 401 response if the request does not include a valid X-Api-Key header."""
+    if MANAGER_API_KEY:
+        provided = request.headers.get('X-Api-Key', '')
+        if provided != MANAGER_API_KEY:
+            return jsonify({'error': 'Unauthorized'}), 401
+    return None
 
 def get_free_port():
     """Get next available port"""
@@ -2922,6 +2956,9 @@ def health():
 @app.route('/sandboxes', methods=['GET'])
 def list_sandboxes():
     """List all active sandboxes"""
+    err = require_api_key()
+    if err:
+        return err
     result = []
     for sid, info in sandboxes.items():
         try:
@@ -2929,6 +2966,7 @@ def list_sandboxes():
             result.append({
                 "id": sid,
                 "port": info['port'],
+                "bridge_port": info.get('bridge_port', 0),
                 "status": container.status,
                 "created_at": info['created_at']
             })
@@ -2939,6 +2977,10 @@ def list_sandboxes():
 @app.route('/sandboxes', methods=['POST'])
 def create_sandbox():
     """Create a new isolated sandbox with optional repo and AI config"""
+    err = require_api_key()
+    if err:
+        return err
+
     import json
     
     # Log incoming request
@@ -2950,6 +2992,10 @@ def create_sandbox():
     
     sandbox_id = str(uuid.uuid4())[:8]
     port = get_free_port()
+    # Per-sandbox secrets generated at creation time
+    sandbox_token = secrets.token_urlsafe(32)
+    # VNC passwords are limited to 8 chars by the VNC protocol
+    vnc_password = secrets.token_urlsafe(8)[:8]
     
     if not port:
         return jsonify({"error": "No ports available"}), 503
@@ -2960,7 +3006,9 @@ def create_sandbox():
         # Build environment variables
         environment = {
             "SANDBOX_ID": sandbox_id,
-            "RESOLUTION": data.get("resolution", "1920x1080x24")
+            "RESOLUTION": data.get("resolution", "1920x1080x24"),
+            "SANDBOX_TOKEN": sandbox_token,
+            "VNC_PASSWORD": vnc_password,
         }
         
         # Add repository info if provided
@@ -3081,7 +3129,9 @@ def create_sandbox():
             "container_id": container.id,
             "port": port,
             "bridge_port": bridge_port,
-            "created_at": time.time()
+            "created_at": time.time(),
+            "sandbox_token": sandbox_token,
+            "vnc_password": vnc_password,
         }
         
         return jsonify({
@@ -3090,7 +3140,9 @@ def create_sandbox():
             "bridge_port": bridge_port,
             "url": f"http://HOST_IP:{port}/vnc.html",
             "bridge_url": f"http://HOST_IP:{bridge_port}",
-            "status": "starting"
+            "status": "starting",
+            "sandbox_token": sandbox_token,
+            "vnc_password": vnc_password,
         }), 201
         
     except Exception as e:
@@ -3100,6 +3152,9 @@ def create_sandbox():
 @app.route('/sandboxes/<sandbox_id>', methods=['GET'])
 def get_sandbox(sandbox_id):
     """Get sandbox status"""
+    err = require_api_key()
+    if err:
+        return err
     if sandbox_id not in sandboxes:
         return jsonify({"error": "Sandbox not found"}), 404
     
@@ -3117,6 +3172,9 @@ def get_sandbox(sandbox_id):
 @app.route('/sandboxes/<sandbox_id>', methods=['DELETE'])
 def delete_sandbox(sandbox_id):
     """Stop and remove a sandbox"""
+    err = require_api_key()
+    if err:
+        return err
     if sandbox_id not in sandboxes:
         return jsonify({"error": "Sandbox not found"}), 404
     
@@ -3136,6 +3194,9 @@ def delete_sandbox(sandbox_id):
 @app.route('/sandboxes/<sandbox_id>/stop', methods=['POST'])
 def stop_sandbox(sandbox_id):
     """Stop a sandbox (keep container)"""
+    err = require_api_key()
+    if err:
+        return err
     if sandbox_id not in sandboxes:
         return jsonify({"error": "Sandbox not found"}), 404
     
@@ -3177,6 +3238,17 @@ if __name__ == '__main__':
 MANAGER_PY
 
 # ============================================================
+# BUILD_ONLY mode — used by Windows Docker setup (setup.ps1)
+# Exits here after building the desktop image and writing manager.py.
+# The Windows setup starts the manager via docker-compose instead of systemd.
+# ============================================================
+if [ "${BUILD_ONLY:-0}" = "1" ]; then
+    log_success "BUILD_ONLY mode complete — desktop image built, manager.py ready."
+    log_info "Start the manager on Windows with: docker compose up -d"
+    exit 0
+fi
+
+# ============================================================
 # Create systemd service for the manager (Linux only)
 # ============================================================
 if [ "$IS_LINUX" = true ]; then
@@ -3195,6 +3267,7 @@ ExecStart=$PROJECT_DIR/venv/bin/python $PROJECT_DIR/manager.py
 Restart=always
 RestartSec=5
 Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-$PROJECT_DIR/.env
 
 [Install]
 WantedBy=multi-user.target
@@ -3328,6 +3401,21 @@ RUNSH
 chmod +x run.sh
 
 # ============================================================
+# Generate .env with a random MANAGER_API_KEY (only if not already set)
+# ============================================================
+if [ ! -f "$PROJECT_DIR/.env" ]; then
+    log_info "Generating .env with random MANAGER_API_KEY..."
+    GENERATED_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
+    cat > "$PROJECT_DIR/.env" << ENVFILE
+MANAGER_API_KEY=${GENERATED_KEY}
+ENVFILE
+    chmod 600 "$PROJECT_DIR/.env"
+    log_info "API key saved to $PROJECT_DIR/.env"
+else
+    log_skip ".env already exists — keeping existing MANAGER_API_KEY"
+fi
+
+# ============================================================
 # Start the service
 # ============================================================
 log_info "Starting sandbox manager..."
@@ -3362,12 +3450,16 @@ echo "   GET    /sandboxes/{id}     - Get sandbox status"
 echo "   DELETE /sandboxes/{id}     - Delete sandbox"
 echo ""
 echo "📌 Example:"
-echo "   curl -X POST http://${PUBLIC_IP}:8090/sandboxes"
+echo "   curl -X POST http://${PUBLIC_IP}:8090/sandboxes \\"
+echo "        -H 'X-Api-Key: \$(grep MANAGER_API_KEY $PROJECT_DIR/.env | cut -d= -f2)'"
 echo ""
 echo "🔧 Management:"
 echo "   cd $PROJECT_DIR"
 echo "   ./run.sh status"
 echo "   ./run.sh logs"
+echo ""
+echo "🔑 Manager API Key (for backend config VPS:ManagerApiKey):"
+echo "   \$(grep MANAGER_API_KEY $PROJECT_DIR/.env | cut -d= -f2)"
 echo ""
 echo "⚠️  Firewall: Open ports 8090 and 6100-6200"
 echo "   ufw allow 8090/tcp"

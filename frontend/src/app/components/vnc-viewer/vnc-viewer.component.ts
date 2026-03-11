@@ -532,7 +532,8 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       clearTimeout(this.connectionTimeout);
     }
 
-    const finalUrl = this.vncService.buildIframeUrl(config);
+    const vncPassword = this.vncViewerService.getViewer(this.viewerId())?.vncPassword;
+    const finalUrl = this.vncService.buildIframeUrl(config, vncPassword);
     console.log('VNC iframe URL:', finalUrl);
 
     // Set connection state and URL

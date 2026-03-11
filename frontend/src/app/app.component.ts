@@ -117,7 +117,7 @@ export class AppComponent implements OnInit, OnDestroy {
             return;
           }
           const config = {
-            url: getVncHtmlUrl(sandbox.port),
+            url: stored.vncUrl || getVncHtmlUrl(sandbox.port),
             autoConnect: true,
             scalingMode: 'local' as const,
             useIframe: true
@@ -129,7 +129,10 @@ export class AppComponent implements OnInit, OnDestroy {
             sandbox.id,
             title,
             bridgePort,
-            stored.implementationContext ?? undefined
+            stored.implementationContext ?? undefined,
+            stored.sandboxToken,
+            stored.bridgeUrl,
+            stored.vncPassword
           );
         });
       },

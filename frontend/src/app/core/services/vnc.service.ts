@@ -112,20 +112,22 @@ export class VncService {
   }
 
   /**
-   * Build iframe URL from VNC config
-   * Simple format: just use the URL as-is if it's already correct,
-   * or ensure it points to vnc.html with autoconnect
+   * Build iframe URL from VNC config.
+   * When a per-sandbox VNC password is provided it is appended as the
+   * `password` query parameter understood by noVNC.
    */
-  buildIframeUrl(config: VncConfig): string {
+  buildIframeUrl(config: VncConfig, vncPassword?: string): string {
     let url = config.url.trim();
     
     console.log('buildIframeUrl input:', url);
     
-    // If URL already contains vnc.html, just ensure autoconnect is set
+    // If URL already contains vnc.html, ensure autoconnect is set then append password
     if (url.includes('vnc.html')) {
-      // Add autoconnect if not present
       if (!url.includes('autoconnect')) {
         url += (url.includes('?') ? '&' : '?') + 'autoconnect=true';
+      }
+      if (vncPassword) {
+        url += `&password=${encodeURIComponent(vncPassword)}`;
       }
       console.log('buildIframeUrl output:', url);
       return url;
@@ -158,8 +160,11 @@ export class VncService {
       port = parts[1] || '6080';
     }
     
-    // Build simple URL - noVNC will connect to websocket on same host:port automatically
-    const finalUrl = `http://${host}:${port}/vnc.html?autoconnect=true&resize=scale`;
+    // Build URL — noVNC connects to websocket on same host:port automatically
+    let finalUrl = `http://${host}:${port}/vnc.html?autoconnect=true&resize=scale`;
+    if (vncPassword) {
+      finalUrl += `&password=${encodeURIComponent(vncPassword)}`;
+    }
     console.log('buildIframeUrl output:', finalUrl);
     
     return finalUrl;

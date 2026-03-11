@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable, of } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
-import { getSandboxApiUrl, getVncHtmlUrl } from '../config/vps.config';
+import { environment } from '../../../environments/environment';
 
 export interface Sandbox {
   id: string;
@@ -12,6 +12,10 @@ export interface Sandbox {
   url?: string;
   bridge_url?: string;
   created_at?: number;
+  /** Per-sandbox bearer token for authenticating bridge API calls */
+  sandbox_token?: string;
+  /** Per-sandbox VNC password for noVNC iframe authentication */
+  vnc_password?: string;
 }
 
 export interface CreateSandboxResponse {
@@ -21,6 +25,10 @@ export interface CreateSandboxResponse {
   url: string;
   bridge_url?: string;
   status: string;
+  /** Per-sandbox bearer token for authenticating bridge API calls */
+  sandbox_token?: string;
+  /** Per-sandbox VNC password for noVNC iframe authentication */
+  vnc_password?: string;
 }
 
 export interface CreateSandboxRequest {
@@ -49,7 +57,7 @@ export interface CreateSandboxRequest {
   providedIn: 'root'
 })
 export class SandboxService {
-  private apiUrl = getSandboxApiUrl();
+  private apiUrl = `${environment.apiUrl}/sandboxes`;
   private currentSandboxSubject = new BehaviorSubject<Sandbox | null>(null);
   
   currentSandbox$ = this.currentSandboxSubject.asObservable();
@@ -71,17 +79,17 @@ export class SandboxService {
       ai_config: request.ai_config ? { ...request.ai_config, api_key: '***' } : undefined
     });
 
-    return this.http.post<CreateSandboxResponse>(`${this.apiUrl}/sandboxes`, request).pipe(
+    return this.http.post<CreateSandboxResponse>(this.apiUrl, request).pipe(
       tap(sandbox => {
-        // Update the URL with the actual VPS IP
-        sandbox.url = getVncHtmlUrl(sandbox.port);
         this.currentSandboxSubject.next({
           id: sandbox.id,
           port: sandbox.port,
           bridge_port: sandbox.bridge_port,
           status: sandbox.status,
           url: sandbox.url,
-          bridge_url: sandbox.bridge_url
+          bridge_url: sandbox.bridge_url,
+          sandbox_token: sandbox.sandbox_token,
+          vnc_password: sandbox.vnc_password,
         });
       }),
       catchError(error => {
@@ -95,7 +103,7 @@ export class SandboxService {
    * Get all active sandboxes
    */
   listSandboxes(): Observable<Sandbox[]> {
-    return this.http.get<{ sandboxes: Sandbox[] }>(`${this.apiUrl}/sandboxes`).pipe(
+    return this.http.get<{ sandboxes: Sandbox[] }>(this.apiUrl).pipe(
       map(response => response.sandboxes),
       catchError(error => {
         console.error('Failed to list sandboxes:', error);
@@ -108,7 +116,7 @@ export class SandboxService {
    * Get a specific sandbox's status
    */
   getSandbox(sandboxId: string): Observable<Sandbox | null> {
-    return this.http.get<Sandbox>(`${this.apiUrl}/sandboxes/${sandboxId}`).pipe(
+    return this.http.get<Sandbox>(`${this.apiUrl}/${sandboxId}`).pipe(
       catchError(error => {
         console.error('Failed to get sandbox:', error);
         return of(null);
@@ -120,7 +128,7 @@ export class SandboxService {
    * Stop and remove a sandbox
    */
   deleteSandbox(sandboxId: string): Observable<boolean> {
-    return this.http.delete<{ status: string }>(`${this.apiUrl}/sandboxes/${sandboxId}`).pipe(
+    return this.http.delete<{ status: string }>(`${this.apiUrl}/${sandboxId}`).pipe(
       tap(() => {
         if (this.currentSandboxSubject.value?.id === sandboxId) {
           this.currentSandboxSubject.next(null);
@@ -138,7 +146,7 @@ export class SandboxService {
    * Stop a sandbox (but keep container for later restart)
    */
   stopSandbox(sandboxId: string): Observable<boolean> {
-    return this.http.post<{ status: string }>(`${this.apiUrl}/sandboxes/${sandboxId}/stop`, {}).pipe(
+    return this.http.post<{ status: string }>(`${this.apiUrl}/${sandboxId}/stop`, {}).pipe(
       map(() => true),
       catchError(error => {
         console.error('Failed to stop sandbox:', error);
@@ -151,8 +159,8 @@ export class SandboxService {
    * Check if sandbox API is available
    */
   checkHealth(): Observable<boolean> {
-    return this.http.get<{ status: string }>(`${this.apiUrl}/health`).pipe(
-      map(response => response.status === 'ok'),
+    return this.http.get<{ status: string }>(this.apiUrl).pipe(
+      map(() => true),
       catchError(() => of(false))
     );
   }

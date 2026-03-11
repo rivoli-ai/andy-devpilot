@@ -9,8 +9,8 @@ export const authInterceptor: HttpInterceptorFn = (req, next) => {
   const authService = inject(AuthService);
   const token = authService.getToken();
 
-  if (token) {
-    // Clone request and add Authorization header
+  // Don't override Authorization header if it's already set (e.g. sandbox bridge token)
+  if (token && !req.headers.has('Authorization')) {
     const clonedRequest = req.clone({
       setHeaders: {
         Authorization: `Bearer ${token}`
