@@ -579,14 +579,18 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
           // Open VNC viewer
           this.vncViewerService.open(
             {
-              url: getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
             },
             sandbox.id,
             `${repo.name}`,
-            sandbox.bridge_port!
+            sandbox.bridge_port!,
+            undefined,
+            sandbox.sandbox_token,
+            sandbox.bridge_url,
+            sandbox.vnc_password
           );
 
           // Wait for Zed to fully initialize before sending prompt

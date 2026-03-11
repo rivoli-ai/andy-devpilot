@@ -12,6 +12,7 @@ using DevPilot.Infrastructure.Persistence;
 using DevPilot.Infrastructure.Zed;
 using DevPilot.Infrastructure.ACP;
 using DevPilot.Infrastructure.VPS;
+using DevPilot.Infrastructure.Sandbox;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -91,6 +92,10 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IZedSessionService, ZedSessionService>();
         services.AddScoped<IACPClient, ACPClient>();
         services.AddScoped<IVPSAnalysisService, VPSAnalysisService>();
+
+        // Register sandbox manager proxy (authenticated via API key)
+        services.AddHttpClient("VPSManager");
+        services.AddScoped<ISandboxService, SandboxService>();
 
         return services;
     }

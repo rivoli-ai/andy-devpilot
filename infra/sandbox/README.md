@@ -1,292 +1,294 @@
 # DevPilot Sandbox
 
 Multi-container sandbox system that creates isolated desktop environments on demand.
-Each "Analyze with AI" click spawns a fresh, isolated Docker container.
+Each sandbox is an independent Docker container with its own XFCE desktop, Zed IDE, and bridge API.
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                        VPS                               │
-│  ┌─────────────────────────────────────────────────────┐ │
-│  │           Sandbox Manager (port 8090)               │ │
-│  │                                                     │ │
-│  │   POST /sandboxes → Creates new container           │ │
-│  │   DELETE /sandboxes/{id} → Removes container        │ │
-│  └─────────────────────────────────────────────────────┘ │
-│                          │                               │
-│            ┌─────────────┼─────────────┐                │
-│            ▼             ▼             ▼                │
-│     ┌──────────┐  ┌──────────┐  ┌──────────┐           │
-│     │ Sandbox  │  │ Sandbox  │  │ Sandbox  │           │
-│     │  :6100   │  │  :6101   │  │  :6102   │  ...      │
-│     │ (user A) │  │ (user B) │  │ (user C) │           │
-│     └──────────┘  └──────────┘  └──────────┘           │
-│                                                         │
-└─────────────────────────────────────────────────────────┘
+Browser (Angular)
+       │
+       │  JWT  (user auth)
+       ▼
+┌──────────────────────┐
+│   .NET Backend API   │  ← validates JWT, stores ownership
+│   port 8080          │  ← uses X-Api-Key to talk to manager
+└──────────┬───────────┘
+           │  X-Api-Key
+           ▼
+┌──────────────────────┐        ┌──────────────────────────────────────────┐
+│   Sandbox Manager    │        │                  VPS                     │
+│   Flask  port 8090   │ ──────▶│  ┌──────────┐  ┌──────────┐  ┌────────┐ │
+│   (Python)           │        │  │ Sandbox  │  │ Sandbox  │  │  ...   │ │
+└──────────────────────┘        │  │  noVNC   │  │  noVNC   │  │        │ │
+                                │  │  :6100   │  │  :6101   │  │        │ │
+                                │  │  Bridge  │  │  Bridge  │  │        │ │
+                                │  │  :7100   │  │  :7101   │  │        │ │
+                                │  └──────────┘  └──────────┘  └────────┘ │
+                                └──────────────────────────────────────────┘
+
+Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bearer token:
+  Authorization: Bearer <sandbox_token>  →  http://VPS_IP:7100/...
 ```
 
-## Quick Start
+### Security model
 
-### On your VPS:
+| Channel | Auth |
+|---------|------|
+| Browser → Backend API | JWT (user login) |
+| Backend → Sandbox Manager | `X-Api-Key` header (static key from `.env`) |
+| Browser → Sandbox Bridge API | `Authorization: Bearer <sandbox_token>` (per-sandbox, generated at creation) |
+| Browser → noVNC iframe | VNC password (per-sandbox, generated at creation) |
+
+---
+
+## Platform Setup
+
+Choose your platform — each has a dedicated folder with a setup script and README:
+
+| Platform | Folder | Command |
+|----------|--------|---------|
+| 🐧 Linux (VPS) | [`linux/`](linux/) | `sudo bash infra/sandbox/linux/setup.sh` |
+| 🍎 macOS (local dev) | [`mac/`](mac/) | `bash infra/sandbox/mac/setup.sh` |
+| 🪟 Windows (Docker Desktop) | [`windows/`](windows/) | `.\infra\sandbox\windows\setup.ps1` |
+
+### After setup — configure the backend
+
+In `backend/src/API/appsettings.json`:
+
+```json
+{
+  "VPS": {
+    "GatewayUrl": "http://YOUR_VPS_IP:8090",
+    "ManagerApiKey": "<key printed at end of setup>",
+    "PublicIp": "YOUR_VPS_IP_OR_localhost",
+    "Enabled": true
+  }
+}
+```
+
+> **Corporate proxy / Zscaler?** Place your `.crt` certificates in [`certs/`](certs/) before running any setup script. See [`certs/README.md`](certs/README.md).
+
+---
+
+## Manager API
+
+All requests require the `X-Api-Key` header. The key is stored in `/opt/devpilot-sandbox/.env`.
 
 ```bash
-# Download and run
-curl -sSL https://raw.githubusercontent.com/YOUR_REPO/sandbox/setup.sh | sudo bash
+export API_KEY=$(sudo grep MANAGER_API_KEY /opt/devpilot-sandbox/.env | cut -d= -f2)
+export BASE=http://YOUR_VPS_IP:8090
 ```
 
-### Configure Frontend:
+### Endpoints
 
-Update `frontend/src/app/core/config/vps.config.ts`:
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/health` | Health check (no auth required) |
+| `GET` | `/sandboxes` | List all active sandboxes |
+| `POST` | `/sandboxes` | Create a new sandbox |
+| `GET` | `/sandboxes/{id}` | Get sandbox status |
+| `DELETE` | `/sandboxes/{id}` | Stop and remove a sandbox |
 
-```typescript
-export const VPS_CONFIG = {
-  ip: 'YOUR_VPS_IP',
-  novncPort: 6080,
-  sandboxApiPort: 8090,
-  password: ''
-};
-```
-
-## API Endpoints
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/health` | Health check |
-| GET | `/sandboxes` | List all active sandboxes |
-| POST | `/sandboxes` | Create new sandbox |
-| GET | `/sandboxes/{id}` | Get sandbox status |
-| DELETE | `/sandboxes/{id}` | Delete sandbox |
-| POST | `/sandboxes/{id}/stop` | Stop sandbox |
-
-### Create Sandbox
+### Create sandbox
 
 ```bash
-curl -X POST http://YOUR_VPS_IP:8090/sandboxes
+curl -X POST $BASE/sandboxes \
+  -H "X-Api-Key: $API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "repo_url": "https://github.com/org/repo.git",
+    "repo_name": "repo",
+    "repo_branch": "main",
+    "ai_config": {
+      "provider": "openai",
+      "api_key": "sk-...",
+      "model": "gpt-4o"
+    }
+  }'
 ```
 
 Response:
 ```json
 {
-  "id": "abc123",
+  "id": "a1b2c3d4",
   "port": 6100,
+  "bridge_port": 7100,
   "url": "http://YOUR_VPS_IP:6100/vnc.html",
-  "status": "starting"
+  "bridge_url": "http://YOUR_VPS_IP:7100",
+  "status": "starting",
+  "sandbox_token": "<random bearer token>",
+  "vnc_password": "<random vnc password>"
 }
 ```
 
-### List Sandboxes
+### List sandboxes
 
 ```bash
-curl http://YOUR_VPS_IP:8090/sandboxes
+curl $BASE/sandboxes -H "X-Api-Key: $API_KEY"
 ```
 
-### Delete Sandbox
+### Delete sandbox
 
 ```bash
-curl -X DELETE http://YOUR_VPS_IP:8090/sandboxes/abc123
+curl -X DELETE $BASE/sandboxes/a1b2c3d4 -H "X-Api-Key: $API_KEY"
 ```
 
-## Management
+---
+
+## Sandbox Bridge API
+
+Each sandbox exposes a bridge API on its bridge port (7100–7200).
+Requests must include the per-sandbox bearer token returned at creation time.
 
 ```bash
-cd /opt/devpilot-sandbox
-
-./run.sh start     # Start manager
-./run.sh stop      # Stop manager
-./run.sh status    # Show status
-./run.sh logs      # View logs
-./run.sh rebuild   # Rebuild desktop image
-./run.sh cleanup   # Remove all sandbox containers
+export BRIDGE=http://YOUR_VPS_IP:7100
+export TOKEN=<sandbox_token>
 ```
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/all-conversations` | List Zed AI conversations |
+| `GET` | `/latest-conversation` | Get the most recent conversation |
+| `POST` | `/zed/send-prompt` | Send a prompt to Zed AI |
+| `GET` | `/files` | List files in the project |
+| `GET` | `/file?path=...` | Read a file |
+
+```bash
+# Get latest AI conversation
+curl $BRIDGE/latest-conversation \
+  -H "Authorization: Bearer $TOKEN"
+
+# Send a prompt to Zed
+curl -X POST $BRIDGE/zed/send-prompt \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"prompt": "Explain the architecture of this project"}'
+```
+
+---
 
 ## Ports
 
-| Port | Service |
-|------|---------|
-| 8090 | Sandbox Manager API |
-| 6100-6200 | Individual sandbox noVNC ports |
+| Range | Service |
+|-------|---------|
+| `8090` | Sandbox Manager API |
+| `6100–6200` | noVNC (web remote desktop) per sandbox |
+| `7100–7200` | Bridge API per sandbox |
 
-## Firewall
+---
 
-```bash
-sudo ufw allow 8090/tcp
-sudo ufw allow 6100:6200/tcp
-```
-
-## Features
-
-- **Isolation**: Each sandbox runs in its own Docker container
-- **Auto-cleanup**: Sandboxes older than 2 hours are automatically removed
-- **Port management**: Automatic port allocation from pool (6100-6200)
-- **Desktop environment**: XFCE + Zed IDE + Firefox
-- **Browser access**: noVNC for web-based remote desktop
-
-## Desktop Environment
-
-Each sandbox includes:
-- Ubuntu 24.04
-- XFCE Desktop
-- Zed IDE
-- Firefox
-- Terminal
-
-## Maintenance Commands
-
-### Service Management
+## Manager service management
 
 ```bash
-# Check API service status
+# Status
 sudo systemctl status devpilot-sandbox
 
-# Restart API service
-sudo systemctl restart devpilot-sandbox
-
-# Stop API service
-sudo systemctl stop devpilot-sandbox
-
-# Start API service
-sudo systemctl start devpilot-sandbox
-
-# View API logs (follow)
+# Logs (live)
 journalctl -u devpilot-sandbox -f
 
-# View last 50 API log lines
+# Last 50 lines
 journalctl -u devpilot-sandbox -n 50 --no-pager
+
+# Restart
+sudo systemctl restart devpilot-sandbox
 ```
 
-### Container Cleanup
+Or use the helper script installed at `/opt/devpilot-sandbox/run.sh`:
 
 ```bash
-# List all sandbox containers
+cd /opt/devpilot-sandbox
+./run.sh status
+./run.sh logs
+./run.sh start
+./run.sh stop
+./run.sh rebuild    # Rebuild desktop Docker image
+./run.sh cleanup    # Remove all sandbox containers
+```
+
+---
+
+## Container management
+
+```bash
+# List running sandbox containers
 docker ps --filter "name=sandbox-"
 
+# View logs for a specific container
+docker logs <container_id>
+
+# Open a shell inside a container
+docker exec -it <container_id> bash
+
+# Check environment variables in container
+docker exec <container_id> env | grep -E "REPO|DEVPILOT|SANDBOX"
+
 # Stop all sandbox containers
-docker stop $(docker ps -q --filter "name=sandbox-")
-
-# Remove all sandbox containers (stopped and running)
-docker rm -f $(docker ps -aq --filter "name=sandbox-")
-
-# Full cleanup: stop + remove all sandbox containers
 docker ps -q --filter "name=sandbox-" | xargs -r docker stop
-docker ps -aq --filter "name=sandbox-" | xargs -r docker rm
+
+# Remove all sandbox containers
+docker ps -aq --filter "name=sandbox-" | xargs -r docker rm -f
 ```
 
-### Image Management
+---
+
+## Full reset
 
 ```bash
-# List sandbox images
-docker images | grep devpilot
-
-# Remove sandbox image (forces rebuild on next setup)
-docker rmi devpilot-desktop
-
-# Rebuild image
-cd /opt/devpilot-sandbox
-docker build -t devpilot-desktop ./desktop
-```
-
-### Volume Cleanup
-
-```bash
-# List all volumes
-docker volume ls
-
-# Remove unused volumes
-docker volume prune -f
-
-# Remove all unused Docker data (containers, images, volumes, networks)
-docker system prune -af --volumes
-```
-
-### Full Reset
-
-```bash
-# Complete reset: stop service, remove all containers/images, rebuild
+# Stop service
 sudo systemctl stop devpilot-sandbox
+
+# Remove all containers and image
 docker rm -f $(docker ps -aq --filter "name=sandbox-") 2>/dev/null
 docker rmi devpilot-desktop 2>/dev/null
 docker volume prune -f
-cd /opt/devpilot-sandbox
-./setup.sh
-sudo systemctl start devpilot-sandbox
+
+# Redeploy
+sudo bash setup.sh
 ```
 
-### Quick Restart (after code changes)
-
-```bash
-# After updating setup.sh locally, copy and redeploy:
-cd /opt/devpilot-sandbox
-./setup.sh
-sudo systemctl restart devpilot-sandbox
-```
+---
 
 ## Troubleshooting
 
-### Check manager status
+### Manager not responding on port 8090
+
 ```bash
-systemctl status devpilot-sandbox
+sudo systemctl status devpilot-sandbox
+curl http://localhost:8090/health
+lsof -i :8090
 ```
 
-### View logs
+### 401 Unauthorized from Bridge API
+
+- Verify the `sandbox_token` in the request matches the one returned at creation
+- The token is per-sandbox and is regenerated every time a new container is created
+
+### 401 Unauthorized from Manager API
+
+- Check `X-Api-Key` matches the value in `/opt/devpilot-sandbox/.env`
+- Key is regenerated each time `setup.sh` runs — update `appsettings.json` accordingly
+
+### Zed not starting inside container
+
 ```bash
-journalctl -u devpilot-sandbox -f
-```
-
-### Debug a running container
-```bash
-# Get container ID
-docker ps --filter "name=sandbox-"
-
-# View container logs
-docker logs <container_id>
-
-# Check environment variables
-docker exec <container_id> env | grep -E "OPENAI|ZED|REPO|DEVPILOT"
-
-# Check Zed settings
-docker exec <container_id> cat /home/sandbox/.config/zed/settings.json
-
-# Check debug log
-docker exec <container_id> cat /tmp/sandbox-debug.log
-
-# Check Zed errors
-docker exec <container_id> cat /tmp/zed-errors.log
-
-# Check if Zed is running
-docker exec <container_id> ps aux | grep zed
-
-# Open shell in container
-docker exec -it <container_id> bash
-```
-
-### Common Issues
-
-**Zed not starting:**
-```bash
-# Run Zed manually to see errors
 docker exec -it <container_id> bash -c '
   source /tmp/dbus-env.sh
   export DISPLAY=:0 LIBGL_ALWAYS_SOFTWARE=1 HOME=/home/sandbox
   /home/sandbox/.local/bin/zed --foreground /home/sandbox/projects 2>&1
 '
+
+# Check startup logs
+docker exec <container_id> cat /tmp/sandbox-debug.log
+docker exec <container_id> cat /tmp/zed-errors.log
 ```
 
-**Port already in use:**
+### VNC blank screen
+
 ```bash
-# Find what's using the port
-lsof -i :8090
-netstat -tlnp | grep 8090
+# Check x11vnc is running
+docker exec <container_id> ps aux | grep x11vnc
 
-# Kill the process
-kill -9 <PID>
-```
-
-**API not responding:**
-```bash
-# Check if service is running
-systemctl status devpilot-sandbox
-
-# Check if port is open
-curl http://localhost:8090/health
+# Check Xvfb is running
+docker exec <container_id> ps aux | grep Xvfb
 ```

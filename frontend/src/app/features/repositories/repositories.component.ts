@@ -824,14 +824,18 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
           // (sandbox.url from API contains placeholder 'HOST_IP')
           this.vncViewerService.open(
             {
-              url: getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
             },
             sandbox.id,
             `${repo.name}`,
-            sandbox.bridge_port
+            sandbox.bridge_port,
+            undefined,
+            sandbox.sandbox_token,
+            sandbox.bridge_url,
+            sandbox.vnc_password
           );
           
           // Trigger auto-analysis via Bridge API after Zed has time to start

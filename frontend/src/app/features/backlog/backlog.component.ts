@@ -1055,7 +1055,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
           // Open VNC viewer with implementation context for Push & Create PR
           this.vncViewerService.open(
             {
-              url: getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
@@ -1070,7 +1070,10 @@ export class BacklogComponent implements OnInit, OnDestroy {
               storyTitle: story.title,
               storyId: story.id,
               azureDevOpsWorkItemId: story.azureDevOpsWorkItemId
-            }
+            },
+            sandbox.sandbox_token,
+            sandbox.bridge_url,
+            sandbox.vnc_password
           );
           
           // Only send implementation prompt for new stories (no existing PR)
@@ -1240,7 +1243,11 @@ Start by exploring the codebase and then provide your implementation plan.`;
         return;
       }
       const viewers = this.vncViewerService.getViewers();
-      const activeSandbox = viewers.find(v => v.title?.includes(repo.name)) || null;
+      // Match only the backlog sandbox for this exact repository (not implementation sandboxes for stories)
+      const activeSandbox = viewers.find(v =>
+        v.implementationContext?.repositoryId === repo.id &&
+        v.implementationContext?.storyId?.startsWith('backlog-')
+      ) || null;
       if (activeSandbox?.bridgePort) {
         this.sendBacklogPrompt(activeSandbox.bridgePort);
       } else {
@@ -1311,7 +1318,7 @@ Start by exploring the codebase and then provide your implementation plan.`;
         setTimeout(() => {
           this.vncViewerService.open(
             {
-              url: getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
@@ -1325,7 +1332,10 @@ Start by exploring the codebase and then provide your implementation plan.`;
               defaultBranch: repo.defaultBranch || 'main',
               storyTitle: 'Backlog Generation',
               storyId: `backlog-${repo.id}`
-            }
+            },
+            sandbox.sandbox_token,
+            sandbox.bridge_url,
+            sandbox.vnc_password
           );
 
           this.generationState.set('waiting_sandbox');
@@ -1473,7 +1483,7 @@ ${jsonFormatRequirement}`;
   }
 
   private containsBacklogJson(response: string): boolean {
-    return response.includes('"epics"') && (response.includes('```json') || response.includes('"features"'));
+    return response.includes('"epics"');
   }
 
   private parseAndSaveBacklog(response: string): void {
@@ -1502,12 +1512,23 @@ ${jsonFormatRequirement}`;
     try {
       // Extract JSON from markdown code block if present
       let jsonStr = response;
-      const jsonMatch = response.match(/```json\s*([\s\S]*?)\s*```/);
+      const jsonMatch = response.match(/```(?:json)?\s*([\s\S]*?)```/);
       if (jsonMatch) {
-        jsonStr = jsonMatch[1];
+        jsonStr = jsonMatch[1].trim();
+      } else {
+        // Fallback: extract raw JSON object
+        const jsonStart = response.indexOf('{');
+        const jsonEnd = response.lastIndexOf('}');
+        if (jsonStart !== -1 && jsonEnd !== -1) {
+          jsonStr = response.substring(jsonStart, jsonEnd + 1);
+        }
       }
 
       const backlog = JSON.parse(jsonStr);
+
+      if (!backlog.epics || !Array.isArray(backlog.epics)) {
+        throw new Error('Invalid backlog format: missing epics array');
+      }
 
       this.generationState.set('saving');
 

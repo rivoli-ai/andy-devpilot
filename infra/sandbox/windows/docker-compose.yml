@@ -1,0 +1,23 @@
+services:
+  sandbox-manager:
+    build:
+      context: .
+      dockerfile: Dockerfile.manager
+    image: devpilot-sandbox-manager
+    container_name: devpilot-sandbox-manager
+    ports:
+      - "8090:8090"
+    volumes:
+      # Mount the Windows Docker Desktop named pipe so the manager can create sibling containers
+      - type: npipe
+        source: \\.\pipe\docker_engine
+        target: /var/run/docker.sock
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8090/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
