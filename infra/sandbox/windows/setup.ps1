@@ -27,24 +27,24 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-# ── Colours ──────────────────────────────────────────────────────────────────
+# - Colours -
 function Write-Step  { param($msg) Write-Host "==> $msg" -ForegroundColor Cyan }
-function Write-Ok    { param($msg) Write-Host "  ✓ $msg" -ForegroundColor Green }
-function Write-Warn  { param($msg) Write-Host "  ! $msg" -ForegroundColor Yellow }
-function Write-Fail  { param($msg) Write-Host "  ✗ $msg" -ForegroundColor Red }
+function Write-Ok    { param($msg) Write-Host "  [OK] $msg" -ForegroundColor Green }
+function Write-Warn  { param($msg) Write-Host "  [WARN] $msg" -ForegroundColor Yellow }
+function Write-Fail  { param($msg) Write-Host "  [FAIL] $msg" -ForegroundColor Red }
 
-# ── Paths ─────────────────────────────────────────────────────────────────────
+# - Paths -
 $windowsDir = $PSScriptRoot
 $sandboxDir  = Split-Path $windowsDir -Parent        # infra/sandbox
 $envFile     = Join-Path $windowsDir ".env"
 
 Write-Host ""
-Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Magenta
-Write-Host "║   DevPilot Sandbox — Windows Setup       ║" -ForegroundColor Magenta
-Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Magenta
+Write-Host "==========================================" -ForegroundColor Magenta
+Write-Host "   DevPilot Sandbox - Windows Setup       " -ForegroundColor Magenta
+Write-Host "==========================================" -ForegroundColor Magenta
 Write-Host ""
 
-# ── 1. Check Docker Desktop ───────────────────────────────────────────────────
+# - 1. Check Docker Desktop -
 Write-Step "Checking Docker Desktop..."
 try {
     $null = docker info 2>&1
@@ -55,7 +55,7 @@ try {
     exit 1
 }
 
-# ── 2. Build the devpilot-desktop image ───────────────────────────────────────
+# - 2. Build the devpilot-desktop image -
 Write-Step "Building devpilot-desktop image (this can take 10-20 min on first run)..."
 
 # Check if image already exists (and skip if not forced)
@@ -105,7 +105,7 @@ if ($imageExists -and -not $Rebuild) {
     Write-Ok "devpilot-desktop image built successfully"
 }
 
-# ── 3. Generate or load API key ───────────────────────────────────────────────
+# - 3. Generate or load API key -
 Write-Step "Configuring API key..."
 
 if (Test-Path $envFile) {
@@ -132,7 +132,7 @@ HOST_IP=$HostIP
 
 Write-Ok "Wrote .env (HOST_IP=$HostIP)"
 
-# ── 4. Build manager image and start with docker-compose ──────────────────────
+# - 4. Build manager image and start with docker-compose -
 Write-Step "Starting sandbox manager container..."
 
 Push-Location $windowsDir
@@ -151,7 +151,7 @@ try {
     Pop-Location
 }
 
-# ── 5. Health check ───────────────────────────────────────────────────────────
+# - 5. Health check -
 Write-Step "Waiting for manager to be ready..."
 $maxWait = 30
 $waited  = 0
@@ -175,11 +175,11 @@ if ($ready) {
     Write-Warn "Manager did not respond in ${maxWait}s. Check logs: docker logs devpilot-sandbox-manager"
 }
 
-# ── Summary ───────────────────────────────────────────────────────────────────
+# - Summary -
 Write-Host ""
-Write-Host "══════════════════════════════════════════════" -ForegroundColor Green
+Write-Host "==============================================" -ForegroundColor Green
 Write-Host "  Setup complete!" -ForegroundColor Green
-Write-Host "══════════════════════════════════════════════" -ForegroundColor Green
+Write-Host "==============================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Manager API   : http://localhost:8090" -ForegroundColor Cyan
 Write-Host "  Manager key   : $apiKey" -ForegroundColor Cyan
