@@ -1,7 +1,7 @@
 import { Component, OnInit, OnDestroy, signal, input, output, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject, interval, takeUntil, switchMap, filter } from 'rxjs';
+import { Subject, interval, takeUntil, switchMap, filter, EMPTY, catchError } from 'rxjs';
 import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
 import { SandboxService } from '../../core/services/sandbox.service';
 import { BacklogService } from '../../core/services/backlog.service';
@@ -664,26 +664,33 @@ IMPORTANT: Return ONLY valid JSON in this exact format:
   }
 
   private startPollingForResponse(bridgePort: number): void {
-    // Poll indefinitely until we get a valid response (like chat does)
+    let consecutiveErrors = 0;
+
     interval(3000).pipe(
       takeUntil(this.destroy$),
       filter(() => this.state() === 'waiting_response'),
-      switchMap(() => this.sandboxBridgeService.getLatestZedConversation(bridgePort))
+      switchMap(() =>
+        this.sandboxBridgeService.getLatestZedConversation(bridgePort).pipe(
+          catchError(err => {
+            consecutiveErrors++;
+            if (consecutiveErrors >= 3) {
+              this.errorMessage.set('Sandbox connection lost — the container may have been stopped.');
+              this.state.set('error');
+            }
+            return EMPTY;
+          })
+        )
+      )
     ).subscribe({
       next: (conv) => {
+        consecutiveErrors = 0;
         if (conv && conv.id !== this.lastConversationId) {
-          // New response received
           this.latestResponse.set(conv);
-
-          // Check if the response contains JSON backlog
           if (this.containsBacklogJson(conv.assistant_message)) {
             this.lastConversationId = conv.id;
             this.parseAndSaveBacklog(conv.assistant_message);
           }
         }
-      },
-      error: (err) => {
-        console.error('Polling error:', err);
       }
     });
   }

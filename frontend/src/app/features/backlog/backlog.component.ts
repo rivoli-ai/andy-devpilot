@@ -16,7 +16,7 @@ import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
 import { AddBacklogItemModalComponent, AddItemType, EditItemData } from '../../components/add-backlog-item-modal/add-backlog-item-modal.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
-import { Subject, interval, takeUntil, filter, switchMap, forkJoin } from 'rxjs';
+import { Subject, interval, takeUntil, filter, switchMap, forkJoin, EMPTY, catchError } from 'rxjs';
 
 type WorkItemType = 'epic' | 'feature' | 'story';
 type ViewMode = 'tree' | 'flat';
@@ -1461,23 +1461,34 @@ ${jsonFormatRequirement}`;
   }
 
   private startPollingForResponse(bridgePort: number): void {
+    let consecutiveErrors = 0;
+
     interval(3000).pipe(
       takeUntil(this.destroy$),
       filter(() => this.generationState() === 'waiting_response'),
-      switchMap(() => this.sandboxBridgeService.getLatestZedConversation(bridgePort))
+      switchMap(() =>
+        this.sandboxBridgeService.getLatestZedConversation(bridgePort).pipe(
+          catchError(err => {
+            consecutiveErrors++;
+            if (consecutiveErrors >= 3) {
+              this.generationError.set('Sandbox connection lost — the container may have been stopped.');
+              this.generationState.set('error');
+            }
+            return EMPTY;
+          })
+        )
+      )
     ).subscribe({
       next: (conv) => {
+        consecutiveErrors = 0;
         if (conv && conv.id !== this.lastConversationId) {
           this.latestResponse.set(conv);
-          
+
           if (this.containsBacklogJson(conv.assistant_message)) {
             this.lastConversationId = conv.id;
             this.parseAndSaveBacklog(conv.assistant_message);
           }
         }
-      },
-      error: (err) => {
-        console.error('Polling error:', err);
       }
     });
   }

@@ -780,11 +780,16 @@ export class CodeComponent implements OnInit, OnDestroy {
       // No existing conversation
     }
 
+    let consecutiveErrors = 0;
+    const MAX_CONSECUTIVE_ERRORS = 3;
+
     for (let i = 0; i < maxAttempts; i++) {
       try {
         const response = await firstValueFrom(
           this.sandboxBridgeService.getLatestZedConversation(bridgePort)
         );
+
+        consecutiveErrors = 0;
 
         if (response && response.assistant_message) {
           const content = response.assistant_message;
@@ -816,7 +821,11 @@ export class CodeComponent implements OnInit, OnDestroy {
           }
         }
       } catch (err) {
-        console.warn('Error polling Zed conversation:', err);
+        consecutiveErrors++;
+        console.warn(`Error polling Zed conversation (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, err);
+        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+          throw new Error('Sandbox connection lost — the container may have been stopped.');
+        }
       }
       await this.delay(2000);
     }
