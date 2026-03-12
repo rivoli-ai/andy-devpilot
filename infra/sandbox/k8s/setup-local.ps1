@@ -47,17 +47,22 @@ Write-Host "   DevPilot Sandbox - K8s Local Setup     " -ForegroundColor Magenta
 Write-Host "==========================================" -ForegroundColor Magenta
 Write-Host ""
 
-# ── Load .env if present ──────────────────────────────────────────────────────
-$envFile = Join-Path $scriptDir ".env"
-if (Test-Path $envFile) {
-    Get-Content $envFile | Where-Object { $_ -match "^\s*[^#].*=.*" } | ForEach-Object {
-        $parts = $_ -split "=", 2
-        if ($parts.Count -eq 2) {
-            [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim(), "Process")
+# ── Load .env files ───────────────────────────────────────────────────────────
+# Load order: repo root .env first, then infra/sandbox/k8s/.env (overrides root)
+function Import-EnvFile { param($path)
+    if (Test-Path $path) {
+        Get-Content $path | Where-Object { $_ -match "^\s*[^#\s].*=.*" } | ForEach-Object {
+            $parts = $_ -split "=", 2
+            if ($parts.Count -eq 2) {
+                [System.Environment]::SetEnvironmentVariable($parts[0].Trim(), $parts[1].Trim(), "Process")
+            }
         }
+        Write-Info "Loaded .env from $path"
     }
-    Write-Info "Loaded .env from $envFile"
 }
+
+Import-EnvFile (Join-Path $repoRoot ".env")
+Import-EnvFile (Join-Path $scriptDir ".env")
 
 # ── 1. Check prerequisites ────────────────────────────────────────────────────
 Write-Step "Checking prerequisites..."

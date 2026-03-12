@@ -15,10 +15,17 @@
 
 set -e
 
-# ── Load .env if present ──────────────────────────────────────────────────────
+# ── Load .env files ───────────────────────────────────────────────────────────
+# Load order: repo root .env first, then infra/sandbox/k8s/.env (overrides root)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/.env" ]; then
-    set -a; source "$SCRIPT_DIR/.env"; set +a
+ROOT_ENV="$(cd "$SCRIPT_DIR/../../.." && pwd)/.env"
+LOCAL_ENV="$SCRIPT_DIR/.env"
+
+if [ -f "$ROOT_ENV" ]; then
+    set -a; source "$ROOT_ENV"; set +a
+fi
+if [ -f "$LOCAL_ENV" ]; then
+    set -a; source "$LOCAL_ENV"; set +a
 fi
 
 # ── Colours ───────────────────────────────────────────────────────────────────
