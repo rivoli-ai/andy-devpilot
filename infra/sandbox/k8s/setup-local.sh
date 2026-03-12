@@ -132,8 +132,10 @@ kubectl create secret generic manager-secrets \
     -n sandboxes \
     --dry-run=client -o yaml | kubectl apply -f -
 
-# Patch deployment to use local image (not GHCR)
-sed 's|ghcr.io/YOUR_ORG/devpilot-manager:latest|devpilot-manager:local|g' \
+# Patch deployment to use local image (not GHCR) and Never pull (local image)
+sed \
+    -e 's|ghcr.io/YOUR_ORG/devpilot-manager:latest|devpilot-manager:local|g' \
+    -e 's|imagePullPolicy: Always|imagePullPolicy: Never|g' \
     "$MANIFESTS_DIR/manager-deployment.yaml" | kubectl apply -f -
 
 info "Manifests applied"
