@@ -3,8 +3,8 @@ import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { Subscription, interval, firstValueFrom } from 'rxjs';
-import { takeWhile, switchMap } from 'rxjs/operators';
+import { Subject, Subscription, interval, firstValueFrom } from 'rxjs';
+import { takeUntil, takeWhile, switchMap } from 'rxjs/operators';
 import {
   RepositoryService,
   RepositoryTree,
@@ -84,6 +84,7 @@ export class CodeComponent implements OnInit, OnDestroy {
 
   // Subscriptions for cleanup
   private analysisSubscription?: Subscription;
+  private destroy$ = new Subject<void>();
 
   // Computed: flattened tree for display
   flattenedTree = computed(() => {
@@ -149,6 +150,8 @@ export class CodeComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.analysisSubscription?.unsubscribe();
+    this.destroy$.next();
+    this.destroy$.complete();
     // Don't delete sandbox on destroy - allow reconnection after refresh
     // Sandbox will be cleaned up when analysis completes or user explicitly cancels
   }
@@ -165,6 +168,19 @@ export class CodeComponent implements OnInit, OnDestroy {
     } else {
       this.error.set('Repository ID is required');
     }
+
+    // If the analysis sandbox viewer is closed while analysis is running, stop the spinner immediately
+    this.vncViewerService.viewers$.pipe(takeUntil(this.destroy$)).subscribe(viewers => {
+      const sandboxId = this.analysisSandboxId();
+      if (sandboxId && this.analysisLoading()) {
+        const stillOpen = viewers.some(v => v.id === sandboxId);
+        if (!stillOpen) {
+          this.analysisLoading.set(false);
+          this.analysisError.set('Sandbox was closed. Analysis stopped.');
+          this.analysisSandboxId.set(null);
+        }
+      }
+    });
   }
 
   getLlmSettings() {

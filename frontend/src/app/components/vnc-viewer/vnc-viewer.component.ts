@@ -1,8 +1,8 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, signal, effect, input, output, computed, HostListener } from '@angular/core';
+import { Component, OnInit, OnDestroy, ViewChild, ElementRef, signal, effect, input, output, computed, HostListener, untracked } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
-import { Subject, interval, takeUntil, switchMap, filter, startWith } from 'rxjs';
+import { Subject, interval, takeUntil, switchMap, filter, startWith, EMPTY, catchError } from 'rxjs';
 import { VncService } from '../../core/services/vnc.service';
 import { VncViewerService, DockPosition } from '../../core/services/vnc-viewer.service';
 import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
@@ -234,12 +234,14 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       }
     }, { allowSignalWrites: true });
 
-    // Sync connection state back to service so it persists when viewer moves floating↔minimized
+    // Sync connection state back to service so it persists when viewer moves floating↔minimized.
+    // untracked() exits the reactive context before calling setConnectionState so that the
+    // BehaviorSubject.next() it triggers does not propagate NG0600 to downstream subscribers.
     effect(() => {
       const id = this.viewerId();
       const state = this.connectionState();
       if (id && state) {
-        this.vncViewerService.setConnectionState(id, state);
+        untracked(() => this.vncViewerService.setConnectionState(id, state));
       }
     });
   }
@@ -335,14 +337,29 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     const port = this.bridgePort();
     if (!port) return;
 
+    let consecutiveErrors = 0;
+
     // Fetch immediately then every 3 seconds
     interval(3000).pipe(
       startWith(0),
       takeUntil(this.destroy$),
       filter(() => !!this.bridgePort()),
-      switchMap(() => this.sandboxBridgeService.getAllConversations(this.bridgePort()!))
+      switchMap(() =>
+        this.sandboxBridgeService.getAllConversations(this.bridgePort()!).pipe(
+          catchError(_err => {
+            consecutiveErrors++;
+            if (consecutiveErrors >= 3) {
+              // Bridge unreachable — container likely stopped
+              this.connectionState.set(VncConnectionState.Error);
+              this.error.set('Sandbox stopped or unreachable. Close this viewer to clean up.');
+            }
+            return EMPTY;
+          })
+        )
+      )
     ).subscribe({
       next: (response) => {
+        consecutiveErrors = 0;
         if (response.conversations.length > 0) {
           this.conversations.set(response.conversations);
           const latestId = response.conversations[response.conversations.length - 1]?.id;
@@ -351,8 +368,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
             console.log('New conversation in sandbox:', this.viewerId());
           }
         }
-      },
-      error: (err) => console.warn('Failed to poll conversations:', err)
+      }
     });
   }
 

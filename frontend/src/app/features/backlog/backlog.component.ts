@@ -424,6 +424,21 @@ export class BacklogComponent implements OnInit, OnDestroy {
         .filter(v => v.implementationContext?.storyId)
         .map(v => v.implementationContext!.storyId);
       this.openSandboxStoryIds.set(storyIds);
+
+      // If the backlog sandbox was actively generating and its viewer was just closed, stop immediately
+      const inProgress = ['creating_sandbox', 'waiting_sandbox', 'sending', 'waiting_response', 'parsing', 'saving']
+        .includes(this.generationState());
+      if (inProgress) {
+        const repoId = this.repositoryId();
+        const backlogStillOpen = viewers.some(
+          v => v.implementationContext?.storyId === `backlog-${repoId}`
+        );
+        if (!backlogStillOpen) {
+          this.generationError.set('Sandbox was closed. Generation stopped.');
+          this.generationState.set('error');
+        }
+      }
+
       // When viewers are restored after refresh, try to reconnect to backlog sandbox
       this.checkForExistingBacklogSandbox();
     });
