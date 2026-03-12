@@ -92,9 +92,12 @@ patch_gateway_url() {
 }
 
 if [ "$MODE" = "docker" ]; then
-    patch_gateway_url "http://localhost:8090"
+    # Docker DNS: backend container resolves 'sandbox-manager' directly
+    patch_gateway_url "http://sandbox-manager:8090"
 elif [ "$MODE" = "k8s" ]; then
-    patch_gateway_url "http://localhost:30090"
+    # K8s NodePort is on the host. From inside a Docker container use host.docker.internal
+    # (works on macOS/Windows Docker Desktop and Linux Docker 20.10+ with extra_hosts)
+    patch_gateway_url "http://host.docker.internal:30090"
 fi
 
 # ── Helper: stop conflicting mode before starting ────────────────────────────

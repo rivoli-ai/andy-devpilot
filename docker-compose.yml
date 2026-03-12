@@ -32,10 +32,16 @@ services:
       ASPNETCORE_ENVIRONMENT: Production
       ConnectionStrings__Postgres: "Host=postgres;Port=5432;Username=${DB_USER:-analyser};Password=${DB_PASSWORD:-analyser_password};Database=${DB_NAME:-analyzer}"
       JWT__SecretKey: ${JWT_SECRET_KEY}
-      VPS__GatewayUrl:    http://sandbox-manager:8090
+      # VPS__GatewayUrl is read from .env and patched by start.sh based on mode:
+      #   Docker → http://sandbox-manager:8090  (docker-compose DNS)
+      #   K8s    → http://host.docker.internal:30090  (K8s NodePort via host)
+      VPS__GatewayUrl:    ${VPS__GatewayUrl:-http://sandbox-manager:8090}
       VPS__ManagerApiKey: ${MANAGER_API_KEY}
       VPS__PublicIp:      ${PUBLIC_IP:-localhost}
       VPS__Enabled:       "true"
+    extra_hosts:
+      # Allows the backend container to reach host ports (e.g. K8s NodePorts) on Linux
+      - "host.docker.internal:host-gateway"
     ports:
       - "8080:8080"
 

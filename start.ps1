@@ -105,8 +105,8 @@ function Set-GatewayUrl {
     Write-Info "VPS__GatewayUrl set to: $Url"
 }
 
-if ($Mode -eq "docker") { Set-GatewayUrl "http://localhost:8090" }
-elseif ($Mode -eq "k8s") { Set-GatewayUrl "http://localhost:30090" }
+if ($Mode -eq "docker") { Set-GatewayUrl "http://sandbox-manager:8090" }
+elseif ($Mode -eq "k8s") { Set-GatewayUrl "http://host.docker.internal:30090" }
 
 $passArgs = @()
 if ($Rebuild) { $passArgs += "-Rebuild" }
