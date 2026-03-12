@@ -362,6 +362,7 @@ ENV DOTNET_CLI_TELEMETRY_OPTOUT=1
 ENV DOTNET_NUGET_SIGNATURE_VERIFICATION=false
 # npm: disable strict SSL validation
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0
+ENV NPM_CONFIG_STRICT_SSL=false
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues
