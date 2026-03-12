@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: sandbox-cleanup
+  namespace: sandboxes
+spec:
+  schedule: "*/5 * * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          serviceAccountName: sandbox-manager
+          restartPolicy: Never
+          containers:
+          - name: cleanup
+            image: ghcr.io/YOUR_ORG/devpilot-manager:latest
+            imagePullPolicy: Always
+            command: ["python", "cleanup.py"]
+            envFrom:
+            - secretRef:
+                name: manager-secrets
