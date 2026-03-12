@@ -46,13 +46,75 @@ Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bear
 
 ## Run modes
 
-| Mode | Use case | Docs |
-|------|----------|------|
-| **Linux (systemd)** | Production VPS | [linux/](linux/) |
-| **macOS (background process)** | Local dev on Mac | [mac/](mac/) |
-| **Windows (Docker container)** | Local dev on Windows | [windows/](windows/) |
-| **Kubernetes local** | Test K8s setup locally | [k8s/](k8s/) |
-| **AKS (production K8s)** | Cloud deployment | [below](#aks-deployment) |
+| Mode | `BACKEND=` | Manager port | Use case |
+|------|-----------|--------------|----------|
+| **Linux (systemd)** | `docker` (default) | `8090` | Production VPS |
+| **macOS (background process)** | `docker` (default) | `8090` | Local dev on Mac |
+| **Windows (Docker container)** | `docker` (default) | `8090` | Local dev on Windows |
+| **Kubernetes local** | `k8s` | `30090` (NodePort) | Test K8s setup locally |
+| **AKS (production K8s)** | `k8s` | `8090` (internal) | Cloud deployment |
+
+---
+
+## Switching between Docker and Kubernetes
+
+The manager supports two backends controlled by the `BACKEND` environment variable.
+
+```
+BACKEND=docker   ← uses Docker SDK to create containers  (default for Linux/macOS/Windows)
+BACKEND=k8s      ← uses Kubernetes Python client          (required for K8s / AKS)
+```
+
+The only **two things that change** when you switch:
+
+| | Docker mode | Kubernetes mode |
+|-|-------------|-----------------|
+| `BACKEND` env var | `docker` (or unset) | `k8s` |
+| `VPS:GatewayUrl` in backend | `http://localhost:8090` | `http://localhost:30090` (local) or `http://sandbox-manager.sandboxes.svc.cluster.local:8090` (AKS) |
+
+### Switch to Docker mode
+
+```bash
+# infra/sandbox/k8s/.env  (or the .env used by your platform)
+MANAGER_API_KEY=your_key
+# BACKEND not set → defaults to docker
+```
+
+Backend config:
+```json
+"VPS": {
+  "GatewayUrl":    "http://localhost:8090",
+  "ManagerApiKey": "your_key",
+  "PublicIp":      "localhost",
+  "Enabled":       true
+}
+```
+
+### Switch to Kubernetes mode
+
+```bash
+# infra/sandbox/k8s/.env
+MANAGER_API_KEY=your_key
+BACKEND=k8s
+```
+
+Then run:
+```bash
+bash infra/sandbox/k8s/setup-local.sh
+```
+
+Backend config:
+```json
+"VPS": {
+  "GatewayUrl":    "http://localhost:30090",
+  "ManagerApiKey": "your_key",
+  "PublicIp":      "localhost",
+  "Enabled":       true
+}
+```
+
+> On AKS, `GatewayUrl` becomes `http://sandbox-manager.sandboxes.svc.cluster.local:8090`
+> since the backend and manager are in the same cluster (internal DNS, no NodePort needed).
 
 ---
 
