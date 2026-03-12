@@ -3243,7 +3243,7 @@ MANAGER_PY
 # The Windows setup starts the manager via docker-compose instead of systemd.
 # ============================================================
 if [ "${BUILD_ONLY:-0}" = "1" ]; then
-    log_success "BUILD_ONLY mode complete — desktop image built, manager.py ready."
+    log_info "BUILD_ONLY mode complete — desktop image built, manager.py ready."
     log_info "Start the manager on Windows with: docker compose up -d"
     exit 0
 fi
@@ -3403,7 +3403,14 @@ chmod +x run.sh
 # ============================================================
 # Generate .env with a random MANAGER_API_KEY (only if not already set)
 # ============================================================
-if [ ! -f "$PROJECT_DIR/.env" ]; then
+if [ -n "${MANAGER_API_KEY:-}" ]; then
+    # Key provided via environment — write it to .env (overwrites any existing)
+    log_info "Using MANAGER_API_KEY from environment"
+    cat > "$PROJECT_DIR/.env" << ENVFILE
+MANAGER_API_KEY=${MANAGER_API_KEY}
+ENVFILE
+    chmod 600 "$PROJECT_DIR/.env"
+elif [ ! -f "$PROJECT_DIR/.env" ]; then
     log_info "Generating .env with random MANAGER_API_KEY..."
     GENERATED_KEY=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))")
     cat > "$PROJECT_DIR/.env" << ENVFILE

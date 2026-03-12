@@ -2,18 +2,20 @@
 
 .NET 9 Web API following Clean Architecture principles.
 
+---
+
 ## Tech Stack
 
 - **.NET 9** Web API
 - **Entity Framework Core** with PostgreSQL
 - **MediatR** for CQRS pattern
 - **SignalR** for real-time communication
-- **Octokit** for GitHub API
+- **Octokit** for GitHub API integration
 - **JWT** for authentication
 
-## Architecture
+---
 
-The backend follows Clean Architecture with four layers:
+## Architecture
 
 ```
 ┌─────────────────────────────────────────┐
@@ -31,238 +33,303 @@ The backend follows Clean Architecture with four layers:
 └─────────────────────────────────────────┘
 ```
 
-### API Layer (`API/`)
+---
 
-- **Controllers**: REST endpoints for all operations
-- **Hubs**: SignalR hubs for real-time features
-- **Program.cs**: Service configuration and middleware
-
-### Application Layer (`Application/`)
-
-- **Commands**: Write operations (create, update, delete)
-- **Queries**: Read operations
-- **UseCases**: MediatR handlers for commands/queries
-- **DTOs**: Data transfer objects
-- **Services**: Application service interfaces
-
-### Domain Layer (`Domain/`)
-
-- **Entities**: Business objects (User, Repository, Epic, Feature, UserStory)
-- **Interfaces**: Repository interfaces
-
-### Infrastructure Layer (`Infrastructure/`)
-
-- **Persistence**: EF Core DbContext, repository implementations
-- **GitHub**: GitHub API integration using Octokit
-- **AzureDevOps**: Azure DevOps REST API integration
-- **AI**: AI analysis service
-- **Migrations**: Database migrations
-
-## Project Structure
+## Project structure
 
 ```
 src/
 ├── API/
 │   ├── Controllers/
-│   │   ├── AuthController.cs      # Authentication & OAuth
-│   │   ├── RepositoriesController.cs  # Repository operations
-│   │   └── BacklogController.cs   # Backlog management
+│   │   ├── AuthController.cs
+│   │   ├── RepositoriesController.cs
+│   │   ├── BacklogController.cs
+│   │   └── SandboxController.cs
 │   ├── Hubs/
-│   │   └── BoardHub.cs           # Real-time board updates
-│   ├── appsettings.json          # Configuration (templates)
-│   └── Program.cs                # Entry point & DI setup
-│
+│   │   └── BoardHub.cs
+│   ├── appsettings.json
+│   ├── appsettings.Development.json   ← gitignored, create from template
+│   └── Program.cs
 ├── Application/
-│   ├── Commands/                 # Write operations
-│   ├── Queries/                  # Read operations
-│   ├── UseCases/                 # MediatR handlers
-│   ├── DTOs/                     # Data transfer objects
-│   └── Services/                 # Service interfaces
-│
+│   ├── Commands/
+│   ├── Queries/
+│   ├── UseCases/
+│   ├── DTOs/
+│   └── Services/
 ├── Domain/
-│   ├── Entities/                 # Business entities
-│   │   ├── User.cs
-│   │   ├── Repository.cs
-│   │   ├── Epic.cs
-│   │   ├── Feature.cs
-│   │   ├── UserStory.cs
-│   │   └── LinkedProvider.cs
-│   └── Interfaces/               # Repository interfaces
-│
+│   ├── Entities/
+│   └── Interfaces/
 └── Infrastructure/
-    ├── Persistence/              # EF Core implementation
-    │   ├── DevPilotDbContext.cs
-    │   └── Postgres*Repository.cs
-    ├── GitHub/                   # GitHub API
-    │   └── GitHubService.cs
-    ├── AzureDevOps/              # Azure DevOps API
-    │   └── AzureDevOpsService.cs
-    ├── AI/                       # AI services
-    └── Migrations/               # Database migrations
+    ├── Persistence/
+    ├── GitHub/
+    ├── AzureDevOps/
+    ├── AI/
+    ├── Sandbox/
+    └── Migrations/
 ```
 
-## Getting Started
+---
+
+## Run locally (native)
 
 ### Prerequisites
 
-- .NET 9 SDK
-- PostgreSQL 14+
+- .NET 9 SDK — https://dotnet.microsoft.com/download
+- PostgreSQL 14+ running locally
 
-### Configuration
+### 1. Create the config file
 
-Copy and configure the settings file:
-
-```bash
-cp API/appsettings.Development.json.template API/appsettings.Development.json
-```
-
-Edit `appsettings.Development.json`:
-
-```json
-{
-  "ConnectionStrings": {
-    "Postgres": "Host=localhost;Port=5432;Username=user;Password=pass;Database=devpilot"
-  },
-  "JWT": {
-    "SecretKey": "your-32-character-minimum-secret-key"
-  },
-  "GitHub": {
-    "ClientId": "your-github-oauth-client-id",
-    "ClientSecret": "your-github-oauth-client-secret"
-  },
-  "Microsoft": {
-    "ClientId": "your-azure-ad-client-id",
-    "ClientSecret": "your-azure-ad-client-secret",
-    "TenantId": "your-tenant-id"
-  }
-}
-```
-
-### Database Setup
+`appsettings.Development.json` is gitignored. Create it:
 
 ```bash
-cd API
+cp src/API/appsettings.json src/API/appsettings.Development.json
+```
 
-# Create database (if not exists)
-# Via psql: CREATE DATABASE devpilot;
+Then fill in the values (see [Configuration reference](#configuration-reference) below).
 
-# Apply migrations
+### 2. Run database migrations
+
+```bash
+cd src/API
 dotnet ef database update
 ```
 
-### Running
+### 3. Start the API
 
 ```bash
-cd API
-
-# Development with hot reload
-dotnet watch run
-
-# Or standard run
+cd src/API
 dotnet run
+# or with hot reload:
+dotnet watch run
 ```
 
-API available at `http://localhost:5089`
+API available at `http://localhost:8080`.
 
-## API Endpoints
+### Environment variables (optional — overrides appsettings)
+
+You can use env vars instead of editing `appsettings.Development.json`.
+ASP.NET Core maps `VPS__ManagerApiKey` → `VPS:ManagerApiKey` automatically (double underscore = colon).
+
+```bash
+# Load from .env file at repo root
+set -a; source .env; set +a
+dotnet run --project src/API
+```
+
+---
+
+## Run with Docker
+
+> No Dockerfile exists yet. Here is what to create as `backend/Dockerfile`:
+
+```dockerfile
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
+WORKDIR /src
+COPY src/ .
+RUN dotnet publish API/API.csproj -c Release -o /app/publish
+
+FROM mcr.microsoft.com/dotnet/aspnet:9.0
+WORKDIR /app
+COPY --from=build /app/publish .
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "API.dll"]
+```
+
+Build and run:
+
+```bash
+docker build -t devpilot-backend:local -f backend/Dockerfile backend/
+
+docker run -d \
+  --name devpilot-backend \
+  -p 8080:8080 \
+  -e ASPNETCORE_ENVIRONMENT=Development \
+  -e ConnectionStrings__Postgres="Host=host.docker.internal;Port=5432;Username=analyser;Password=analyser_password;Database=analyzer" \
+  -e JWT__SecretKey="your-32-char-secret" \
+  -e VPS__GatewayUrl="http://host.docker.internal:30090" \
+  -e VPS__ManagerApiKey="your_manager_api_key" \
+  -e VPS__PublicIp="localhost" \
+  -e VPS__Enabled="true" \
+  devpilot-backend:local
+```
+
+> Use `host.docker.internal` to reach services on your host machine from inside Docker.
+
+---
+
+## Deploy to Kubernetes / AKS
+
+### What's already ready
+
+| Component | File |
+|-----------|------|
+| K8s Deployment + ClusterIP Service | `infra/k8s/manifests/backend-deployment.yaml` |
+| Secret template (all config keys) | `infra/k8s/manifests/backend-secret.yaml.template` |
+
+### Steps
+
+1. **Build and push the backend image** to GHCR or ACR:
+
+```bash
+docker build -t ghcr.io/YOUR_ORG/devpilot-backend:latest -f backend/Dockerfile backend/
+docker push ghcr.io/YOUR_ORG/devpilot-backend:latest
+```
+
+2. **Update the image reference** in `infra/k8s/manifests/backend-deployment.yaml`:
+```yaml
+image: ghcr.io/YOUR_ORG/devpilot-backend:latest
+```
+
+3. **Create the namespace** (if not already done):
+```bash
+kubectl create namespace devpilot
+```
+
+4. **Create the K8s Secret** — never commit the secret file:
+
+```bash
+cp infra/k8s/manifests/backend-secret.yaml.template infra/k8s/manifests/backend-secret.yaml
+# Edit backend-secret.yaml with real values, then:
+kubectl apply -f infra/k8s/manifests/backend-secret.yaml
+```
+
+Or directly via `kubectl`:
+```bash
+kubectl create secret generic backend-secrets -n devpilot \
+  --from-literal=ConnectionStrings__Postgres="Host=YOUR_DB;Username=...;Password=...;Database=analyzer" \
+  --from-literal=JWT__SecretKey="YOUR_STRONG_SECRET" \
+  --from-literal=AuthProviders__GitHub__ClientSecret="YOUR_GITHUB_SECRET" \
+  --from-literal=AI__ApiKey="YOUR_AI_KEY" \
+  --from-literal=VPS__GatewayUrl="http://sandbox-manager.sandboxes.svc.cluster.local:8090" \
+  --from-literal=VPS__ManagerApiKey="YOUR_MANAGER_API_KEY" \
+  --from-literal=VPS__PublicIp="YOUR_NODE_PUBLIC_IP"
+```
+
+5. **Apply the deployment**:
+
+```bash
+kubectl apply -f infra/k8s/manifests/backend-deployment.yaml
+kubectl get pods -n devpilot
+kubectl logs -f deployment/devpilot-backend -n devpilot
+```
+
+> On AKS, env vars from the K8s Secret are injected via `envFrom: secretRef`.
+> ASP.NET Core picks them up automatically — no code changes needed.
+
+---
+
+## Configuration reference
+
+All values go in `appsettings.Development.json` (local) or K8s Secret (production).
+
+| Key | Description | Example |
+|-----|-------------|---------|
+| `ConnectionStrings:Postgres` | PostgreSQL connection string | `Host=localhost;Port=5432;...` |
+| `JWT:SecretKey` | JWT signing key (min 32 chars) | `your-strong-secret-key-here` |
+| `AuthProviders:GitHub:ClientId` | GitHub OAuth app client ID | `Ov23ligXXXXXXX` |
+| `AuthProviders:GitHub:ClientSecret` | GitHub OAuth app client secret | `25a66c...` |
+| `AuthProviders:AzureAd:Authority` | Azure AD login endpoint | `https://login.microsoftonline.com/TENANT_ID/v2.0` |
+| `AuthProviders:AzureAd:ClientId` | Azure AD app client ID | `dec5414a-...` |
+| `AuthProviders:AzureAd:TenantId` | Azure AD tenant ID | `1335991b-...` |
+| `AI:Endpoint` | AI provider base URL | `https://router.huggingface.co/v1` |
+| `AI:ApiKey` | AI provider API key | `hf_XXX...` |
+| `AI:Model` | AI model name | `Qwen/Qwen3-30B-A3B-Instruct-2507` |
+| `VPS:GatewayUrl` | Sandbox manager URL | `http://localhost:30090` |
+| `VPS:ManagerApiKey` | Shared key with sandbox manager | same as `MANAGER_API_KEY` in manager `.env` |
+| `VPS:PublicIp` | Host IP shown to browser for VNC/bridge | `localhost` or real IP |
+| `VPS:Enabled` | Enable/disable sandbox features | `true` |
+
+---
+
+## API endpoints
 
 ### Authentication (`/api/auth`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
 | POST | `/login` | Email/password login |
-| POST | `/register` | Create new account |
+| POST | `/register` | Create account |
 | POST | `/github/callback` | GitHub OAuth callback |
 | POST | `/microsoft/callback` | Microsoft OAuth callback |
-| POST | `/link/github` | Link GitHub account |
-| POST | `/link/azure-devops` | Link Azure DevOps |
 | GET | `/settings` | Get user settings |
-| POST | `/settings/azure-devops` | Save Azure DevOps settings |
-| GET | `/settings/ai` | Get AI configuration |
 | POST | `/settings/ai` | Save AI configuration |
 
 ### Repositories (`/api/repositories`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/` | List user's repositories |
+| GET | `/` | List repositories |
 | POST | `/sync/github` | Sync from GitHub |
 | POST | `/sync/azure-devops` | Sync from Azure DevOps |
-| GET | `/{id}/tree` | Browse repository files |
-| GET | `/{id}/file` | Get file content |
+| GET | `/{id}/tree` | Browse files |
 | GET | `/{id}/branches` | List branches |
 | GET | `/{id}/pull-requests` | List PRs |
 | POST | `/{id}/pull-requests` | Create PR |
-| GET | `/{id}/clone-url` | Get authenticated clone URL |
 
 ### Backlog (`/api/backlog`)
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| GET | `/{repositoryId}` | Get backlog items |
+| GET | `/{repositoryId}` | Get backlog |
 | POST | `/generate` | AI generate backlog |
 | POST | `/epics` | Create epic |
 | PUT | `/epics/{id}` | Update epic |
-| DELETE | `/epics/{id}` | Delete epic |
 | POST | `/features` | Create feature |
-| PUT | `/features/{id}` | Update feature |
-| DELETE | `/features/{id}` | Delete feature |
-| POST | `/stories` | Create user story |
-| PUT | `/stories/{id}` | Update story |
+| POST | `/stories` | Create story |
 | PUT | `/stories/{id}/status` | Update story status |
-| DELETE | `/stories/{id}` | Delete story |
 
-## Database Migrations
+### Sandboxes (`/api/sandboxes`)
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/` | List user's active sandboxes |
+| POST | `/` | Create a sandbox |
+| GET | `/{id}` | Get sandbox status |
+| DELETE | `/{id}` | Delete sandbox |
+
+---
+
+## Database migrations
 
 ```bash
-cd API
+cd src/API
 
-# Create new migration
-dotnet ef migrations add MigrationName
-
-# Apply migrations
+# Apply pending migrations
 dotnet ef database update
 
-# Revert last migration
-dotnet ef database update PreviousMigrationName
+# Create a new migration
+dotnet ef migrations add MigrationName --project ../Infrastructure
 
 # Generate SQL script
 dotnet ef migrations script
 ```
 
-## Testing
+---
+
+## Troubleshooting
+
+### Port already in use
 
 ```bash
-# Run all tests
-dotnet test
-
-# Run with coverage
-dotnet test --collect:"XPlat Code Coverage"
+lsof -i :8080
+kill -9 <PID>
 ```
 
-## Key Services
+### Cannot connect to sandbox manager (Connection refused)
 
-### GitHubService
-- Repository listing and sync
-- File content retrieval
-- Pull request management
-- Uses Octokit library
+- Check `VPS:GatewayUrl` in your config
+- Local Docker: use `http://localhost:8090`
+- K8s local: use `http://localhost:30090`
+- K8s production: use `http://sandbox-manager.sandboxes.svc.cluster.local:8090`
 
-### AzureDevOpsService
-- Repository listing
-- Work items (WIQL queries)
-- Pull request management
-- Uses REST API directly
+### 401 from sandbox manager
 
-### AuthenticationService
-- JWT token generation
-- OAuth token exchange
-- User session management
+- Check `VPS:ManagerApiKey` matches `MANAGER_API_KEY` in the manager's `.env` or K8s secret
+- No trailing spaces or `%` character at end of key
 
-## Security
+### EF migrations fail
 
-- JWT tokens for API authentication
-- OAuth 2.0 for GitHub/Microsoft login
-- PAT support for Azure DevOps
-- Credentials stored encrypted in database
-- CORS configured for frontend origin
+```bash
+dotnet ef database update --verbose
+# Check the Postgres connection string
+```

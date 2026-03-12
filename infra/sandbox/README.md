@@ -1,7 +1,9 @@
 # DevPilot Sandbox
 
 Multi-container sandbox system that creates isolated desktop environments on demand.
-Each sandbox is an independent Docker container with its own XFCE desktop, Zed IDE, and bridge API.
+Each sandbox is an independent container with its own XFCE desktop, Zed IDE, and bridge API.
+
+---
 
 ## Architecture
 
@@ -16,19 +18,19 @@ Browser (Angular)
 └──────────┬───────────┘
            │  X-Api-Key
            ▼
-┌──────────────────────┐        ┌──────────────────────────────────────────┐
-│   Sandbox Manager    │        │                  VPS                     │
-│   Flask  port 8090   │ ──────▶│  ┌──────────┐  ┌──────────┐  ┌────────┐ │
-│   (Python)           │        │  │ Sandbox  │  │ Sandbox  │  │  ...   │ │
-└──────────────────────┘        │  │  noVNC   │  │  noVNC   │  │        │ │
-                                │  │  :6100   │  │  :6101   │  │        │ │
-                                │  │  Bridge  │  │  Bridge  │  │        │ │
-                                │  │  :7100   │  │  :7101   │  │        │ │
-                                │  └──────────┘  └──────────┘  └────────┘ │
-                                └──────────────────────────────────────────┘
+┌──────────────────────┐        ┌────────────────────────────────────────────┐
+│   Sandbox Manager    │        │             Host (VPS / K8s node)          │
+│   Flask  port 8090   │───────▶│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│   (Python)           │        │  │ Sandbox  │  │ Sandbox  │  │  ...     │ │
+└──────────────────────┘        │  │  noVNC   │  │  noVNC   │  │          │ │
+                                │  │  :6100   │  │  :6101   │  │          │ │
+                                │  │  Bridge  │  │  Bridge  │  │          │ │
+                                │  │  :7100   │  │  :7101   │  │          │ │
+                                │  └──────────┘  └──────────┘  └──────────┘ │
+                                └────────────────────────────────────────────┘
 
 Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bearer token:
-  Authorization: Bearer <sandbox_token>  →  http://VPS_IP:7100/...
+  Authorization: Bearer <sandbox_token>  →  http://HOST_IP:7100/...
 ```
 
 ### Security model
@@ -36,59 +38,316 @@ Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bear
 | Channel | Auth |
 |---------|------|
 | Browser → Backend API | JWT (user login) |
-| Backend → Sandbox Manager | `X-Api-Key` header (static key from `.env`) |
-| Browser → Sandbox Bridge API | `Authorization: Bearer <sandbox_token>` (per-sandbox, generated at creation) |
+| Backend → Sandbox Manager | `X-Api-Key` header (static key from env) |
+| Browser → Sandbox Bridge API | `Authorization: Bearer <sandbox_token>` (per-sandbox) |
 | Browser → noVNC iframe | VNC password (per-sandbox, generated at creation) |
 
 ---
 
-## Platform Setup
+## Run modes
 
-Choose your platform — each has a dedicated folder with a setup script and README:
+| Mode | `BACKEND=` | Manager port | Compatible with |
+|------|-----------|--------------|-----------------|
+| **Linux (systemd)** | `docker` only | `8090` | Docker Desktop / Docker Engine |
+| **macOS (background process)** | `docker` only | `8090` | Docker Desktop for Mac |
+| **Windows (Docker container)** | `docker` only | `8090` | Docker Desktop for Windows |
+| **Kubernetes local** | `k8s` only | `30090` (NodePort) | Docker Desktop K8s, k3d, minikube |
+| **AKS (production K8s)** | `k8s` only | `8090` (internal DNS) | Azure Kubernetes Service |
 
-| Platform | Folder | Command |
-|----------|--------|---------|
-| 🐧 Linux (VPS) | [`linux/`](linux/) | `sudo bash infra/sandbox/linux/setup.sh` |
-| 🍎 macOS (local dev) | [`mac/`](mac/) | `bash infra/sandbox/mac/setup.sh` |
-| 🪟 Windows (Docker Desktop) | [`windows/`](windows/) | `.\infra\sandbox\windows\setup.ps1` |
+> **Linux, macOS and Windows setups only support `BACKEND=docker`.**
+> They run the manager as a native process or Docker container that talks directly to the Docker daemon.
+> To use Kubernetes you must use the dedicated K8s setup (`infra/sandbox/k8s/`).
 
-### After setup — configure the backend
+---
 
-In `backend/src/API/appsettings.json`:
+## Switching between Docker and Kubernetes
+
+The `BACKEND` variable is read **only by the sandbox manager** (`infra/sandbox/manager/manager.py`).
+It tells the manager which engine to use to create/destroy sandbox containers:
+
+```
+BACKEND=docker  → Docker SDK   — manager calls docker.containers.run() / stop()
+BACKEND=k8s     → K8s client   — manager calls kubectl to create/delete Pods and Services
+```
+
+The .NET backend does **not** read `BACKEND` — it only needs to know the manager's URL (`VPS:GatewayUrl`), which differs between modes because the port changes.
+
+The only **two things that change** when you switch:
+
+| | Docker mode | Kubernetes mode |
+|-|-------------|-----------------|
+| `BACKEND` env var | `docker` (or unset) | `k8s` |
+| `VPS:GatewayUrl` in backend | `http://localhost:8090` | `http://localhost:30090` (local) or `http://sandbox-manager.sandboxes.svc.cluster.local:8090` (AKS) |
+
+### Switch to Docker mode
+
+```bash
+# infra/sandbox/k8s/.env  (or the .env used by your platform)
+MANAGER_API_KEY=your_key
+# BACKEND not set → defaults to docker
+```
+
+Backend config:
+```json
+"VPS": {
+  "GatewayUrl":    "http://localhost:8090",
+  "ManagerApiKey": "your_key",
+  "PublicIp":      "localhost",
+  "Enabled":       true
+}
+```
+
+### Switch to Kubernetes mode
+
+```bash
+# infra/sandbox/k8s/.env
+MANAGER_API_KEY=your_key
+BACKEND=k8s
+```
+
+Then run:
+```bash
+bash infra/sandbox/k8s/setup-local.sh
+```
+
+Backend config:
+```json
+"VPS": {
+  "GatewayUrl":    "http://localhost:30090",
+  "ManagerApiKey": "your_key",
+  "PublicIp":      "localhost",
+  "Enabled":       true
+}
+```
+
+> On AKS, `GatewayUrl` becomes `http://sandbox-manager.sandboxes.svc.cluster.local:8090`
+> since the backend and manager are in the same cluster (internal DNS, no NodePort needed).
+
+---
+
+## Linux / macOS / Windows setup
+
+### Linux VPS
+
+```bash
+# Prerequisites: Ubuntu 22.04/24.04, root access, ports 8090/6100-6200/7100-7200 open
+sudo bash infra/sandbox/linux/setup.sh
+```
+
+### macOS (local dev)
+
+```bash
+# Prerequisites: Docker Desktop running
+bash infra/sandbox/mac/setup.sh
+```
+
+### Windows (no WSL)
+
+```powershell
+# Prerequisites: Docker Desktop, Linux containers mode
+.\infra\sandbox\windows\setup.ps1
+```
+
+### After setup — retrieve the API key
+
+```bash
+# Linux
+sudo cat /opt/devpilot-sandbox/.env
+
+# macOS
+cat ~/.devpilot-sandbox/.env
+
+# Windows — printed at the end of setup, also in infra/sandbox/windows/.env
+```
+
+### Configure the backend after setup
+
+In `backend/src/API/appsettings.Development.json`:
 
 ```json
 {
   "VPS": {
-    "GatewayUrl": "http://YOUR_VPS_IP:8090",
-    "ManagerApiKey": "<key printed at end of setup>",
-    "PublicIp": "YOUR_VPS_IP_OR_localhost",
-    "Enabled": true
+    "GatewayUrl":    "http://YOUR_HOST_IP:8090",
+    "ManagerApiKey": "<MANAGER_API_KEY from .env>",
+    "PublicIp":      "YOUR_HOST_IP_OR_localhost",
+    "Enabled":       true
   }
 }
 ```
 
-> **Corporate proxy / Zscaler?** Place your `.crt` certificates in [`certs/`](certs/) before running any setup script. See [`certs/README.md`](certs/README.md).
+> **Corporate proxy / Zscaler?** Place your `.crt` certificates in [`certs/`](certs/) **before** running any setup script. See [`certs/README.md`](certs/README.md).
 
 ---
 
-## Manager API
+## Kubernetes local testing
 
-All requests require the `X-Api-Key` header. The key is stored in `/opt/devpilot-sandbox/.env`.
+For local K8s testing with Docker Desktop, k3d, or minikube.
 
+### Prerequisites
+
+**Option A — Docker Desktop** (easiest)
+> Docker Desktop → Settings → Kubernetes → Enable Kubernetes
+
+**Option B — k3d** (recommended — fast start/stop)
 ```bash
-export API_KEY=$(sudo grep MANAGER_API_KEY /opt/devpilot-sandbox/.env | cut -d= -f2)
-export BASE=http://YOUR_VPS_IP:8090
+curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+
+k3d cluster create devpilot \
+  --port "30090:30090@loadbalancer" \
+  --port "30100-30110:30100-30110@loadbalancer" \
+  --port "31100-31110:31100-31110@loadbalancer"
 ```
 
-### Endpoints
+**Option C — minikube**
+```bash
+minikube start --driver=docker
+minikube tunnel &
+```
+
+### Run setup
+
+```bash
+# Create infra/sandbox/k8s/.env from the template first
+cp infra/sandbox/k8s/.env.example infra/sandbox/k8s/.env
+# Edit .env — set MANAGER_API_KEY to your fixed key
+
+bash infra/sandbox/k8s/setup-local.sh
+# Force rebuild: bash infra/sandbox/k8s/setup-local.sh --rebuild
+```
+
+The script:
+1. Loads `MANAGER_API_KEY` from `infra/sandbox/k8s/.env` (or env var)
+2. Builds `devpilot-desktop` and `devpilot-manager` images and loads them into the cluster
+3. Applies all K8s manifests (namespace, RBAC, secret, deployment, service)
+4. Waits for the manager pod to be ready
+5. Prints the `appsettings.json` snippet to copy into the backend
+
+### Configure backend for K8s local
+
+```json
+{
+  "VPS": {
+    "GatewayUrl":    "http://localhost:30090",
+    "ManagerApiKey": "<same MANAGER_API_KEY>",
+    "PublicIp":      "localhost",
+    "Enabled":       true
+  }
+}
+```
+
+### Verify
+
+```bash
+kubectl get pods -n sandboxes
+kubectl logs -f deployment/sandbox-manager -n sandboxes
+curl http://localhost:30090/health
+```
+
+### Ports (K8s NodePort)
+
+| Service | NodePort |
+|---------|----------|
+| Manager API | 30090 |
+| noVNC sandbox #1 | 30100 |
+| noVNC sandbox #2 | 30101 |
+| Bridge API sandbox #1 | 31100 |
+| Bridge API sandbox #2 | 31101 |
+
+### Teardown
+
+```bash
+kubectl delete namespace sandboxes
+# k3d: k3d cluster delete devpilot
+```
+
+---
+
+## AKS deployment
+
+### What's already ready
+
+| Component | Status | File |
+|-----------|--------|------|
+| Namespace | Ready | `infra/k8s/manifests/namespace.yaml` |
+| RBAC (ServiceAccount + RoleBinding) | Ready | `infra/k8s/manifests/rbac.yaml` |
+| Manager Deployment + NodePort Service | Ready | `infra/k8s/manifests/manager-deployment.yaml` |
+| Manager Secret template | Ready | `infra/k8s/manifests/manager-secret.yaml.template` |
+| Cleanup CronJob | Ready | `infra/k8s/manifests/cleanup-cronjob.yaml` |
+| Manager Dockerfile | Ready | `infra/sandbox/manager/Dockerfile` |
+
+### What you need to do before deploying to AKS
+
+1. **Push the manager image to a registry (GHCR or ACR)**
+
+```bash
+docker build -t ghcr.io/YOUR_ORG/devpilot-manager:latest infra/sandbox/manager/
+docker push ghcr.io/YOUR_ORG/devpilot-manager:latest
+
+docker build -t ghcr.io/YOUR_ORG/devpilot-desktop:latest infra/sandbox/
+docker push ghcr.io/YOUR_ORG/devpilot-desktop:latest
+```
+
+2. **Update image references** in `infra/k8s/manifests/manager-deployment.yaml`:
+```yaml
+image: ghcr.io/YOUR_ORG/devpilot-manager:latest
+```
+And in `infra/k8s/manifests/manager-secret.yaml.template`:
+```yaml
+SANDBOX_IMAGE: "ghcr.io/YOUR_ORG/devpilot-desktop:latest"
+```
+
+3. **Create the K8s Secret** (never commit the secret file):
+
+```bash
+cp infra/k8s/manifests/manager-secret.yaml.template infra/k8s/manifests/manager-secret.yaml
+# Edit manager-secret.yaml with real values, then:
+kubectl apply -f infra/k8s/manifests/manager-secret.yaml
+```
+
+Or directly via `kubectl`:
+```bash
+kubectl create secret generic manager-secrets -n sandboxes \
+  --from-literal=MANAGER_API_KEY="your_key" \
+  --from-literal=HOST_IP="your_aks_node_ip" \
+  --from-literal=BACKEND="k8s" \
+  --from-literal=SANDBOX_IMAGE="ghcr.io/YOUR_ORG/devpilot-desktop:latest"
+```
+
+4. **Apply all manifests**:
+
+```bash
+kubectl apply -f infra/k8s/manifests/namespace.yaml
+kubectl apply -f infra/k8s/manifests/rbac.yaml
+kubectl apply -f infra/k8s/manifests/manager-deployment.yaml
+kubectl apply -f infra/k8s/manifests/cleanup-cronjob.yaml
+```
+
+5. **Configure the backend** to point at the manager's internal K8s service:
+
+```
+VPS__GatewayUrl    = http://sandbox-manager.sandboxes.svc.cluster.local:8090
+VPS__ManagerApiKey = <same key as MANAGER_API_KEY in the secret>
+VPS__PublicIp      = <AKS node public IP or LoadBalancer IP>
+```
+
+---
+
+## Manager API reference
+
+All endpoints require `X-Api-Key` header (except `/health`).
+
+```bash
+export API_KEY=<your_key>
+export BASE=http://HOST_IP:8090   # or http://localhost:30090 for K8s
+```
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/health` | Health check (no auth required) |
-| `GET` | `/sandboxes` | List all active sandboxes |
-| `POST` | `/sandboxes` | Create a new sandbox |
+| `GET` | `/health` | Health check (no auth) |
+| `GET` | `/sandboxes` | List active sandboxes |
+| `POST` | `/sandboxes` | Create a sandbox |
 | `GET` | `/sandboxes/{id}` | Get sandbox status |
-| `DELETE` | `/sandboxes/{id}` | Stop and remove a sandbox |
+| `DELETE` | `/sandboxes/{id}` | Stop and remove sandbox |
 
 ### Create sandbox
 
@@ -97,13 +356,13 @@ curl -X POST $BASE/sandboxes \
   -H "X-Api-Key: $API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "repo_url": "https://github.com/org/repo.git",
-    "repo_name": "repo",
+    "repo_url":    "https://github.com/org/repo.git",
+    "repo_name":   "repo",
     "repo_branch": "main",
     "ai_config": {
       "provider": "openai",
-      "api_key": "sk-...",
-      "model": "gpt-4o"
+      "api_key":  "sk-...",
+      "model":    "gpt-4o"
     }
   }'
 ```
@@ -111,39 +370,24 @@ curl -X POST $BASE/sandboxes \
 Response:
 ```json
 {
-  "id": "a1b2c3d4",
-  "port": 6100,
-  "bridge_port": 7100,
-  "url": "http://YOUR_VPS_IP:6100/vnc.html",
-  "bridge_url": "http://YOUR_VPS_IP:7100",
-  "status": "starting",
-  "sandbox_token": "<random bearer token>",
-  "vnc_password": "<random vnc password>"
+  "id":            "a1b2c3d4",
+  "port":          6100,
+  "bridge_port":   7100,
+  "url":           "http://HOST_IP:6100/vnc.html",
+  "bridge_url":    "http://HOST_IP:7100",
+  "status":        "starting",
+  "sandbox_token": "<bearer token for bridge API>",
+  "vnc_password":  "<password for noVNC>"
 }
-```
-
-### List sandboxes
-
-```bash
-curl $BASE/sandboxes -H "X-Api-Key: $API_KEY"
-```
-
-### Delete sandbox
-
-```bash
-curl -X DELETE $BASE/sandboxes/a1b2c3d4 -H "X-Api-Key: $API_KEY"
 ```
 
 ---
 
-## Sandbox Bridge API
+## Bridge API reference
 
-Each sandbox exposes a bridge API on its bridge port (7100–7200).
-Requests must include the per-sandbox bearer token returned at creation time.
-
-```bash
-export BRIDGE=http://YOUR_VPS_IP:7100
-export TOKEN=<sandbox_token>
+Each sandbox exposes a bridge API on its `bridge_port`. All requests need:
+```
+Authorization: Bearer <sandbox_token>
 ```
 
 | Method | Path | Description |
@@ -151,144 +395,100 @@ export TOKEN=<sandbox_token>
 | `GET` | `/all-conversations` | List Zed AI conversations |
 | `GET` | `/latest-conversation` | Get the most recent conversation |
 | `POST` | `/zed/send-prompt` | Send a prompt to Zed AI |
-| `GET` | `/files` | List files in the project |
+| `GET` | `/files` | List project files |
 | `GET` | `/file?path=...` | Read a file |
 
 ```bash
-# Get latest AI conversation
-curl $BRIDGE/latest-conversation \
-  -H "Authorization: Bearer $TOKEN"
+export BRIDGE=http://HOST_IP:7100
+export TOKEN=<sandbox_token>
 
-# Send a prompt to Zed
+curl $BRIDGE/latest-conversation -H "Authorization: Bearer $TOKEN"
 curl -X POST $BRIDGE/zed/send-prompt \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "Explain the architecture of this project"}'
+  -d '{"prompt": "Explain the architecture"}'
 ```
 
 ---
 
-## Ports
+## Management commands
 
-| Range | Service |
-|-------|---------|
-| `8090` | Sandbox Manager API |
-| `6100–6200` | noVNC (web remote desktop) per sandbox |
-| `7100–7200` | Bridge API per sandbox |
-
----
-
-## Manager service management
+### Linux (systemd)
 
 ```bash
-# Status
 sudo systemctl status devpilot-sandbox
-
-# Logs (live)
+sudo systemctl restart devpilot-sandbox
 journalctl -u devpilot-sandbox -f
 
-# Last 50 lines
-journalctl -u devpilot-sandbox -n 50 --no-pager
-
-# Restart
-sudo systemctl restart devpilot-sandbox
-```
-
-Or use the helper script installed at `/opt/devpilot-sandbox/run.sh`:
-
-```bash
+# Helper script
 cd /opt/devpilot-sandbox
-./run.sh status
-./run.sh logs
-./run.sh start
-./run.sh stop
-./run.sh rebuild    # Rebuild desktop Docker image
-./run.sh cleanup    # Remove all sandbox containers
+sudo ./run.sh status | logs | start | stop | rebuild | cleanup
 ```
 
----
-
-## Container management
+### macOS / Windows
 
 ```bash
-# List running sandbox containers
-docker ps --filter "name=sandbox-"
+# macOS
+cd ~/.devpilot-sandbox && ./run.sh status | logs | stop | rebuild
 
-# View logs for a specific container
-docker logs <container_id>
-
-# Open a shell inside a container
-docker exec -it <container_id> bash
-
-# Check environment variables in container
-docker exec <container_id> env | grep -E "REPO|DEVPILOT|SANDBOX"
-
-# Stop all sandbox containers
-docker ps -q --filter "name=sandbox-" | xargs -r docker stop
-
-# Remove all sandbox containers
-docker ps -aq --filter "name=sandbox-" | xargs -r docker rm -f
+# Windows
+docker compose -f infra\sandbox\windows\docker-compose.yml up -d
+docker logs -f devpilot-sandbox-manager
 ```
 
----
-
-## Full reset
+### K8s
 
 ```bash
-# Stop service
-sudo systemctl stop devpilot-sandbox
-
-# Remove all containers and image
-docker rm -f $(docker ps -aq --filter "name=sandbox-") 2>/dev/null
-docker rmi devpilot-desktop 2>/dev/null
-docker volume prune -f
-
-# Redeploy
-sudo bash setup.sh
+kubectl get pods -n sandboxes
+kubectl logs -f deployment/sandbox-manager -n sandboxes
+kubectl rollout restart deployment/sandbox-manager -n sandboxes
 ```
 
 ---
 
 ## Troubleshooting
 
-### Manager not responding on port 8090
+### 401 from Manager API
+- Check `X-Api-Key` matches `MANAGER_API_KEY` in `.env` or K8s secret
+- No trailing spaces or `%` at the end of the key
 
+### 401 from Bridge API
+- Verify the `sandbox_token` from the creation response is being used
+- The token is per-sandbox and changes on every container restart
+
+### VNC blank screen
 ```bash
-sudo systemctl status devpilot-sandbox
-curl http://localhost:8090/health
-lsof -i :8090
+docker exec <container_id> ps aux | grep x11vnc
+docker exec <container_id> ps aux | grep Xvfb
+docker exec <container_id> cat /tmp/sandbox-debug.log
 ```
 
-### 401 Unauthorized from Bridge API
-
-- Verify the `sandbox_token` in the request matches the one returned at creation
-- The token is per-sandbox and is regenerated every time a new container is created
-
-### 401 Unauthorized from Manager API
-
-- Check `X-Api-Key` matches the value in `/opt/devpilot-sandbox/.env`
-- Key is regenerated each time `setup.sh` runs — update `appsettings.json` accordingly
-
-### Zed not starting inside container
-
+### Zed not starting
 ```bash
+docker exec <container_id> cat /tmp/zed-errors.log
 docker exec -it <container_id> bash -c '
   source /tmp/dbus-env.sh
   export DISPLAY=:0 LIBGL_ALWAYS_SOFTWARE=1 HOME=/home/sandbox
   /home/sandbox/.local/bin/zed --foreground /home/sandbox/projects 2>&1
 '
-
-# Check startup logs
-docker exec <container_id> cat /tmp/sandbox-debug.log
-docker exec <container_id> cat /tmp/zed-errors.log
 ```
 
-### VNC blank screen
-
+### Manager not responding on port 8090
 ```bash
-# Check x11vnc is running
-docker exec <container_id> ps aux | grep x11vnc
+curl http://localhost:8090/health
+lsof -i :8090       # Docker/local
+kubectl get pods -n sandboxes   # K8s
+```
 
-# Check Xvfb is running
-docker exec <container_id> ps aux | grep Xvfb
+### Full reset (Docker)
+```bash
+docker rm -f $(docker ps -aq --filter "name=sandbox-") 2>/dev/null
+docker rmi devpilot-desktop 2>/dev/null
+docker volume prune -f
+```
+
+### Full reset (K8s)
+```bash
+kubectl delete namespace sandboxes
+bash infra/sandbox/k8s/setup-local.sh
 ```

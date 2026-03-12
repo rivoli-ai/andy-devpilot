@@ -23,8 +23,8 @@ The manager installs to `~/.devpilot-sandbox/` and starts in the background.
 ## What it does
 
 1. Checks that Docker Desktop is running
-2. Creates `~/.devpilot-sandbox/` 
-3. Generates `MANAGER_API_KEY` in `~/.devpilot-sandbox/.env`
+2. Creates `~/.devpilot-sandbox/`
+3. Uses `MANAGER_API_KEY` from environment if set, otherwise generates one and saves it to `~/.devpilot-sandbox/.env`
 4. Copies custom certificates from `infra/sandbox/certs/`
 5. Builds the `devpilot-desktop` Docker image (~10-20 min first time)
 6. Starts the manager as a **background process** (PID saved to `~/.devpilot-sandbox/manager.pid`)

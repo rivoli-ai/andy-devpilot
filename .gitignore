@@ -1,5 +1,6 @@
 # Local development config (secrets)
 backend/src/API/appsettings.Development.json
+.env
 
 # .NET build output
 **/bin/
