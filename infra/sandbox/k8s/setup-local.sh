@@ -64,14 +64,21 @@ info "K8s cluster is reachable"
 step "Configuring API key..."
 
 if [ -z "$API_KEY" ]; then
-    # Check if already generated
-    EXISTING=$(kubectl get secret manager-secrets -n sandboxes -o jsonpath='{.data.MANAGER_API_KEY}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
-    if [ -n "$EXISTING" ]; then
-        API_KEY="$EXISTING"
-        info "Reusing existing API key from K8s secret"
+    if [ -n "$MANAGER_API_KEY" ]; then
+        # Use key from environment (set by CI, keyvault, or local .env)
+        API_KEY="$MANAGER_API_KEY"
+        info "Using MANAGER_API_KEY from environment"
     else
-        API_KEY=$(openssl rand -base64 32 | tr -d '\n/+=' | head -c 43)
-        info "Generated new API key"
+        # Check if already stored in K8s secret (avoid regenerating on re-runs)
+        EXISTING=$(kubectl get secret manager-secrets -n sandboxes -o jsonpath='{.data.MANAGER_API_KEY}' 2>/dev/null | base64 -d 2>/dev/null || echo "")
+        if [ -n "$EXISTING" ]; then
+            API_KEY="$EXISTING"
+            info "Reusing existing API key from K8s secret"
+        else
+            API_KEY=$(openssl rand -base64 32 | tr -d '\n/+=' | head -c 43)
+            warn "No MANAGER_API_KEY env var found — generated a new key."
+            warn "Set MANAGER_API_KEY in your environment to use a fixed key."
+        fi
     fi
 fi
 
