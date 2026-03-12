@@ -58,12 +58,15 @@ Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bear
 
 ## Switching between Docker and Kubernetes
 
-The manager supports two backends controlled by the `BACKEND` environment variable.
+The `BACKEND` variable is read **only by the sandbox manager** (`infra/sandbox/manager/manager.py`).
+It tells the manager which engine to use to create/destroy sandbox containers:
 
 ```
-BACKEND=docker   ← uses Docker SDK to create containers  (default for Linux/macOS/Windows)
-BACKEND=k8s      ← uses Kubernetes Python client          (required for K8s / AKS)
+BACKEND=docker  → Docker SDK   — manager calls docker.containers.run() / stop()
+BACKEND=k8s     → K8s client   — manager calls kubectl to create/delete Pods and Services
 ```
+
+The .NET backend does **not** read `BACKEND` — it only needs to know the manager's URL (`VPS:GatewayUrl`), which differs between modes because the port changes.
 
 The only **two things that change** when you switch:
 
