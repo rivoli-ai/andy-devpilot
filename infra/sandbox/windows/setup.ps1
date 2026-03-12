@@ -80,13 +80,22 @@ if ($imageExists -and -not $Rebuild) {
     $buildArgs = @(
         "run", "--rm",
         "-v", "//./pipe/docker_engine://./pipe/docker_engine",
-        "-v", "${sandboxDir}:${dockerSandboxDir}:ro",
+        # Mount sandbox dir read-write so the build container can write logs (build.log)
+        "-v", "${sandboxDir}:${dockerSandboxDir}:rw",
         "-e", "BUILD_ONLY=1",
         "-e", "SCRIPT_SOURCE_DIR=${dockerSandboxDir}",
         "-w", $dockerSandboxDir,
         "ubuntu:24.04",
         "bash", "-c",
-        "apt-get update -qq 2>/dev/null && apt-get install -y docker.io curl wget git -qq 2>/dev/null && bash setup.sh"
+        @"
+set -e
+echo '[DEBUG] apt-get update...' | tee build.log
+apt-get update 2>&1 | tee -a build.log
+echo '[DEBUG] apt-get install docker.io curl wget git...' | tee -a build.log
+apt-get install -y docker.io curl wget git 2>&1 | tee -a build.log
+echo '[DEBUG] running setup.sh...' | tee -a build.log
+bash setup.sh 2>&1 | tee -a build.log
+"@
     )
 
     $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
