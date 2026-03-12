@@ -46,13 +46,17 @@ Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bear
 
 ## Run modes
 
-| Mode | `BACKEND=` | Manager port | Use case |
-|------|-----------|--------------|----------|
-| **Linux (systemd)** | `docker` (default) | `8090` | Production VPS |
-| **macOS (background process)** | `docker` (default) | `8090` | Local dev on Mac |
-| **Windows (Docker container)** | `docker` (default) | `8090` | Local dev on Windows |
-| **Kubernetes local** | `k8s` | `30090` (NodePort) | Test K8s setup locally |
-| **AKS (production K8s)** | `k8s` | `8090` (internal) | Cloud deployment |
+| Mode | `BACKEND=` | Manager port | Compatible with |
+|------|-----------|--------------|-----------------|
+| **Linux (systemd)** | `docker` only | `8090` | Docker Desktop / Docker Engine |
+| **macOS (background process)** | `docker` only | `8090` | Docker Desktop for Mac |
+| **Windows (Docker container)** | `docker` only | `8090` | Docker Desktop for Windows |
+| **Kubernetes local** | `k8s` only | `30090` (NodePort) | Docker Desktop K8s, k3d, minikube |
+| **AKS (production K8s)** | `k8s` only | `8090` (internal DNS) | Azure Kubernetes Service |
+
+> **Linux, macOS and Windows setups only support `BACKEND=docker`.**
+> They run the manager as a native process or Docker container that talks directly to the Docker daemon.
+> To use Kubernetes you must use the dedicated K8s setup (`infra/sandbox/k8s/`).
 
 ---
 
