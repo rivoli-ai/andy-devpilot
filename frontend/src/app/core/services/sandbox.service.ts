@@ -1,8 +1,8 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable, of } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
-import { environment } from '../../../environments/environment';
+import { APP_CONFIG, AppConfig } from './config.service';
 
 export interface Sandbox {
   id: string;
@@ -57,12 +57,14 @@ export interface CreateSandboxRequest {
   providedIn: 'root'
 })
 export class SandboxService {
-  private apiUrl = `${environment.apiUrl}/sandboxes`;
+  private apiUrl: string;
   private currentSandboxSubject = new BehaviorSubject<Sandbox | null>(null);
-  
+
   currentSandbox$ = this.currentSandboxSubject.asObservable();
-  
-  constructor(private http: HttpClient) {}
+
+  constructor(private http: HttpClient, @Inject(APP_CONFIG) config: AppConfig) {
+    this.apiUrl = `${config.apiUrl}/sandboxes`;
+  }
 
   /**
    * Create a new isolated sandbox container

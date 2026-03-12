@@ -1,7 +1,6 @@
 import { HttpClient } from '@angular/common/http';
 import { catchError, map, Observable, of } from 'rxjs';
 import { LogLevel, OpenIdConfiguration } from 'angular-auth-oidc-client';
-import { environment } from '../../../environments/environment';
 
 /**
  * Response shape from GET /api/auth/config
@@ -28,8 +27,8 @@ export interface AuthProviderConfig {
  * Used by StsConfigHttpLoader in app.config.ts so the OIDC library
  * dynamically discovers which providers are active.
  */
-export function loadOidcConfigs(http: HttpClient): Observable<OpenIdConfiguration[]> {
-  return http.get<AuthConfigResponse>(`${environment.apiUrl}/auth/config`).pipe(
+export function loadOidcConfigs(http: HttpClient, apiUrl: string): Observable<OpenIdConfiguration[]> {
+  return http.get<AuthConfigResponse>(`${apiUrl}/auth/config`).pipe(
     map((response) => {
       const oidcProviders = response.providers.filter(p => p.type === 'FrontendOidc');
 

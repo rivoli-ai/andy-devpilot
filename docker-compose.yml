@@ -1,0 +1,75 @@
+services:
+
+  # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER:     ${DB_USER:-analyser}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-analyser_password}
+      POSTGRES_DB:       ${DB_NAME:-analyzer}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-analyser} -d ${DB_NAME:-analyzer}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend (.NET API) ────────────────────────────────────────────────────────
+  devpilot-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # All variables from root .env are passed through (JWT, AuthProviders, AI, etc.)
+    # Variables below override only the ones that differ inside Docker (service hostnames).
+    env_file: .env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Username=${DB_USER:-analyser};Password=${DB_PASSWORD:-analyser_password};Database=${DB_NAME:-analyzer}"
+      JWT__SecretKey: ${JWT_SECRET_KEY}
+      VPS__GatewayUrl:    http://sandbox-manager:8090
+      VPS__ManagerApiKey: ${MANAGER_API_KEY}
+      VPS__PublicIp:      ${PUBLIC_IP:-localhost}
+      VPS__Enabled:       "true"
+    ports:
+      - "8080:8080"
+
+  # ── Frontend (Angular + nginx) ────────────────────────────────────────────────
+  devpilot-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - devpilot-backend
+    environment:
+      # Relative URL works when the frontend is served from the same host as the backend
+      # (nginx proxies /api → devpilot-backend:8080).
+      # Override with a full URL (e.g. https://api.example.com/api) for split-host setups.
+      API_URL: ${API_URL:-/api}
+    ports:
+      - "80:80"
+
+  # ── Sandbox Manager (Python Flask) ───────────────────────────────────────────
+  sandbox-manager:
+    build:
+      context: ./infra/sandbox/manager
+      dockerfile: Dockerfile
+    environment:
+      MANAGER_API_KEY: ${MANAGER_API_KEY}
+      HOST_IP:         ${PUBLIC_IP:-localhost}
+      BACKEND:         docker
+    volumes:
+      # Mount Docker socket so the manager can create sandbox containers on the host
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8090:8090"
+      - "6100-6200:6100-6200"   # noVNC per sandbox
+      - "7100-7200:7100-7200"   # Bridge API per sandbox
+
+volumes:
+  postgres_data:

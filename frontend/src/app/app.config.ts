@@ -4,6 +4,7 @@ import { HttpClient, provideHttpClient, withInterceptorsFromDi, withInterceptors
 import { provideAuth, StsConfigHttpLoader, StsConfigLoader } from 'angular-auth-oidc-client';
 import { authInterceptor } from './core/interceptors/auth.interceptor';
 import { loadOidcConfigs } from './core/auth/oidc-config.loader';
+import { APP_CONFIG, AppConfig } from './core/services/config.service';
 
 import { routes } from './app.routes';
 
@@ -17,8 +18,9 @@ export const appConfig: ApplicationConfig = {
     provideAuth({
       loader: {
         provide: StsConfigLoader,
-        useFactory: (http: HttpClient) => new StsConfigHttpLoader(loadOidcConfigs(http)),
-        deps: [HttpClient],
+        useFactory: (http: HttpClient, config: AppConfig) =>
+          new StsConfigHttpLoader(loadOidcConfigs(http, config.apiUrl)),
+        deps: [HttpClient, APP_CONFIG],
       },
     }),
   ]

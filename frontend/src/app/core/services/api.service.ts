@@ -1,7 +1,7 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Inject } from '@angular/core';
 import { HttpClient } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { environment } from '../../../environments/environment';
+import { APP_CONFIG, AppConfig } from './config.service';
 
 /**
  * Base API service for making HTTP requests to the backend
@@ -10,9 +10,11 @@ import { environment } from '../../../environments/environment';
   providedIn: 'root'
 })
 export class ApiService {
-  private readonly apiUrl = environment.apiUrl;
+  private readonly apiUrl: string;
 
-  constructor(private http: HttpClient) {}
+  constructor(private http: HttpClient, @Inject(APP_CONFIG) config: AppConfig) {
+    this.apiUrl = config.apiUrl;
+  }
 
   /**
    * Generic GET request
