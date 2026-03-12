@@ -97,13 +97,24 @@ elif [ "$MODE" = "k8s" ]; then
     patch_gateway_url "http://localhost:30090"
 fi
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DOCKER COMPOSE MODE
-# ══════════════════════════════════════════════════════════════════════════════
-if [ "$MODE" = "docker" ]; then
+# ── Helper: stop conflicting mode before starting ────────────────────────────
+stop_docker_compose() {
+    if docker compose -f "$REPO_ROOT/docker-compose.yml" ps -q 2>/dev/null | grep -q .; then
+        warn "Docker Compose stack is running — stopping it before switching to K8s..."
+        docker compose -f "$REPO_ROOT/docker-compose.yml" down
+        info "Docker Compose stack stopped."
+    fi
+}
 
-    # Step 1 — Build devpilot-desktop
-    step "Step 1/2 — Building sandbox image (devpilot-desktop)..."
+stop_k8s() {
+    if kubectl get namespace sandboxes &>/dev/null 2>&1; then
+        warn "K8s sandbox namespace found — stopping it before switching to Docker..."
+        kubectl delete namespace sandboxes --ignore-not-found
+        info "K8s sandboxes namespace removed."
+    fi
+}
+
+build_desktop_image() {
     if docker images -q devpilot-desktop:latest 2>/dev/null | grep -q . && [[ " ${PASSTHROUGH_ARGS[*]} " != *" --rebuild "* ]]; then
         info "devpilot-desktop already built. Skipping. (use --rebuild to force)"
     else
@@ -118,8 +129,18 @@ if [ "$MODE" = "docker" ]; then
             fi
         fi
     fi
+}
 
-    # Step 2 — Start docker-compose stack
+# ══════════════════════════════════════════════════════════════════════════════
+# DOCKER COMPOSE MODE
+# ══════════════════════════════════════════════════════════════════════════════
+if [ "$MODE" = "docker" ]; then
+
+    stop_k8s
+
+    step "Step 1/2 — Building sandbox image (devpilot-desktop)..."
+    build_desktop_image
+
     step "Step 2/2 — Starting backend, frontend, postgres, sandbox manager..."
     bash "$REPO_ROOT/infra/local/setup.sh" "${PASSTHROUGH_ARGS[@]}"
 
@@ -128,23 +149,11 @@ if [ "$MODE" = "docker" ]; then
 # ══════════════════════════════════════════════════════════════════════════════
 elif [ "$MODE" = "k8s" ]; then
 
-    # Step 1 — Build devpilot-desktop
-    step "Step 1/2 — Building sandbox image (devpilot-desktop)..."
-    if docker images -q devpilot-desktop:latest 2>/dev/null | grep -q . && [[ " ${PASSTHROUGH_ARGS[*]} " != *" --rebuild "* ]]; then
-        info "devpilot-desktop already built. Skipping. (use --rebuild to force)"
-    else
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            bash "$REPO_ROOT/infra/sandbox/mac/setup.sh"
-        else
-            if [ "$(id -u)" -eq 0 ]; then
-                bash "$REPO_ROOT/infra/sandbox/linux/setup.sh"
-            else
-                warn "Sandbox image build skipped (not root). Run: sudo bash infra/sandbox/linux/setup.sh"
-            fi
-        fi
-    fi
+    stop_docker_compose
 
-    # Step 2 — Set up K8s cluster
+    step "Step 1/2 — Building sandbox image (devpilot-desktop)..."
+    build_desktop_image
+
     step "Step 2/2 — Setting up Kubernetes cluster..."
     bash "$REPO_ROOT/infra/sandbox/k8s/setup-local.sh" "${PASSTHROUGH_ARGS[@]}"
 

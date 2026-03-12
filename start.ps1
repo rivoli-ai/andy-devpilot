@@ -111,35 +111,26 @@ elseif ($Mode -eq "k8s") { Set-GatewayUrl "http://localhost:30090" }
 $passArgs = @()
 if ($Rebuild) { $passArgs += "-Rebuild" }
 
-# ══════════════════════════════════════════════════════════════════════════════
-# DOCKER COMPOSE MODE
-# ══════════════════════════════════════════════════════════════════════════════
-if ($Mode -eq "docker") {
-
-    # Step 1 — Build devpilot-desktop
-    Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
-    $desktopExists = docker images -q devpilot-desktop:latest 2>$null
-    if ($desktopExists -and -not $Rebuild) {
-        Write-Info "devpilot-desktop already built. Skipping. (use -Rebuild to force)"
-    } else {
-        & "$repoRoot\infra\sandbox\windows\setup.ps1" @passArgs
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Sandbox image build failed. The stack will start but sandboxes may not work."
-        }
+# ── Helper: stop conflicting mode before starting ────────────────────────────
+function Stop-DockerCompose {
+    $running = docker compose -f "$repoRoot\docker-compose.yml" ps -q 2>$null
+    if ($running) {
+        Write-Warn "Docker Compose stack is running -- stopping it before switching to K8s..."
+        docker compose -f "$repoRoot\docker-compose.yml" down
+        Write-Info "Docker Compose stack stopped."
     }
+}
 
-    # Step 2 — Start docker-compose stack
-    Write-Step "Step 2/2 - Starting backend, frontend, postgres, sandbox manager..."
-    & "$repoRoot\infra\local\setup.ps1" @passArgs
-    exit $LASTEXITCODE
+function Stop-K8s {
+    $ns = kubectl get namespace sandboxes 2>$null
+    if ($ns) {
+        Write-Warn "K8s sandbox namespace found -- stopping it before switching to Docker..."
+        kubectl delete namespace sandboxes --ignore-not-found
+        Write-Info "K8s sandboxes namespace removed."
+    }
+}
 
-# ══════════════════════════════════════════════════════════════════════════════
-# KUBERNETES MODE
-# ══════════════════════════════════════════════════════════════════════════════
-} elseif ($Mode -eq "k8s") {
-
-    # Step 1 — Build devpilot-desktop
-    Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
+function Build-DesktopImage {
     $desktopExists = docker images -q devpilot-desktop:latest 2>$null
     if ($desktopExists -and -not $Rebuild) {
         Write-Info "devpilot-desktop already built. Skipping. (use -Rebuild to force)"
@@ -149,8 +140,32 @@ if ($Mode -eq "docker") {
             Write-Warn "Sandbox image build failed. Sandboxes may not work."
         }
     }
+}
 
-    # Step 2 — Set up K8s cluster
+# ══════════════════════════════════════════════════════════════════════════════
+# DOCKER COMPOSE MODE
+# ══════════════════════════════════════════════════════════════════════════════
+if ($Mode -eq "docker") {
+
+    Stop-K8s
+
+    Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
+    Build-DesktopImage
+
+    Write-Step "Step 2/2 - Starting backend, frontend, postgres, sandbox manager..."
+    & "$repoRoot\infra\local\setup.ps1" @passArgs
+    exit $LASTEXITCODE
+
+# ══════════════════════════════════════════════════════════════════════════════
+# KUBERNETES MODE
+# ══════════════════════════════════════════════════════════════════════════════
+} elseif ($Mode -eq "k8s") {
+
+    Stop-DockerCompose
+
+    Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
+    Build-DesktopImage
+
     Write-Step "Step 2/2 - Setting up Kubernetes cluster..."
     & "$repoRoot\infra\sandbox\k8s\setup-local.ps1" @passArgs
     exit $LASTEXITCODE
