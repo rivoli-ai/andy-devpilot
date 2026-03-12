@@ -43,7 +43,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SANDBOX_DIR="$REPO_ROOT/infra/sandbox"
 MANAGER_DIR="$SANDBOX_DIR/manager"
-MANIFESTS_DIR="$REPO_ROOT/infra/k8s/manifests"
+MANIFESTS_DIR="$SCRIPT_DIR/manifests"
 
 # ── 1. Check prerequisites ─────────────────────────────────────────────────
 step "Checking prerequisites..."

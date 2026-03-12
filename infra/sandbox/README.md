@@ -7,30 +7,52 @@ Each sandbox is an independent container with its own XFCE desktop, Zed IDE, and
 
 ## Architecture
 
+**Docker mode** (Linux / macOS / Windows — `BACKEND=docker`)
 ```
 Browser (Angular)
-       │
-       │  JWT  (user auth)
+       │  JWT
        ▼
 ┌──────────────────────┐
-│   .NET Backend API   │  ← validates JWT, stores ownership
-│   port 8080          │  ← uses X-Api-Key to talk to manager
+│   .NET Backend API   │  port 8080
 └──────────┬───────────┘
-           │  X-Api-Key
+           │  X-Api-Key  →  http://HOST:8090
            ▼
 ┌──────────────────────┐        ┌────────────────────────────────────────────┐
-│   Sandbox Manager    │        │             Host (VPS / K8s node)          │
-│   Flask  port 8090   │───────▶│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
-│   (Python)           │        │  │ Sandbox  │  │ Sandbox  │  │  ...     │ │
+│   Sandbox Manager    │        │                  Host / VPS                │
+│   Flask  :8090       │───────▶│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│   BACKEND=docker     │        │  │ Sandbox  │  │ Sandbox  │  │  ...     │ │
 └──────────────────────┘        │  │  noVNC   │  │  noVNC   │  │          │ │
                                 │  │  :6100   │  │  :6101   │  │          │ │
                                 │  │  Bridge  │  │  Bridge  │  │          │ │
                                 │  │  :7100   │  │  :7101   │  │          │ │
                                 │  └──────────┘  └──────────┘  └──────────┘ │
                                 └────────────────────────────────────────────┘
+Browser → sandbox Bridge:  Authorization: Bearer <sandbox_token>  →  http://HOST:7100/...
+```
 
-Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bearer token:
-  Authorization: Bearer <sandbox_token>  →  http://HOST_IP:7100/...
+**Kubernetes mode** (local K8s / AKS — `BACKEND=k8s`)
+```
+Browser (Angular)
+       │  JWT
+       ▼
+┌──────────────────────┐
+│   .NET Backend API   │  port 8080
+└──────────┬───────────┘
+           │  X-Api-Key  →  http://HOST:30090  (NodePort, local)
+           │               or sandbox-manager.sandboxes.svc:8090  (AKS internal)
+           ▼
+┌──────────────────────┐        ┌────────────────────────────────────────────┐
+│   Sandbox Manager    │        │             Kubernetes cluster              │
+│   Pod  :8090         │───────▶│  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│   NodePort :30090    │        │  │ Sandbox  │  │ Sandbox  │  │  ...     │ │
+│   BACKEND=k8s        │        │  │  Pod+Svc │  │  Pod+Svc │  │          │ │
+└──────────────────────┘        │  │  noVNC   │  │  noVNC   │  │          │ │
+                                │  │  :30100  │  │  :30101  │  │          │ │
+                                │  │  Bridge  │  │  Bridge  │  │          │ │
+                                │  │  :31100  │  │  :31101  │  │          │ │
+                                │  └──────────┘  └──────────┘  └──────────┘ │
+                                └────────────────────────────────────────────┘
+Browser → sandbox Bridge:  Authorization: Bearer <sandbox_token>  →  http://HOST:31100/...
 ```
 
 ### Security model
@@ -56,7 +78,7 @@ Browser also talks directly to each sandbox's Bridge API with a per-sandbox Bear
 
 > **Linux, macOS and Windows setups only support `BACKEND=docker`.**
 > They run the manager as a native process or Docker container that talks directly to the Docker daemon.
-> To use Kubernetes you must use the dedicated K8s setup (`infra/sandbox/k8s/`).
+> To use Kubernetes you must use the dedicated K8s setup ([`k8s/`](k8s/)).
 
 ---
 
@@ -179,156 +201,25 @@ In `backend/src/API/appsettings.Development.json`:
 
 ---
 
-## Kubernetes local testing
+## Kubernetes local testing / AKS deployment
 
-For local K8s testing with Docker Desktop, k3d, or minikube.
+All K8s setup is consolidated in [`infra/sandbox/k8s/`](k8s/). See [`infra/sandbox/k8s/README.md`](k8s/README.md) for:
+- Local setup with Docker Desktop, k3d, or minikube
+- AKS production deployment steps
+- Manifests reference
 
-### Prerequisites
-
-**Option A — Docker Desktop** (easiest)
-> Docker Desktop → Settings → Kubernetes → Enable Kubernetes
-
-**Option B — k3d** (recommended — fast start/stop)
+Quick start:
 ```bash
-curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
-
-k3d cluster create devpilot \
-  --port "30090:30090@loadbalancer" \
-  --port "30100-30110:30100-30110@loadbalancer" \
-  --port "31100-31110:31100-31110@loadbalancer"
-```
-
-**Option C — minikube**
-```bash
-minikube start --driver=docker
-minikube tunnel &
-```
-
-### Run setup
-
-```bash
-# Create infra/sandbox/k8s/.env from the template first
 cp infra/sandbox/k8s/.env.example infra/sandbox/k8s/.env
-# Edit .env — set MANAGER_API_KEY to your fixed key
-
+# Edit .env — set MANAGER_API_KEY
 bash infra/sandbox/k8s/setup-local.sh
-# Force rebuild: bash infra/sandbox/k8s/setup-local.sh --rebuild
-```
-
-The script:
-1. Loads `MANAGER_API_KEY` from `infra/sandbox/k8s/.env` (or env var)
-2. Builds `devpilot-desktop` and `devpilot-manager` images and loads them into the cluster
-3. Applies all K8s manifests (namespace, RBAC, secret, deployment, service)
-4. Waits for the manager pod to be ready
-5. Prints the `appsettings.json` snippet to copy into the backend
-
-### Configure backend for K8s local
-
-```json
-{
-  "VPS": {
-    "GatewayUrl":    "http://localhost:30090",
-    "ManagerApiKey": "<same MANAGER_API_KEY>",
-    "PublicIp":      "localhost",
-    "Enabled":       true
-  }
-}
-```
-
-### Verify
-
-```bash
-kubectl get pods -n sandboxes
-kubectl logs -f deployment/sandbox-manager -n sandboxes
-curl http://localhost:30090/health
-```
-
-### Ports (K8s NodePort)
-
-| Service | NodePort |
-|---------|----------|
-| Manager API | 30090 |
-| noVNC sandbox #1 | 30100 |
-| noVNC sandbox #2 | 30101 |
-| Bridge API sandbox #1 | 31100 |
-| Bridge API sandbox #2 | 31101 |
-
-### Teardown
-
-```bash
-kubectl delete namespace sandboxes
-# k3d: k3d cluster delete devpilot
 ```
 
 ---
 
 ## AKS deployment
 
-### What's already ready
-
-| Component | Status | File |
-|-----------|--------|------|
-| Namespace | Ready | `infra/k8s/manifests/namespace.yaml` |
-| RBAC (ServiceAccount + RoleBinding) | Ready | `infra/k8s/manifests/rbac.yaml` |
-| Manager Deployment + NodePort Service | Ready | `infra/k8s/manifests/manager-deployment.yaml` |
-| Manager Secret template | Ready | `infra/k8s/manifests/manager-secret.yaml.template` |
-| Cleanup CronJob | Ready | `infra/k8s/manifests/cleanup-cronjob.yaml` |
-| Manager Dockerfile | Ready | `infra/sandbox/manager/Dockerfile` |
-
-### What you need to do before deploying to AKS
-
-1. **Push the manager image to a registry (GHCR or ACR)**
-
-```bash
-docker build -t ghcr.io/YOUR_ORG/devpilot-manager:latest infra/sandbox/manager/
-docker push ghcr.io/YOUR_ORG/devpilot-manager:latest
-
-docker build -t ghcr.io/YOUR_ORG/devpilot-desktop:latest infra/sandbox/
-docker push ghcr.io/YOUR_ORG/devpilot-desktop:latest
-```
-
-2. **Update image references** in `infra/k8s/manifests/manager-deployment.yaml`:
-```yaml
-image: ghcr.io/YOUR_ORG/devpilot-manager:latest
-```
-And in `infra/k8s/manifests/manager-secret.yaml.template`:
-```yaml
-SANDBOX_IMAGE: "ghcr.io/YOUR_ORG/devpilot-desktop:latest"
-```
-
-3. **Create the K8s Secret** (never commit the secret file):
-
-```bash
-cp infra/k8s/manifests/manager-secret.yaml.template infra/k8s/manifests/manager-secret.yaml
-# Edit manager-secret.yaml with real values, then:
-kubectl apply -f infra/k8s/manifests/manager-secret.yaml
-```
-
-Or directly via `kubectl`:
-```bash
-kubectl create secret generic manager-secrets -n sandboxes \
-  --from-literal=MANAGER_API_KEY="your_key" \
-  --from-literal=HOST_IP="your_aks_node_ip" \
-  --from-literal=BACKEND="k8s" \
-  --from-literal=SANDBOX_IMAGE="ghcr.io/YOUR_ORG/devpilot-desktop:latest"
-```
-
-4. **Apply all manifests**:
-
-```bash
-kubectl apply -f infra/k8s/manifests/namespace.yaml
-kubectl apply -f infra/k8s/manifests/rbac.yaml
-kubectl apply -f infra/k8s/manifests/manager-deployment.yaml
-kubectl apply -f infra/k8s/manifests/cleanup-cronjob.yaml
-```
-
-5. **Configure the backend** to point at the manager's internal K8s service:
-
-```
-VPS__GatewayUrl    = http://sandbox-manager.sandboxes.svc.cluster.local:8090
-VPS__ManagerApiKey = <same key as MANAGER_API_KEY in the secret>
-VPS__PublicIp      = <AKS node public IP or LoadBalancer IP>
-```
+See [`infra/sandbox/k8s/README.md`](k8s/README.md) for the full AKS deployment guide including image build, secrets creation, and manifest application.
 
 ---
 

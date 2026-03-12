@@ -160,7 +160,7 @@ docker build -t ghcr.io/YOUR_ORG/devpilot-frontend:latest frontend/
 docker push ghcr.io/YOUR_ORG/devpilot-frontend:latest
 ```
 
-2. **Create a Deployment + Service** manifest (`infra/k8s/manifests/frontend-deployment.yaml`):
+2. **Create a Deployment + Service** manifest (`infra/sandbox/k8s/manifests/frontend-deployment.yaml`):
 
 ```yaml
 apiVersion: apps/v1
@@ -232,8 +232,8 @@ spec:
 4. **Apply**:
 
 ```bash
-kubectl apply -f infra/k8s/manifests/frontend-deployment.yaml
-kubectl apply -f infra/k8s/manifests/ingress.yaml
+kubectl apply -f infra/sandbox/k8s/manifests/frontend-deployment.yaml
+kubectl apply -f infra/sandbox/k8s/manifests/ingress.yaml
 ```
 
 ---
