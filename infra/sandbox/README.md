@@ -66,6 +66,79 @@ Browser → sandbox Bridge:  Authorization: Bearer <sandbox_token>  →  http://
 
 ---
 
+## Docker images
+
+Two images are involved in the sandbox system. Both must be built before any sandbox can run.
+
+### `devpilot-desktop` — the sandbox container
+
+This is the image that runs **once per developer / per story**. Every time a user opens a sandbox in the UI, the manager creates a new container from this image.
+
+**What's inside:**
+
+| Component | Purpose |
+|-----------|---------|
+| Ubuntu 24.04 + XFCE | Full Linux desktop environment |
+| Xvfb | Virtual screen (display `:0`) — no physical monitor needed |
+| x11vnc | VNC server on the virtual screen |
+| noVNC + nginx | Converts VNC to WebSocket → accessible as an iframe in the browser |
+| .NET SDK 8 / 9 / 10 | For building .NET projects inside the sandbox |
+| Node.js + npm | For building frontend projects |
+| Git | To clone the repository at startup |
+| Zed IDE | AI-powered IDE — receives prompts from the frontend and executes code |
+| `devpilot-bridge.py` | Flask API (port 7100) — exposes Zed conversations and accepts prompt requests |
+
+**Lifecycle:**
+
+```
+build once (10-20 min):
+  docker build -t devpilot-desktop infra/sandbox/
+                                           └── Dockerfile embedded in setup.sh
+
+run on demand (one container per sandbox):
+  manager.py → docker run devpilot-desktop
+                     └── /start.sh
+                           ├── Xvfb      → virtual screen
+                           ├── x11vnc    → VNC server on :590x
+                           ├── noVNC     → browser-accessible on :6100 (Docker) or :30100 (K8s)
+                           ├── Zed IDE   → clones repo, opens project
+                           └── bridge.py → REST API on :7100 (Docker) or :31100 (K8s)
+```
+
+Built by: `setup.sh` (Linux/macOS), `setup.ps1` (Windows), `setup-local.sh` / `setup-local.ps1` (K8s)
+
+---
+
+### `devpilot-manager` — the sandbox orchestrator
+
+This is the image that runs **once on the host** (or as a single K8s Pod). It is the control plane: the .NET backend talks to it to create/destroy sandboxes.
+
+**What's inside:**
+
+| Component | Purpose |
+|-----------|---------|
+| Python 3.12-slim | Base runtime |
+| Flask + flask-cors | HTTP API on port 8090 |
+| Docker SDK (`docker`) | Creates/stops `devpilot-desktop` containers (Docker mode) |
+| Kubernetes client (`kubernetes`) | Creates/deletes sandbox Pods and Services (K8s mode) |
+| `manager.py` | Main API server — routes requests to Docker or K8s based on `BACKEND` env var |
+| `k8s_utils.py` | Helpers for building Pod/Service manifests in K8s mode |
+| `cleanup.py` | Standalone script (used by K8s CronJob) to delete stale sandbox Pods |
+
+**What it does:**
+
+```
+.NET backend  →  POST /sandboxes          →  manager creates a devpilot-desktop container/Pod
+              →  GET  /sandboxes          →  manager returns list of running sandboxes
+              →  GET  /sandboxes/{id}     →  manager returns status of one sandbox
+              →  DELETE /sandboxes/{id}   →  manager stops and removes the container/Pod
+```
+
+**Source:** `infra/sandbox/manager/`  
+**Built by:** `setup-local.sh` / `setup-local.ps1` (K8s), or `docker-compose` (Windows Docker mode)
+
+---
+
 ## Run modes
 
 | Mode | `BACKEND=` | Manager port | Compatible with |
