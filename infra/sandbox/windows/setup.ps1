@@ -108,7 +108,11 @@ if ($imageExists -and -not $Rebuild) {
 # - 3. Generate or load API key -
 Write-Step "Configuring API key..."
 
-if (Test-Path $envFile) {
+# Priority: env var > existing .env > generate new
+if ($env:MANAGER_API_KEY) {
+    $apiKey = $env:MANAGER_API_KEY
+    Write-Ok "Using MANAGER_API_KEY from environment"
+} elseif (Test-Path $envFile) {
     $existing = Get-Content $envFile | Where-Object { $_ -match "^MANAGER_API_KEY=" }
     if ($existing) {
         $apiKey = ($existing -split "=", 2)[1]
@@ -121,7 +125,7 @@ if (-not $apiKey) {
     $bytes = New-Object byte[] 32
     [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
     $apiKey = [Convert]::ToBase64String($bytes) -replace "\+", "-" -replace "/", "_" -replace "=", ""
-    Write-Ok "Generated new API key"
+    Write-Warn "No MANAGER_API_KEY env var found -- generated a new key."
 }
 
 # Write .env file

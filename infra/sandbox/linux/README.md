@@ -23,7 +23,7 @@ curl -sSL https://raw.githubusercontent.com/YOUR_ORG/andy-devpilot/main/infra/sa
 
 1. Installs Docker (if not already installed)
 2. Creates project directory at `/opt/devpilot-sandbox/`
-3. Generates `MANAGER_API_KEY` in `/opt/devpilot-sandbox/.env`
+3. Uses `MANAGER_API_KEY` from environment if set, otherwise generates one and saves it to `/opt/devpilot-sandbox/.env`
 4. Copies custom certificates from `infra/sandbox/certs/` into the Docker build context
 5. Builds the `devpilot-desktop` Docker image (~10-20 min first time)
 6. Installs and starts a **systemd service** (`devpilot-sandbox`)
@@ -39,7 +39,7 @@ sudo cat /opt/devpilot-sandbox/.env
 
 ### Configure the backend
 
-In `backend/src/API/appsettings.json`:
+In `backend/src/API/appsettings.Development.json` (local) or via env var `VPS__ManagerApiKey` (production):
 
 ```json
 "VPS": {

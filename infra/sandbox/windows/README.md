@@ -52,7 +52,7 @@ Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 
 1. **Checks Docker Desktop** is running
 2. **Builds `devpilot-desktop`** by running `setup.sh` inside a temporary Linux container that mounts the Docker named pipe (`\\.\pipe\docker_engine`) — this builds the image on your host Docker without WSL
-3. **Generates an API key** and writes it to `windows/.env`
+3. **Configures the API key** — uses `$env:MANAGER_API_KEY` if set, reuses existing `windows/.env` if present, otherwise generates a new key
 4. **Starts the manager** container via `docker compose up`
 5. **Health checks** the manager at `http://localhost:8090/health`
 
