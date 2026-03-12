@@ -68,8 +68,8 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8090:8090"
-      - "6100-6200:6100-6200"   # noVNC per sandbox
-      - "7100-7200:7100-7200"   # Bridge API per sandbox
+      # Sandbox ports (6100-6200 noVNC, 7100-7200 Bridge API) are bound directly
+      # to the host by the sandbox containers themselves — do NOT pre-allocate here.
 
 volumes:
   postgres_data:
