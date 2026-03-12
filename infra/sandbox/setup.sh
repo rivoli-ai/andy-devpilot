@@ -3243,7 +3243,7 @@ MANAGER_PY
 # The Windows setup starts the manager via docker-compose instead of systemd.
 # ============================================================
 if [ "${BUILD_ONLY:-0}" = "1" ]; then
-    log_success "BUILD_ONLY mode complete — desktop image built, manager.py ready."
+    log_info "BUILD_ONLY mode complete — desktop image built, manager.py ready."
     log_info "Start the manager on Windows with: docker compose up -d"
     exit 0
 fi
