@@ -163,16 +163,37 @@ info "Manifests applied"
 # ── 6. Wait for manager pod ────────────────────────────────────────────────
 step "Waiting for sandbox-manager pod to be ready..."
 
-kubectl rollout restart deployment/sandbox-manager -n sandboxes 2>/dev/null || true
-kubectl rollout status deployment/sandbox-manager -n sandboxes --timeout=120s
+# Only force a rollout restart if the pod is NOT already running and healthy.
+# Skipping unnecessary restarts avoids a 30-60s rolling update on every run.
+ALREADY_HEALTHY=false
+if kubectl get deployment sandbox-manager -n sandboxes &>/dev/null; then
+    READY=$(kubectl get deployment sandbox-manager -n sandboxes \
+        -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+    HEALTH_CHECK=$(curl -sf http://localhost:30090/health 2>/dev/null || echo "")
+    if [ "${READY:-0}" -ge 1 ] && echo "$HEALTH_CHECK" | grep -q '"status":"ok"'; then
+        ALREADY_HEALTHY=true
+        info "Manager already running and healthy — skipping rollout restart."
+    fi
+fi
+
+if [ "$ALREADY_HEALTHY" = false ]; then
+    kubectl rollout restart deployment/sandbox-manager -n sandboxes 2>/dev/null || true
+    kubectl rollout status deployment/sandbox-manager -n sandboxes --timeout=120s
+fi
 
 info "Manager is ready"
 
 # ── 7. Health check ─────────────────────────────────────────────────────────
 step "Health check..."
 
-sleep 3
-HEALTH=$(curl -sf http://localhost:30090/health 2>/dev/null || echo "")
+RETRIES=10
+HEALTH=""
+until echo "$HEALTH" | grep -q '"status":"ok"' || [ $RETRIES -eq 0 ]; do
+    sleep 2
+    HEALTH=$(curl -sf http://localhost:30090/health 2>/dev/null || echo "")
+    RETRIES=$((RETRIES - 1))
+done
+
 if echo "$HEALTH" | grep -q '"status":"ok"'; then
     info "Manager health check passed: $HEALTH"
 else
