@@ -98,9 +98,25 @@ elif [ "$MODE" = "k8s" ]; then
 fi
 
 # ── Helper: stop conflicting mode before starting ────────────────────────────
-stop_docker_compose() {
+
+# In Docker mode: stop the K8s sandbox-manager, start full docker-compose stack
+# In K8s mode:   stop only the docker-compose sandbox-manager (backend/frontend/postgres stay up)
+#                and start the sandbox-manager in K8s instead
+
+stop_compose_sandbox_manager() {
+    local running
+    running=$(docker compose -f "$REPO_ROOT/docker-compose.yml" ps -q sandbox-manager 2>/dev/null)
+    if [ -n "$running" ]; then
+        warn "Stopping docker-compose sandbox-manager (will run in K8s instead)..."
+        docker compose -f "$REPO_ROOT/docker-compose.yml" stop sandbox-manager
+        docker compose -f "$REPO_ROOT/docker-compose.yml" rm -f sandbox-manager
+        info "docker-compose sandbox-manager stopped."
+    fi
+}
+
+stop_full_docker_compose() {
     if docker compose -f "$REPO_ROOT/docker-compose.yml" ps -q 2>/dev/null | grep -q .; then
-        warn "Docker Compose stack is running — stopping it before switching to K8s..."
+        warn "Docker Compose stack is running — stopping it before switching to Docker mode..."
         docker compose -f "$REPO_ROOT/docker-compose.yml" down
         info "Docker Compose stack stopped."
     fi
@@ -108,7 +124,7 @@ stop_docker_compose() {
 
 stop_k8s() {
     if kubectl get namespace sandboxes &>/dev/null 2>&1; then
-        warn "K8s sandbox namespace found — stopping it before switching to Docker..."
+        warn "K8s sandbox namespace found — removing it before switching to Docker..."
         kubectl delete namespace sandboxes --ignore-not-found
         info "K8s sandboxes namespace removed."
     fi
@@ -132,7 +148,7 @@ build_desktop_image() {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DOCKER COMPOSE MODE
+# DOCKER COMPOSE MODE — all 4 services in docker-compose
 # ══════════════════════════════════════════════════════════════════════════════
 if [ "$MODE" = "docker" ]; then
 
@@ -141,20 +157,29 @@ if [ "$MODE" = "docker" ]; then
     step "Step 1/2 — Building sandbox image (devpilot-desktop)..."
     build_desktop_image
 
-    step "Step 2/2 — Starting backend, frontend, postgres, sandbox manager..."
+    step "Step 2/2 — Starting postgres, backend, frontend, sandbox-manager (docker-compose)..."
     bash "$REPO_ROOT/infra/local/setup.sh" "${PASSTHROUGH_ARGS[@]}"
 
 # ══════════════════════════════════════════════════════════════════════════════
-# KUBERNETES MODE
+# KUBERNETES MODE — sandbox-manager in K8s, rest in docker-compose
+#   Ports in K8s mode:
+#     sandbox-manager : localhost:30090  (K8s NodePort)
+#     VNC per sandbox : localhost:30100+ (K8s NodePort pairs)
+#     Bridge per sandbox: localhost:30101+
 # ══════════════════════════════════════════════════════════════════════════════
 elif [ "$MODE" = "k8s" ]; then
 
-    stop_docker_compose
+    # Stop only the sandbox-manager from docker-compose — keep backend/frontend/postgres running
+    stop_compose_sandbox_manager
 
     step "Step 1/2 — Building sandbox image (devpilot-desktop)..."
     build_desktop_image
 
-    step "Step 2/2 — Setting up Kubernetes cluster..."
+    step "Step 2/2a — Starting postgres, backend, frontend (docker-compose, without sandbox-manager)..."
+    docker compose -f "$REPO_ROOT/docker-compose.yml" --env-file "$ENV_FILE" \
+        up -d postgres devpilot-backend devpilot-frontend
+
+    step "Step 2/2b — Setting up sandbox-manager in Kubernetes..."
     bash "$REPO_ROOT/infra/sandbox/k8s/setup-local.sh" "${PASSTHROUGH_ARGS[@]}"
 
 fi

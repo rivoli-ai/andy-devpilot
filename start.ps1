@@ -112,10 +112,20 @@ $passArgs = @()
 if ($Rebuild) { $passArgs += "-Rebuild" }
 
 # ── Helper: stop conflicting mode before starting ────────────────────────────
-function Stop-DockerCompose {
+function Stop-ComposeSandboxManager {
+    $running = docker compose -f "$repoRoot\docker-compose.yml" ps -q sandbox-manager 2>$null
+    if ($running) {
+        Write-Warn "Stopping docker-compose sandbox-manager (will run in K8s instead)..."
+        docker compose -f "$repoRoot\docker-compose.yml" stop sandbox-manager
+        docker compose -f "$repoRoot\docker-compose.yml" rm -f sandbox-manager
+        Write-Info "docker-compose sandbox-manager stopped."
+    }
+}
+
+function Stop-FullDockerCompose {
     $running = docker compose -f "$repoRoot\docker-compose.yml" ps -q 2>$null
     if ($running) {
-        Write-Warn "Docker Compose stack is running -- stopping it before switching to K8s..."
+        Write-Warn "Docker Compose stack is running -- stopping it..."
         docker compose -f "$repoRoot\docker-compose.yml" down
         Write-Info "Docker Compose stack stopped."
     }
@@ -124,7 +134,7 @@ function Stop-DockerCompose {
 function Stop-K8s {
     $ns = kubectl get namespace sandboxes 2>$null
     if ($ns) {
-        Write-Warn "K8s sandbox namespace found -- stopping it before switching to Docker..."
+        Write-Warn "K8s sandbox namespace found -- removing it before switching to Docker..."
         kubectl delete namespace sandboxes --ignore-not-found
         Write-Info "K8s sandboxes namespace removed."
     }
@@ -143,7 +153,7 @@ function Build-DesktopImage {
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
-# DOCKER COMPOSE MODE
+# DOCKER COMPOSE MODE — all 4 services in docker-compose
 # ══════════════════════════════════════════════════════════════════════════════
 if ($Mode -eq "docker") {
 
@@ -152,21 +162,30 @@ if ($Mode -eq "docker") {
     Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
     Build-DesktopImage
 
-    Write-Step "Step 2/2 - Starting backend, frontend, postgres, sandbox manager..."
+    Write-Step "Step 2/2 - Starting postgres, backend, frontend, sandbox-manager (docker-compose)..."
     & "$repoRoot\infra\local\setup.ps1" @passArgs
     exit $LASTEXITCODE
 
 # ══════════════════════════════════════════════════════════════════════════════
-# KUBERNETES MODE
+# KUBERNETES MODE — sandbox-manager in K8s, rest in docker-compose
+#   Ports in K8s mode:
+#     sandbox-manager : localhost:30090  (K8s NodePort)
+#     VNC per sandbox : localhost:30100+ (K8s NodePort pairs)
+#     Bridge per sandbox: localhost:30101+
 # ══════════════════════════════════════════════════════════════════════════════
 } elseif ($Mode -eq "k8s") {
 
-    Stop-DockerCompose
+    # Stop only the sandbox-manager from docker-compose — keep backend/frontend/postgres running
+    Stop-ComposeSandboxManager
 
     Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
     Build-DesktopImage
 
-    Write-Step "Step 2/2 - Setting up Kubernetes cluster..."
+    Write-Step "Step 2/2a - Starting postgres, backend, frontend (docker-compose, without sandbox-manager)..."
+    docker compose -f "$repoRoot\docker-compose.yml" --env-file "$repoRoot\.env" `
+        up -d postgres devpilot-backend devpilot-frontend
+
+    Write-Step "Step 2/2b - Setting up sandbox-manager in Kubernetes..."
     & "$repoRoot\infra\sandbox\k8s\setup-local.ps1" @passArgs
     exit $LASTEXITCODE
 }
