@@ -8,7 +8,8 @@ infra/sandbox/
 ├── mac/           ← macOS setup (background process)
 ├── windows/       ← Windows setup (Docker container)
 └── k8s/           ← Kubernetes setup (local + AKS)  ← YOU ARE HERE
-    ├── setup-local.sh          ← one-command local K8s setup (Docker Desktop / k3d / minikube)
+    ├── setup-local.sh          ← local K8s setup for macOS / Linux
+    ├── setup-local.ps1         ← local K8s setup for Windows (PowerShell)
     ├── .env.example            ← copy to .env, set MANAGER_API_KEY + BACKEND=k8s
     ├── .gitignore              ← ignores .env and secret YAML files
     └── manifests/
@@ -57,11 +58,23 @@ cp infra/sandbox/k8s/.env.example infra/sandbox/k8s/.env
 
 ### 3. Run setup
 
+**macOS / Linux:**
 ```bash
 bash infra/sandbox/k8s/setup-local.sh
 
 # Force full image rebuild:
 bash infra/sandbox/k8s/setup-local.sh --rebuild
+```
+
+**Windows (PowerShell):**
+```powershell
+.\infra\sandbox\k8s\setup-local.ps1
+
+# Force full image rebuild:
+.\infra\sandbox\k8s\setup-local.ps1 -Rebuild
+
+# If you get a script execution error:
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
 ```
 
 The script:
