@@ -90,6 +90,24 @@ if (-not $Mode) {
 Write-Host ""
 Write-Info "Mode: $Mode"
 
+# ── Patch VPS__GatewayUrl in .env to match the selected mode ─────────────────
+# Docker: localhost:8090 (sandbox-manager container, port forwarded to host)
+# K8s:    localhost:30090 (NodePort for the sandbox manager service)
+function Set-GatewayUrl {
+    param([string]$Url)
+    $content = Get-Content $envFile -Raw
+    if ($content -match "(?m)^VPS__GatewayUrl=") {
+        $content = $content -replace "(?m)^VPS__GatewayUrl=.*", "VPS__GatewayUrl=$Url"
+    } else {
+        $content += "`nVPS__GatewayUrl=$Url"
+    }
+    Set-Content $envFile $content -NoNewline
+    Write-Info "VPS__GatewayUrl set to: $Url"
+}
+
+if ($Mode -eq "docker") { Set-GatewayUrl "http://localhost:8090" }
+elseif ($Mode -eq "k8s") { Set-GatewayUrl "http://localhost:30090" }
+
 $passArgs = @()
 if ($Rebuild) { $passArgs += "-Rebuild" }
 

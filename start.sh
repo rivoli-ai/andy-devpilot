@@ -77,6 +77,26 @@ fi
 echo ""
 info "Mode: ${BOLD}$MODE${NC}"
 
+# ── Patch VPS__GatewayUrl in .env to match the selected mode ─────────────────
+# Docker: backend container resolves 'sandbox-manager' via docker-compose DNS
+#         (localhost:8090 is also correct when running dotnet run against a compose sandbox)
+# K8s:    sandbox manager is exposed as a NodePort on localhost:30090
+patch_gateway_url() {
+    local new_url="$1"
+    if grep -q "^VPS__GatewayUrl=" "$ENV_FILE"; then
+        sed -i.bak "s|^VPS__GatewayUrl=.*|VPS__GatewayUrl=$new_url|" "$ENV_FILE" && rm -f "$ENV_FILE.bak"
+    else
+        echo "VPS__GatewayUrl=$new_url" >> "$ENV_FILE"
+    fi
+    info "VPS__GatewayUrl set to: $new_url"
+}
+
+if [ "$MODE" = "docker" ]; then
+    patch_gateway_url "http://localhost:8090"
+elif [ "$MODE" = "k8s" ]; then
+    patch_gateway_url "http://localhost:30090"
+fi
+
 # ══════════════════════════════════════════════════════════════════════════════
 # DOCKER COMPOSE MODE
 # ══════════════════════════════════════════════════════════════════════════════
