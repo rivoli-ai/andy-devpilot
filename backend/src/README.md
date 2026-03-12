@@ -163,8 +163,8 @@ docker run -d \
 
 | Component | File |
 |-----------|------|
-| K8s Deployment + ClusterIP Service | `infra/k8s/manifests/backend-deployment.yaml` |
-| Secret template (all config keys) | `infra/k8s/manifests/backend-secret.yaml.template` |
+| K8s Deployment + ClusterIP Service | `infra/sandbox/k8s/manifests/backend-deployment.yaml` |
+| Secret template (all config keys) | `infra/sandbox/k8s/manifests/backend-secret.yaml.template` |
 
 ### Steps
 
@@ -175,7 +175,7 @@ docker build -t ghcr.io/YOUR_ORG/devpilot-backend:latest -f backend/Dockerfile b
 docker push ghcr.io/YOUR_ORG/devpilot-backend:latest
 ```
 
-2. **Update the image reference** in `infra/k8s/manifests/backend-deployment.yaml`:
+2. **Update the image reference** in `infra/sandbox/k8s/manifests/backend-deployment.yaml`:
 ```yaml
 image: ghcr.io/YOUR_ORG/devpilot-backend:latest
 ```
@@ -188,9 +188,9 @@ kubectl create namespace devpilot
 4. **Create the K8s Secret** — never commit the secret file:
 
 ```bash
-cp infra/k8s/manifests/backend-secret.yaml.template infra/k8s/manifests/backend-secret.yaml
+cp infra/sandbox/k8s/manifests/backend-secret.yaml.template infra/sandbox/k8s/manifests/backend-secret.yaml
 # Edit backend-secret.yaml with real values, then:
-kubectl apply -f infra/k8s/manifests/backend-secret.yaml
+kubectl apply -f infra/sandbox/k8s/manifests/backend-secret.yaml
 ```
 
 Or directly via `kubectl`:
@@ -208,7 +208,7 @@ kubectl create secret generic backend-secrets -n devpilot \
 5. **Apply the deployment**:
 
 ```bash
-kubectl apply -f infra/k8s/manifests/backend-deployment.yaml
+kubectl apply -f infra/sandbox/k8s/manifests/backend-deployment.yaml
 kubectl get pods -n devpilot
 kubectl logs -f deployment/devpilot-backend -n devpilot
 ```

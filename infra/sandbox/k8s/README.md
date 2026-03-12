@@ -3,11 +3,15 @@
 Everything needed to run DevPilot sandboxes on Kubernetes — local testing and AKS production.
 
 ```
-infra/k8s/
-├── setup-local.sh          ← one-command local K8s setup (Docker Desktop / k3d / minikube)
-├── .env.example            ← copy to .env, set MANAGER_API_KEY + BACKEND=k8s
-├── .gitignore              ← ignores .env and secret YAML files
-└── manifests/
+infra/sandbox/
+├── linux/         ← Linux VPS setup (systemd)
+├── mac/           ← macOS setup (background process)
+├── windows/       ← Windows setup (Docker container)
+└── k8s/           ← Kubernetes setup (local + AKS)  ← YOU ARE HERE
+    ├── setup-local.sh          ← one-command local K8s setup (Docker Desktop / k3d / minikube)
+    ├── .env.example            ← copy to .env, set MANAGER_API_KEY + BACKEND=k8s
+    ├── .gitignore              ← ignores .env and secret YAML files
+    └── manifests/
     ├── namespace.yaml          ← sandboxes namespace
     ├── rbac.yaml               ← ServiceAccount + RoleBinding for manager
     ├── manager-deployment.yaml ← sandbox manager Deployment + NodePort Service (:30090)
@@ -47,21 +51,21 @@ minikube tunnel &   # in a separate terminal
 ### 2. Configure your API key
 
 ```bash
-cp infra/k8s/.env.example infra/k8s/.env
+cp infra/sandbox/k8s/.env.example infra/sandbox/k8s/.env
 # Edit .env — set MANAGER_API_KEY to your fixed key (BACKEND=k8s is already set)
 ```
 
 ### 3. Run setup
 
 ```bash
-bash infra/k8s/setup-local.sh
+bash infra/sandbox/k8s/setup-local.sh
 
 # Force full image rebuild:
-bash infra/k8s/setup-local.sh --rebuild
+bash infra/sandbox/k8s/setup-local.sh --rebuild
 ```
 
 The script:
-1. Loads `MANAGER_API_KEY` from `infra/k8s/.env` (or env var)
+1. Loads `MANAGER_API_KEY` from `infra/sandbox/k8s/.env` (or env var)
 2. Builds `devpilot-desktop` and `devpilot-manager` images and loads them into the cluster
 3. Applies all manifests (namespace, RBAC, secret, deployment, service)
 4. Waits for the manager pod to be ready

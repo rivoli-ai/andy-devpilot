@@ -3,7 +3,7 @@
 # Works with: Docker Desktop K8s, k3d, or minikube
 #
 # Usage:
-#   bash infra/k8s/setup-local.sh [--api-key YOUR_KEY] [--rebuild]
+#   bash infra/sandbox/k8s/setup-local.sh [--api-key YOUR_KEY] [--rebuild]
 #
 # What it does:
 #   1. Detects which local K8s is running
@@ -40,10 +40,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 SANDBOX_DIR="$REPO_ROOT/infra/sandbox"
 MANAGER_DIR="$SANDBOX_DIR/manager"
-MANIFESTS_DIR="$REPO_ROOT/infra/k8s/manifests"
+MANIFESTS_DIR="$SCRIPT_DIR/manifests"
 
 # ── 1. Check prerequisites ─────────────────────────────────────────────────
 step "Checking prerequisites..."

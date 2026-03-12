@@ -78,7 +78,7 @@ Browser → sandbox Bridge:  Authorization: Bearer <sandbox_token>  →  http://
 
 > **Linux, macOS and Windows setups only support `BACKEND=docker`.**
 > They run the manager as a native process or Docker container that talks directly to the Docker daemon.
-> To use Kubernetes you must use the dedicated K8s setup (`infra/k8s/`).
+> To use Kubernetes you must use the dedicated K8s setup ([`k8s/`](k8s/)).
 
 ---
 
@@ -122,14 +122,14 @@ Backend config:
 ### Switch to Kubernetes mode
 
 ```bash
-# infra/k8s/.env
+# infra/sandbox/k8s/.env
 MANAGER_API_KEY=your_key
 BACKEND=k8s
 ```
 
 Then run:
 ```bash
-bash infra/k8s/setup-local.sh
+bash infra/sandbox/k8s/setup-local.sh
 ```
 
 Backend config:
@@ -203,23 +203,23 @@ In `backend/src/API/appsettings.Development.json`:
 
 ## Kubernetes local testing / AKS deployment
 
-All K8s setup is consolidated in [`infra/k8s/`](../k8s/). See [`infra/k8s/README.md`](../k8s/README.md) for:
+All K8s setup is consolidated in [`infra/sandbox/k8s/`](k8s/). See [`infra/sandbox/k8s/README.md`](k8s/README.md) for:
 - Local setup with Docker Desktop, k3d, or minikube
 - AKS production deployment steps
 - Manifests reference
 
 Quick start:
 ```bash
-cp infra/k8s/.env.example infra/k8s/.env
+cp infra/sandbox/k8s/.env.example infra/sandbox/k8s/.env
 # Edit .env — set MANAGER_API_KEY
-bash infra/k8s/setup-local.sh
+bash infra/sandbox/k8s/setup-local.sh
 ```
 
 ---
 
 ## AKS deployment
 
-See [`infra/k8s/README.md`](../k8s/README.md) for the full AKS deployment guide including image build, secrets creation, and manifest application.
+See [`infra/sandbox/k8s/README.md`](k8s/README.md) for the full AKS deployment guide including image build, secrets creation, and manifest application.
 
 ---
 
