@@ -159,6 +159,9 @@ stages:
                     # browser (on HTTPS) can reach VNC/bridge without mixed-content errors.
                     HTTPS_PROXY_BASE=https://$(PUBLIC_IP)
 
+                    # ── Backend sandbox proxy (same value — backend builds proxy URLs) ──
+                    VPS__HttpsProxyBase=https://$(PUBLIC_IP)
+
                     # ── Frontend ──────────────────────────────────────────────
                     API_URL=$(API_URL)
 

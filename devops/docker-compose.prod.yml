@@ -31,6 +31,7 @@ services:
       VPS__GatewayUrl:       ${VPS__GatewayUrl:-http://sandbox-manager:8090}
       VPS__ManagerApiKey:    ${MANAGER_API_KEY}
       VPS__PublicIp:         ${PUBLIC_IP}
+      VPS__HttpsProxyBase:   ${HTTPS_PROXY_BASE:-}
       VPS__Enabled:          "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"

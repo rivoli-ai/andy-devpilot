@@ -48,7 +48,26 @@ public class SandboxService : ISandboxService
             _httpClient.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
 
         _publicIp = _configuration["VPS:PublicIp"] ?? "localhost";
+
+        // When the frontend is served over HTTPS, direct http://<ip>:<port> sandbox URLs
+        // cause mixed-content browser errors.  Set VPS:HttpsProxyBase (e.g. https://flexagent.online)
+        // and the backend will return nginx proxy URLs instead:
+        //   VNC   → {HttpsProxyBase}/sandbox-vnc/{port}/vnc.html
+        //   Bridge→ {HttpsProxyBase}/sandbox-bridge/{bridgePort}
+        _httpsProxyBase = (_configuration["VPS:HttpsProxyBase"] ?? string.Empty).TrimEnd('/');
     }
+
+    private readonly string _httpsProxyBase;
+
+    private string BuildVncUrl(int port)
+        => string.IsNullOrEmpty(_httpsProxyBase)
+            ? $"http://{_publicIp}:{port}/vnc.html"
+            : $"{_httpsProxyBase}/sandbox-vnc/{port}/vnc.html";
+
+    private string BuildBridgeUrl(int bridgePort)
+        => string.IsNullOrEmpty(_httpsProxyBase)
+            ? $"http://{_publicIp}:{bridgePort}"
+            : $"{_httpsProxyBase}/sandbox-bridge/{bridgePort}";
 
     public async Task<SandboxCreateResult> CreateSandboxAsync(
         Guid userId,
@@ -72,8 +91,8 @@ public class SandboxService : ISandboxService
             Id = raw.Id,
             Port = raw.Port,
             BridgePort = raw.BridgePort,
-            Url = $"http://{_publicIp}:{raw.Port}/vnc.html",
-            BridgeUrl = $"http://{_publicIp}:{raw.BridgePort}",
+            Url = BuildVncUrl(raw.Port),
+            BridgeUrl = BuildBridgeUrl(raw.BridgePort),
             Status = raw.Status,
             SandboxToken = raw.SandboxToken,
             VncPassword = raw.VncPassword,
@@ -97,8 +116,8 @@ public class SandboxService : ISandboxService
                 Id = s.Id,
                 Port = s.Port,
                 BridgePort = s.BridgePort,
-                Url = $"http://{_publicIp}:{s.Port}/vnc.html",
-                BridgeUrl = $"http://{_publicIp}:{s.BridgePort}",
+                Url = BuildVncUrl(s.Port),
+                BridgeUrl = BuildBridgeUrl(s.BridgePort),
                 Status = s.Status,
             })
             .ToList();
@@ -128,8 +147,8 @@ public class SandboxService : ISandboxService
             Id = raw.Id,
             Port = raw.Port,
             BridgePort = raw.BridgePort,
-            Url = $"http://{_publicIp}:{raw.Port}/vnc.html",
-            BridgeUrl = $"http://{_publicIp}:{raw.BridgePort}",
+            Url = BuildVncUrl(raw.Port),
+            BridgeUrl = BuildBridgeUrl(raw.BridgePort),
             Status = raw.Status,
         };
     }
