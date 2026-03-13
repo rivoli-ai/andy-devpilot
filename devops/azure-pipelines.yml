@@ -15,11 +15,9 @@ trigger:
 pr: none   # only deploy on direct pushes to main
 
 variables:
-  # All secrets (DB_PASSWORD, JWT_SECRET_KEY, etc.) are set as Pipeline Variables
-  # in the Azure DevOps pipeline UI (Edit → Variables) — mark sensitive ones as secret.
-  # Optionally move them to a Variable Group (Pipelines → Library → devpilot-production)
-  # and uncomment the line below:
-  #- group: devpilot-production
+  # Secrets are stored in Pipelines → Library → devpilot-production variable group.
+  # Create the group there with all required variables before running the pipeline.
+  - group: devpilot-production
   - name: DEPLOY_DIR
     value: /opt/devpilot
   - name: BUILD_DIR
