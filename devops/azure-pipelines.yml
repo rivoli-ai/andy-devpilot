@@ -171,15 +171,20 @@ stages:
                     AuthProviders__GitHub__Scopes=repo,read:org
 
                     # ── Azure AD OIDC ─────────────────────────────────────────
+                    # ClientId   = Azure App Registration client ID (backend validates tokens)
+                    # SpaClientId = Azure App Registration client ID used by the Angular SPA
+                    #               (can differ if backend and frontend use separate App Registrations)
                     AuthProviders__AzureAd__Enabled=true
                     AuthProviders__AzureAd__Type=FrontendOidc
                     AuthProviders__AzureAd__ClientId=$(AuthProviders__AzureAd__ClientId)
-                    AuthProviders__AzureAd__SpaClientId=$(AuthProviders__AzureAd__ClientId)
-                    AuthProviders__AzureAd__ClientSecret=$(AuthProviders__AzureAd__ClientSecret)
+                    AuthProviders__AzureAd__SpaClientId=$(AuthProviders__AzureAd__SpaClientId)
                     AuthProviders__AzureAd__TenantId=$(AuthProviders__AzureAd__TenantId)
                     AuthProviders__AzureAd__Authority=https://login.microsoftonline.com/$(AuthProviders__AzureAd__TenantId)/v2.0
                     AuthProviders__AzureAd__Scopes=openid profile email User.Read
                     AuthProviders__AzureAd__ProfileEndpoint=https://graph.microsoft.com/v1.0/me
+
+                    # ── Duende (disabled in production — local dev only) ───────
+                    AuthProviders__Duende__Enabled=false
 
                     # ── AI ────────────────────────────────────────────────────
                     AI_ENDPOINT=$(AI_ENDPOINT)
