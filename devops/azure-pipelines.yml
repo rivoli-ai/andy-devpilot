@@ -15,8 +15,13 @@ trigger:
 pr: none   # only deploy on direct pushes to main
 
 variables:
-  DEPLOY_DIR: /opt/devpilot    # destination folder on the production server
-  BUILD_DIR:  $(Build.ArtifactStagingDirectory)/images
+  # Link variable group from Pipelines → Library → devpilot-production
+  # (contains DB_USER, DB_PASSWORD, JWT_SECRET_KEY, MANAGER_API_KEY, etc.)
+  - group: devpilot-production
+  - name: DEPLOY_DIR
+    value: /opt/devpilot
+  - name: BUILD_DIR
+    value: $(Build.ArtifactStagingDirectory)/images
 
 # ── Stage 1 — Build ─────────────────────────────────────────
 stages:
