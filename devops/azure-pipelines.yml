@@ -238,6 +238,12 @@ stages:
                       echo "==> Pulling postgres image..."
                       docker pull postgres:16-alpine
 
+                      echo "==> Stopping any existing stack on conflicting ports..."
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env down --remove-orphans 2>/dev/null || true
+                      docker stop $(docker ps -q --filter "publish=8090") 2>/dev/null || true
+                      docker stop $(docker ps -q --filter "publish=80") 2>/dev/null || true
+                      docker stop $(docker ps -q --filter "publish=8080") 2>/dev/null || true
+
                       echo "==> Restarting stack..."
                       docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans
 
