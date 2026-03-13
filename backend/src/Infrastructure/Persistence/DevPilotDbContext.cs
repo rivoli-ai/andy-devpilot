@@ -49,6 +49,7 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.AzureDevOpsAccessToken).HasColumnName("azure_devops_access_token");
             entity.Property(e => e.AzureDevOpsTokenExpiresAt).HasColumnName("azure_devops_token_expires_at");
             entity.Property(e => e.AzureDevOpsOrganization).HasColumnName("azure_devops_organization").HasMaxLength(256);
+            entity.Property(e => e.PreferredSharedLlmSettingId).HasColumnName("preferred_shared_llm_setting_id");
             entity.HasIndex(e => e.Email).IsUnique();
             entity.HasMany(u => u.LinkedProviders).WithOne(lp => lp.User).HasForeignKey(lp => lp.UserId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -100,14 +101,15 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.Id).HasColumnName("id");
             entity.Property(e => e.CreatedAt).HasColumnName("created_at");
             entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
-            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.UserId).HasColumnName("user_id").IsRequired(false);
             entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(128).IsRequired();
             entity.Property(e => e.Provider).HasColumnName("provider").HasMaxLength(64).IsRequired();
             entity.Property(e => e.ApiKey).HasColumnName("api_key");
             entity.Property(e => e.Model).HasColumnName("model").HasMaxLength(128).IsRequired();
             entity.Property(e => e.BaseUrl).HasColumnName("base_url").HasMaxLength(512);
             entity.Property(e => e.IsDefault).HasColumnName("is_default").HasDefaultValue(false);
-            entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            // Shared providers (UserId = null) have no FK; personal ones cascade-delete with the user.
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RepositoryShare>(entity =>

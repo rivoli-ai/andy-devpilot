@@ -20,6 +20,12 @@ public class User : Entity
     public DateTime? AzureDevOpsTokenExpiresAt { get; private set; }
     public string? AzureDevOpsOrganization { get; private set; }
 
+    /// <summary>
+    /// The user's preferred shared (admin-created) LLM provider.
+    /// When set and the user has no personal default, the effective config resolver falls back to this.
+    /// </summary>
+    public Guid? PreferredSharedLlmSettingId { get; private set; }
+
     // Navigation properties
     public List<Repository> Repositories { get; private set; } = new();
     public List<LinkedProvider> LinkedProviders { get; private set; } = new();
@@ -104,6 +110,12 @@ public class User : Entity
         AzureDevOpsOrganization = null;
         AzureDevOpsAccessToken = null;
         AzureDevOpsTokenExpiresAt = null;
+        MarkAsUpdated();
+    }
+
+    public void SetPreferredSharedLlm(Guid? llmSettingId)
+    {
+        PreferredSharedLlmSettingId = llmSettingId;
         MarkAsUpdated();
     }
 }

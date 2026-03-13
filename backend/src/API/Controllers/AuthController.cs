@@ -150,7 +150,7 @@ public class AuthController : ControllerBase
             var user = UserEntity.CreateWithPassword(request.Email, passwordHash, request.Name);
             await _userRepository.AddAsync(user, cancellationToken);
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email);
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
             _logger.LogInformation("New user registered: {Email}", request.Email);
 
             return Ok(new AuthResponse
@@ -190,7 +190,7 @@ public class AuthController : ControllerBase
             if (!_authenticationService.VerifyPassword(request.Password, user.PasswordHash!))
                 return Unauthorized(new { message = "Invalid email or password" });
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email);
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
             _logger.LogInformation("User logged in: {Email}", request.Email);
 
             return Ok(new AuthResponse
@@ -283,7 +283,7 @@ public class AuthController : ControllerBase
                 await _userRepository.UpdateAsync(user, cancellationToken);
             }
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email);
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
             _logger.LogInformation("User authenticated via {Provider}: {Email}", provider, email);
 
             var response = new AuthResponse
@@ -345,7 +345,7 @@ public class AuthController : ControllerBase
                 await _userRepository.UpdateAsync(user, cancellationToken);
             }
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email);
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
             _logger.LogInformation("User authenticated via {Provider} (OIDC token): {Email}", provider, email);
 
             return Ok(new AuthResponse
@@ -679,17 +679,29 @@ public class AuthController : ControllerBase
         var userId = GetCurrentUserId();
         if (userId == null) return Unauthorized();
 
-        var list = await _llmSettingRepository.GetByUserIdAsync(userId.Value, cancellationToken);
-        return Ok(list.Select(s => new LlmSettingDto
+        var personal = await _llmSettingRepository.GetByUserIdAsync(userId.Value, cancellationToken);
+        var shared   = await _llmSettingRepository.GetSharedAsync(cancellationToken);
+
+        // Fetch the user to know their preferred shared LLM
+        var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
+
+        var result = personal.Select(s => new LlmSettingDto
         {
-            Id = s.Id,
-            Name = s.Name,
-            Provider = s.Provider,
-            Model = s.Model,
+            Id = s.Id, Name = s.Name, Provider = s.Provider, Model = s.Model,
+            BaseUrl = s.BaseUrl, IsDefault = s.IsDefault,
+            HasApiKey = !string.IsNullOrEmpty(s.ApiKey), IsShared = false
+        })
+        .Concat(shared.Select(s => new LlmSettingDto
+        {
+            Id = s.Id, Name = s.Name, Provider = s.Provider, Model = s.Model,
             BaseUrl = s.BaseUrl,
-            IsDefault = s.IsDefault,
-            HasApiKey = !string.IsNullOrEmpty(s.ApiKey)
-        }).ToList());
+            // A shared provider is "default" for this user if they've chosen it as their preferred shared LLM
+            IsDefault = user?.PreferredSharedLlmSettingId == s.Id,
+            HasApiKey = !string.IsNullOrEmpty(s.ApiKey), IsShared = true
+        }))
+        .ToList();
+
+        return Ok(result);
     }
 
     [HttpPost("settings/llm")]
@@ -771,12 +783,98 @@ public class AuthController : ControllerBase
         if (userId == null) return Unauthorized();
 
         var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
-        if (entity == null || entity.UserId != userId.Value) return NotFound();
+        if (entity == null) return NotFound();
 
-        entity.SetDefault(true);
-        await _llmSettingRepository.UpdateAsync(entity, cancellationToken);
+        if (entity.IsShared)
+        {
+            // For shared providers: store the user's preference on their profile
+            var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
+            if (user == null) return Unauthorized();
+            // Clear any personal default so the shared one is used by the resolver
+            await _llmSettingRepository.UnsetDefaultForUserAsync(userId.Value, cancellationToken);
+            user.SetPreferredSharedLlm(id);
+            await _userRepository.UpdateAsync(user, cancellationToken);
+        }
+        else
+        {
+            // Personal provider: must own it
+            if (entity.UserId != userId.Value) return NotFound();
+            // Clear any preferred shared LLM so the personal default takes over
+            var user = await _userRepository.GetByIdAsync(userId.Value, cancellationToken);
+            if (user != null && user.PreferredSharedLlmSettingId.HasValue)
+            {
+                user.SetPreferredSharedLlm(null);
+                await _userRepository.UpdateAsync(user, cancellationToken);
+            }
+            entity.SetDefault(true);
+            await _llmSettingRepository.UpdateAsync(entity, cancellationToken);
+        }
+
         return Ok(new { message = "Default LLM setting updated" });
     }
+
+    #region Admin — shared LLM provider management
+
+    [HttpGet("admin/llm")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> AdminGetSharedLlmSettings(CancellationToken cancellationToken = default)
+    {
+        var list = await _llmSettingRepository.GetSharedAsync(cancellationToken);
+        return Ok(list.Select(s => new LlmSettingDto
+        {
+            Id = s.Id, Name = s.Name, Provider = s.Provider, Model = s.Model,
+            BaseUrl = s.BaseUrl, IsDefault = false,
+            HasApiKey = !string.IsNullOrEmpty(s.ApiKey), IsShared = true
+        }).ToList());
+    }
+
+    [HttpPost("admin/llm")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> AdminCreateSharedLlmSetting([FromBody] CreateLlmSettingRequest request, CancellationToken cancellationToken = default)
+    {
+        var entity = LlmSetting.CreateShared(
+            request.Name ?? "Unnamed",
+            request.Provider ?? "openai",
+            request.ApiKey,
+            request.Model ?? "gpt-4o",
+            request.BaseUrl);
+        entity = await _llmSettingRepository.AddAsync(entity, cancellationToken);
+        return Ok(new LlmSettingDto
+        {
+            Id = entity.Id, Name = entity.Name, Provider = entity.Provider, Model = entity.Model,
+            BaseUrl = entity.BaseUrl, IsDefault = false,
+            HasApiKey = !string.IsNullOrEmpty(entity.ApiKey), IsShared = true
+        });
+    }
+
+    [HttpPatch("admin/llm/{id:guid}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> AdminUpdateSharedLlmSetting(Guid id, [FromBody] UpdateLlmSettingRequest request, CancellationToken cancellationToken = default)
+    {
+        var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
+        if (entity == null || !entity.IsShared) return NotFound();
+
+        entity.Update(request.Name ?? entity.Name, request.ApiKey, request.Model ?? entity.Model, request.BaseUrl);
+        await _llmSettingRepository.UpdateAsync(entity, cancellationToken);
+        return Ok(new LlmSettingDto
+        {
+            Id = entity.Id, Name = entity.Name, Provider = entity.Provider, Model = entity.Model,
+            BaseUrl = entity.BaseUrl, IsDefault = false,
+            HasApiKey = !string.IsNullOrEmpty(entity.ApiKey), IsShared = true
+        });
+    }
+
+    [HttpDelete("admin/llm/{id:guid}")]
+    [Authorize(Roles = "admin")]
+    public async Task<IActionResult> AdminDeleteSharedLlmSetting(Guid id, CancellationToken cancellationToken = default)
+    {
+        var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
+        if (entity == null || !entity.IsShared) return NotFound();
+        await _llmSettingRepository.DeleteAsync(id, cancellationToken);
+        return Ok(new { message = "Shared LLM setting deleted" });
+    }
+
+    #endregion
 
     #endregion
 
@@ -786,6 +884,19 @@ public class AuthController : ControllerBase
     {
         var claim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
         return Guid.TryParse(claim, out var id) ? id : null;
+    }
+
+    private bool IsCurrentUserAdmin()
+        => User.IsInRole("admin");
+
+    /// <summary>
+    /// Returns true when the given email is designated as super-admin via the ADMIN_EMAIL env var / config.
+    /// </summary>
+    private bool IsAdminEmail(string email)
+    {
+        var adminEmail = _configuration["AdminEmail"] ?? string.Empty;
+        return !string.IsNullOrEmpty(adminEmail) &&
+               string.Equals(adminEmail.Trim(), email.Trim(), StringComparison.OrdinalIgnoreCase);
     }
 
     private static UserDto MapUserDto(UserEntity user) => new()
@@ -938,6 +1049,8 @@ public class AuthController : ControllerBase
         public string? BaseUrl { get; set; }
         public bool IsDefault { get; set; }
         public bool HasApiKey { get; set; }
+        /// <summary>True when this is an admin-created shared provider (read-only for regular users).</summary>
+        public bool IsShared { get; set; }
     }
 
     public class CreateLlmSettingRequest

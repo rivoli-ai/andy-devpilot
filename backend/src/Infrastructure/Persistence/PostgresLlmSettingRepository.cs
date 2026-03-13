@@ -30,6 +30,15 @@ public class PostgresLlmSettingRepository : ILlmSettingRepository
         return list;
     }
 
+    public async System.Threading.Tasks.Task<IReadOnlyList<LlmSetting>> GetSharedAsync(CancellationToken cancellationToken = default)
+    {
+        var list = await _context.LlmSettings
+            .Where(s => s.UserId == null)
+            .OrderBy(s => s.Name)
+            .ToListAsync(cancellationToken);
+        return list;
+    }
+
     public System.Threading.Tasks.Task<LlmSetting?> GetDefaultByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return _context.LlmSettings
@@ -38,8 +47,8 @@ public class PostgresLlmSettingRepository : ILlmSettingRepository
 
     public async System.Threading.Tasks.Task<LlmSetting> AddAsync(LlmSetting entity, CancellationToken cancellationToken = default)
     {
-        if (entity.IsDefault)
-            await UnsetDefaultForUserAsync(entity.UserId, cancellationToken).ConfigureAwait(false);
+        if (entity.IsDefault && entity.UserId.HasValue)
+            await UnsetDefaultForUserAsync(entity.UserId.Value, cancellationToken).ConfigureAwait(false);
         await _context.LlmSettings.AddAsync(entity, cancellationToken).ConfigureAwait(false);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return entity;
@@ -47,8 +56,8 @@ public class PostgresLlmSettingRepository : ILlmSettingRepository
 
     public async System.Threading.Tasks.Task UpdateAsync(LlmSetting entity, CancellationToken cancellationToken = default)
     {
-        if (entity.IsDefault)
-            await UnsetDefaultForUserAsync(entity.UserId, cancellationToken).ConfigureAwait(false);
+        if (entity.IsDefault && entity.UserId.HasValue)
+            await UnsetDefaultForUserAsync(entity.UserId.Value, cancellationToken).ConfigureAwait(false);
         _context.LlmSettings.Update(entity);
         await _context.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }

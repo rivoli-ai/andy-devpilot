@@ -54,6 +54,14 @@ public class EffectiveAiConfigResolver : IEffectiveAiConfigResolver
                 llm?.Name, llm?.Provider, llm?.Model);
         }
 
+        // Fall back to user's preferred shared (admin-created) provider
+        if (llm == null && user.PreferredSharedLlmSettingId.HasValue)
+        {
+            llm = await _llmSettingRepository.GetByIdAsync(user.PreferredSharedLlmSettingId.Value, cancellationToken);
+            _logger.LogInformation("[EffectiveAI] Falling back to preferred shared LLM: Name={Name}, Provider={Provider}, Model={Model}",
+                llm?.Name, llm?.Provider, llm?.Model);
+        }
+
         if (llm != null && !string.IsNullOrEmpty(llm.ApiKey))
         {
             _logger.LogInformation("[EffectiveAI] Using LLM: {Name} ({Provider} / {Model})", llm.Name, llm.Provider, llm.Model);

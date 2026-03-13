@@ -49,6 +49,7 @@ Azure DevOps agent
 | `AI_ENDPOINT` | LLM endpoint URL | |
 | `AI_API_KEY` | LLM API key | 🔒 |
 | `AI_MODEL` | LLM model name | |
+|| `ADMIN_EMAIL` | Email of the super-admin (gets `admin` JWT role — manages shared AI providers) | |
 
 ### 3. Link Variable Group to Pipeline
 

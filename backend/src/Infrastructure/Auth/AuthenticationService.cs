@@ -28,9 +28,11 @@ public class AuthenticationService
     }
 
     /// <summary>
-    /// Generate JWT token for a user
+    /// Generate JWT token for a user.
+    /// When <paramref name="isAdmin"/> is true the token includes the "admin" role claim,
+    /// which is required to access admin-only endpoints (e.g. managing shared AI providers).
     /// </summary>
-    public string GenerateToken(Guid userId, string email)
+    public string GenerateToken(Guid userId, string email, bool isAdmin = false)
     {
         var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.ASCII.GetBytes(_secretKey);
@@ -41,6 +43,8 @@ public class AuthenticationService
             new Claim(ClaimTypes.Email, email),
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
+        if (isAdmin)
+            claims.Add(new Claim(ClaimTypes.Role, "admin"));
 
         var tokenDescriptor = new SecurityTokenDescriptor
         {

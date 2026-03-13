@@ -32,6 +32,7 @@ services:
       VPS__ManagerApiKey:    ${MANAGER_API_KEY}
       VPS__PublicIp:         ${PUBLIC_IP}
       VPS__HttpsProxyBase:   ${HTTPS_PROXY_BASE:-}
+      AdminEmail:            ${ADMIN_EMAIL:-}
       VPS__Enabled:          "true"
     extra_hosts:
       - "host.docker.internal:host-gateway"

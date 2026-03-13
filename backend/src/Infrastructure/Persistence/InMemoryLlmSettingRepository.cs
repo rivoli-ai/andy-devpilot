@@ -23,6 +23,12 @@ public class InMemoryLlmSettingRepository : ILlmSettingRepository
         return System.Threading.Tasks.Task.FromResult<IReadOnlyList<LlmSetting>>(list);
     }
 
+    public System.Threading.Tasks.Task<IReadOnlyList<LlmSetting>> GetSharedAsync(CancellationToken cancellationToken = default)
+    {
+        var list = Store.Where(s => s.UserId == null).OrderBy(s => s.Name).ToList();
+        return System.Threading.Tasks.Task.FromResult<IReadOnlyList<LlmSetting>>(list);
+    }
+
     public System.Threading.Tasks.Task<LlmSetting?> GetDefaultByUserIdAsync(Guid userId, CancellationToken cancellationToken = default)
     {
         return System.Threading.Tasks.Task.FromResult(Store.FirstOrDefault(s => s.UserId == userId && s.IsDefault));
@@ -30,16 +36,16 @@ public class InMemoryLlmSettingRepository : ILlmSettingRepository
 
     public System.Threading.Tasks.Task<LlmSetting> AddAsync(LlmSetting entity, CancellationToken cancellationToken = default)
     {
-        if (entity.IsDefault)
-            UnsetDefaultForUserAsync(entity.UserId, cancellationToken).GetAwaiter().GetResult();
+        if (entity.IsDefault && entity.UserId.HasValue)
+            UnsetDefaultForUserAsync(entity.UserId.Value, cancellationToken).GetAwaiter().GetResult();
         Store.Add(entity);
         return System.Threading.Tasks.Task.FromResult(entity);
     }
 
     public System.Threading.Tasks.Task UpdateAsync(LlmSetting entity, CancellationToken cancellationToken = default)
     {
-        if (entity.IsDefault)
-            UnsetDefaultForUserAsync(entity.UserId, cancellationToken).GetAwaiter().GetResult();
+        if (entity.IsDefault && entity.UserId.HasValue)
+            UnsetDefaultForUserAsync(entity.UserId.Value, cancellationToken).GetAwaiter().GetResult();
         return System.Threading.Tasks.Task.CompletedTask;
     }
 

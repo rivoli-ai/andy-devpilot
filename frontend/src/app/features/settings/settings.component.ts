@@ -321,8 +321,104 @@ export class SettingsComponent implements OnInit {
 
   // ---- AI providers ----
 
+  /** Whether the current user is a super-admin. */
+  isAdmin = this.authService.isAdmin;
+
   llmSettings(): LlmSettingDto[] {
-    return this.aiConfigService.llmSettings();
+    return this.aiConfigService.llmSettings().filter(s => !s.isShared);
+  }
+
+  sharedLlmSettings(): LlmSettingDto[] {
+    return this.aiConfigService.llmSettings().filter(s => s.isShared);
+  }
+
+  // Admin: shared provider form
+  readonly adminLlmFormOpen = signal(false);
+  readonly adminLlmFormId = signal<string | null>(null);
+  readonly adminLlmFormName = signal('');
+  readonly adminLlmFormProvider = signal<'openai' | 'anthropic' | 'ollama' | 'custom'>('openai');
+  readonly adminLlmFormModel = signal('gpt-4o');
+  readonly adminLlmFormBaseUrl = signal('');
+  readonly adminLlmFormApiKey = signal('');
+  readonly adminLlmFormShowApiKey = signal(false);
+
+  openAdminAddLlmForm(): void {
+    this.adminLlmFormId.set(null);
+    this.adminLlmFormName.set('');
+    this.adminLlmFormProvider.set('openai');
+    this.adminLlmFormModel.set('gpt-4o');
+    this.adminLlmFormBaseUrl.set('');
+    this.adminLlmFormApiKey.set('');
+    this.adminLlmFormOpen.set(true);
+  }
+
+  openAdminEditLlmForm(item: LlmSettingDto): void {
+    this.adminLlmFormId.set(item.id);
+    this.adminLlmFormName.set(item.name || '');
+    this.adminLlmFormProvider.set((item.provider as any) || 'openai');
+    this.adminLlmFormModel.set(item.model || 'gpt-4o');
+    this.adminLlmFormBaseUrl.set(item.baseUrl || '');
+    this.adminLlmFormApiKey.set('');
+    this.adminLlmFormOpen.set(true);
+  }
+
+  cancelAdminLlmForm(): void {
+    this.adminLlmFormOpen.set(false);
+    this.adminLlmFormId.set(null);
+  }
+
+  setAdminLlmFormProvider(provider: 'openai' | 'anthropic' | 'ollama' | 'custom'): void {
+    this.adminLlmFormProvider.set(provider);
+    switch (provider) {
+      case 'openai': this.adminLlmFormModel.set('gpt-4o'); break;
+      case 'anthropic': this.adminLlmFormModel.set('claude-sonnet-4-20250514'); break;
+      case 'ollama': this.adminLlmFormModel.set('llama3.1'); break;
+      default: this.adminLlmFormModel.set(''); break;
+    }
+  }
+
+  async saveAdminLlmSetting(): Promise<void> {
+    const id = this.adminLlmFormId();
+    const name = this.adminLlmFormName().trim() || undefined;
+    const provider = this.adminLlmFormProvider();
+    const model = this.adminLlmFormModel().trim() || undefined;
+    const baseUrl = this.adminLlmFormBaseUrl().trim() || undefined;
+    const apiKey = this.adminLlmFormApiKey().trim() || undefined;
+
+    this.actionLoading.set('admin-llm-save');
+    this.error.set(null);
+    try {
+      if (id) {
+        await firstValueFrom(this.authService.adminUpdateSharedLlmSetting(id, { name, apiKey, model, baseUrl }));
+        this.successMessage.set('Shared AI provider updated');
+      } else {
+        await firstValueFrom(this.authService.adminCreateSharedLlmSetting({ name, provider, apiKey, model, baseUrl }));
+        this.successMessage.set('Shared AI provider created');
+      }
+      await this.aiConfigService.loadLlmSettings();
+      this.cancelAdminLlmForm();
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to save');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async deleteAdminLlmSetting(id: string): Promise<void> {
+    if (!confirm('Delete this shared AI provider? All users relying on it will lose access.')) return;
+    this.actionLoading.set('admin-llm-delete');
+    this.error.set(null);
+    try {
+      await firstValueFrom(this.authService.adminDeleteSharedLlmSetting(id));
+      await this.aiConfigService.loadLlmSettings();
+      this.successMessage.set('Shared AI provider deleted');
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to delete');
+    } finally {
+      this.actionLoading.set(null);
+    }
   }
 
   openAddLlmForm(): void {

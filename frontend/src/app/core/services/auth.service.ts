@@ -39,11 +39,14 @@ export interface LinkedProvider {
 export class AuthService {
   private readonly tokenSignal = signal<string | null>(null);
   private readonly userSignal = signal<User | null>(null);
+  private readonly isAdminSignal = signal<boolean>(false);
 
   // Expose readonly signals
   readonly token = this.tokenSignal.asReadonly();
   readonly user = this.userSignal.asReadonly();
   readonly isAuthenticated = signal<boolean>(false);
+  /** True when the current JWT contains the "admin" role claim. */
+  readonly isAdmin = this.isAdminSignal.asReadonly();
 
   // Provider config (fetched from backend)
   private readonly _providerConfigs = signal<AuthProviderConfig[]>([]);
@@ -65,6 +68,7 @@ export class AuthService {
     if (savedToken) {
       this.tokenSignal.set(savedToken);
       this.isAuthenticated.set(true);
+      this.isAdminSignal.set(this.decodeIsAdmin(savedToken));
     }
     if (savedUser) {
       try {
@@ -72,6 +76,21 @@ export class AuthService {
       } catch (e) {
         console.error('Failed to parse saved user', e);
       }
+    }
+  }
+
+  /** Decode the JWT payload and check for the "admin" role claim. */
+  private decodeIsAdmin(token: string): boolean {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      const roles: string | string[] | undefined =
+        payload['http://schemas.microsoft.com/ws/2008/06/identity/claims/role'] ??
+        payload['role'] ??
+        payload['roles'];
+      if (Array.isArray(roles)) return roles.includes('admin');
+      return roles === 'admin';
+    } catch {
+      return false;
     }
   }
 
@@ -235,6 +254,7 @@ export class AuthService {
     this.tokenSignal.set(response.token);
     this.userSignal.set(response.user);
     this.isAuthenticated.set(true);
+    this.isAdminSignal.set(this.decodeIsAdmin(response.token));
     localStorage.setItem('auth_token', response.token);
     localStorage.setItem('auth_user', JSON.stringify(response.user));
   }
@@ -304,6 +324,26 @@ export class AuthService {
   setDefaultLlmSetting(id: string): Observable<{ message: string }> {
     return this.apiService.post<{ message: string }>(`/auth/settings/llm/${id}/set-default`, {});
   }
+
+  // ============================================
+  // Admin — shared LLM provider management
+  // ============================================
+
+  adminGetSharedLlmSettings(): Observable<LlmSettingDto[]> {
+    return this.apiService.get<LlmSettingDto[]>('/auth/admin/llm');
+  }
+
+  adminCreateSharedLlmSetting(body: CreateLlmSettingRequest): Observable<LlmSettingDto> {
+    return this.apiService.post<LlmSettingDto>('/auth/admin/llm', body);
+  }
+
+  adminUpdateSharedLlmSetting(id: string, body: UpdateLlmSettingRequest): Observable<LlmSettingDto> {
+    return this.apiService.patch<LlmSettingDto>(`/auth/admin/llm/${id}`, body);
+  }
+
+  adminDeleteSharedLlmSetting(id: string): Observable<{ message: string }> {
+    return this.apiService.delete<{ message: string }>(`/auth/admin/llm/${id}`);
+  }
 }
 
 export interface LlmSettingDto {
@@ -314,6 +354,8 @@ export interface LlmSettingDto {
   baseUrl?: string;
   isDefault: boolean;
   hasApiKey: boolean;
+  /** True when this is an admin-created shared provider (read-only for regular users). */
+  isShared?: boolean;
 }
 
 export interface CreateLlmSettingRequest {
