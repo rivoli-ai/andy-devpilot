@@ -139,23 +139,49 @@ stages:
                   artifact: manager-image
                   displayName: "Download manager image"
 
-                # 2) Generate .env from pipeline secret variables
+                # 2) Generate .env from pipeline secret variables + static config
                 - script: |
                     mkdir -p $(Pipeline.Workspace)/deploy
                     cat > $(Pipeline.Workspace)/deploy/.env <<EOF
+                    # ── Database ──────────────────────────────────────────────
                     DB_USER=$(DB_USER)
                     DB_PASSWORD=$(DB_PASSWORD)
                     DB_NAME=$(DB_NAME)
+
+                    # ── JWT ───────────────────────────────────────────────────
                     JWT_SECRET_KEY=$(JWT_SECRET_KEY)
+
+                    # ── Sandbox / VPS ─────────────────────────────────────────
                     MANAGER_API_KEY=$(MANAGER_API_KEY)
                     PUBLIC_IP=$(PUBLIC_IP)
-                    API_URL=$(API_URL)
                     VPS__GatewayUrl=http://sandbox-manager:8090
+
+                    # ── Frontend ──────────────────────────────────────────────
+                    API_URL=$(API_URL)
+
+                    # ── Local auth (always enabled for fallback) ───────────────
+                    AuthProviders__Local__Enabled=true
+
+                    # ── GitHub OAuth ──────────────────────────────────────────
+                    AuthProviders__GitHub__Enabled=true
+                    AuthProviders__GitHub__Type=BackendOAuth
                     AuthProviders__GitHub__ClientId=$(AuthProviders__GitHub__ClientId)
                     AuthProviders__GitHub__ClientSecret=$(AuthProviders__GitHub__ClientSecret)
+                    AuthProviders__GitHub__RedirectUri=http://$(PUBLIC_IP)/auth/callback/GitHub
+                    AuthProviders__GitHub__Scopes=repo,read:org
+
+                    # ── Azure AD OIDC ─────────────────────────────────────────
+                    AuthProviders__AzureAd__Enabled=true
+                    AuthProviders__AzureAd__Type=FrontendOidc
                     AuthProviders__AzureAd__ClientId=$(AuthProviders__AzureAd__ClientId)
+                    AuthProviders__AzureAd__SpaClientId=$(AuthProviders__AzureAd__ClientId)
                     AuthProviders__AzureAd__ClientSecret=$(AuthProviders__AzureAd__ClientSecret)
                     AuthProviders__AzureAd__TenantId=$(AuthProviders__AzureAd__TenantId)
+                    AuthProviders__AzureAd__Authority=https://login.microsoftonline.com/$(AuthProviders__AzureAd__TenantId)/v2.0
+                    AuthProviders__AzureAd__Scopes=openid profile email User.Read
+                    AuthProviders__AzureAd__ProfileEndpoint=https://graph.microsoft.com/v1.0/me
+
+                    # ── AI ────────────────────────────────────────────────────
                     AI_ENDPOINT=$(AI_ENDPOINT)
                     AI_API_KEY=$(AI_API_KEY)
                     AI_MODEL=$(AI_MODEL)
