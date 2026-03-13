@@ -117,6 +117,10 @@ stages:
             deploy:
               steps:
 
+                # 0) Checkout source so devops/ folder is available on the agent
+                - checkout: self
+                  displayName: "Checkout source (for devops/docker-compose.prod.yml)"
+
                 # 1) Download all image artifacts
                 - download: current
                   artifact: backend-image
