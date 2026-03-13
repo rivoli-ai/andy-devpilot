@@ -1,0 +1,236 @@
+# ============================================================
+# DevPilot — Azure DevOps Pipeline
+#
+# Strategy: build images on the CI agent, save as compressed
+# tar archives, copy to production server via SSH, then load
+# and restart containers with docker compose.
+# No external registry needed — images travel as artifacts.
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr: none   # only deploy on direct pushes to main
+
+variables:
+  DEPLOY_DIR: /opt/devpilot    # destination folder on the production server
+  BUILD_DIR:  $(Build.ArtifactStagingDirectory)/images
+
+# ── Stage 1 — Build ─────────────────────────────────────────
+stages:
+  - stage: Build
+    displayName: "Build Docker images"
+    jobs:
+      # Build backend and frontend in parallel
+      - job: BuildBackend
+        displayName: "Build devpilot-backend"
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: Docker@2
+            displayName: "docker build — backend"
+            inputs:
+              command: build
+              repository: devpilot-backend
+              dockerfile: backend/Dockerfile
+              buildContext: .
+              tags: latest
+              arguments: "--no-cache"
+
+          - script: |
+              mkdir -p $(BUILD_DIR)
+              docker save devpilot-backend:latest | gzip > $(BUILD_DIR)/backend.tar.gz
+              echo "Backend image size: $(du -sh $(BUILD_DIR)/backend.tar.gz)"
+            displayName: "Export backend image"
+
+          - publish: $(BUILD_DIR)/backend.tar.gz
+            artifact: backend-image
+            displayName: "Publish backend artifact"
+
+      - job: BuildFrontend
+        displayName: "Build devpilot-frontend"
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: Docker@2
+            displayName: "docker build — frontend"
+            inputs:
+              command: build
+              repository: devpilot-frontend
+              dockerfile: frontend/Dockerfile
+              buildContext: frontend
+              tags: latest
+              arguments: "--no-cache"
+
+          - script: |
+              mkdir -p $(BUILD_DIR)
+              docker save devpilot-frontend:latest | gzip > $(BUILD_DIR)/frontend.tar.gz
+              echo "Frontend image size: $(du -sh $(BUILD_DIR)/frontend.tar.gz)"
+            displayName: "Export frontend image"
+
+          - publish: $(BUILD_DIR)/frontend.tar.gz
+            artifact: frontend-image
+            displayName: "Publish frontend artifact"
+
+      - job: BuildManager
+        displayName: "Build devpilot-manager"
+        pool:
+          vmImage: ubuntu-latest
+        steps:
+          - task: Docker@2
+            displayName: "docker build — sandbox-manager"
+            inputs:
+              command: build
+              repository: devpilot-manager
+              dockerfile: infra/sandbox/manager/Dockerfile
+              buildContext: infra/sandbox/manager
+              tags: latest
+              arguments: "--no-cache"
+
+          - script: |
+              mkdir -p $(BUILD_DIR)
+              docker save devpilot-manager:latest | gzip > $(BUILD_DIR)/manager.tar.gz
+              echo "Manager image size: $(du -sh $(BUILD_DIR)/manager.tar.gz)"
+            displayName: "Export manager image"
+
+          - publish: $(BUILD_DIR)/manager.tar.gz
+            artifact: manager-image
+            displayName: "Publish manager artifact"
+
+  # ── Stage 2 — Deploy ─────────────────────────────────────
+  - stage: Deploy
+    displayName: "Deploy to production"
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - deployment: DeployProduction
+        displayName: "Deploy via SSH"
+        pool:
+          vmImage: ubuntu-latest
+        environment: production
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+
+                # 1) Download all image artifacts
+                - download: current
+                  artifact: backend-image
+                  displayName: "Download backend image"
+
+                - download: current
+                  artifact: frontend-image
+                  displayName: "Download frontend image"
+
+                - download: current
+                  artifact: manager-image
+                  displayName: "Download manager image"
+
+                # 2) Generate .env from pipeline secret variables
+                - script: |
+                    mkdir -p $(Pipeline.Workspace)/deploy
+                    cat > $(Pipeline.Workspace)/deploy/.env <<EOF
+                    DB_USER=$(DB_USER)
+                    DB_PASSWORD=$(DB_PASSWORD)
+                    DB_NAME=$(DB_NAME)
+                    JWT_SECRET_KEY=$(JWT_SECRET_KEY)
+                    MANAGER_API_KEY=$(MANAGER_API_KEY)
+                    PUBLIC_IP=$(PUBLIC_IP)
+                    API_URL=$(API_URL)
+                    VPS__GatewayUrl=http://sandbox-manager:8090
+                    AuthProviders__GitHub__ClientId=$(AuthProviders__GitHub__ClientId)
+                    AuthProviders__GitHub__ClientSecret=$(AuthProviders__GitHub__ClientSecret)
+                    AuthProviders__AzureAd__ClientId=$(AuthProviders__AzureAd__ClientId)
+                    AuthProviders__AzureAd__ClientSecret=$(AuthProviders__AzureAd__ClientSecret)
+                    AuthProviders__AzureAd__TenantId=$(AuthProviders__AzureAd__TenantId)
+                    AI_ENDPOINT=$(AI_ENDPOINT)
+                    AI_API_KEY=$(AI_API_KEY)
+                    AI_MODEL=$(AI_MODEL)
+                    EOF
+                  displayName: "Generate .env file"
+
+                # 3) Copy docker-compose.prod.yml and .env to server
+                - task: CopyFilesOverSSH@0
+                  displayName: "Copy compose + env to server"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    sourceFolder: $(System.DefaultWorkingDirectory)/devops
+                    contents: docker-compose.prod.yml
+                    targetFolder: $(DEPLOY_DIR)
+                    cleanTargetFolder: false
+                    overwrite: true
+
+                - task: CopyFilesOverSSH@0
+                  displayName: "Copy .env to server"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    sourceFolder: $(Pipeline.Workspace)/deploy
+                    contents: .env
+                    targetFolder: $(DEPLOY_DIR)
+                    cleanTargetFolder: false
+                    overwrite: true
+
+                # 4) Copy image tarballs to server
+                - task: CopyFilesOverSSH@0
+                  displayName: "Copy backend image"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    sourceFolder: $(Pipeline.Workspace)/backend-image
+                    contents: backend.tar.gz
+                    targetFolder: $(DEPLOY_DIR)/images
+                    cleanTargetFolder: false
+                    overwrite: true
+
+                - task: CopyFilesOverSSH@0
+                  displayName: "Copy frontend image"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    sourceFolder: $(Pipeline.Workspace)/frontend-image
+                    contents: frontend.tar.gz
+                    targetFolder: $(DEPLOY_DIR)/images
+                    cleanTargetFolder: false
+                    overwrite: true
+
+                - task: CopyFilesOverSSH@0
+                  displayName: "Copy manager image"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    sourceFolder: $(Pipeline.Workspace)/manager-image
+                    contents: manager.tar.gz
+                    targetFolder: $(DEPLOY_DIR)/images
+                    cleanTargetFolder: false
+                    overwrite: true
+
+                # 5) Load images + restart containers on server
+                - task: SSH@0
+                  displayName: "Load images and restart stack"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    runOptions: commands
+                    commands: |
+                      set -e
+                      cd $(DEPLOY_DIR)
+
+                      echo "==> Loading Docker images..."
+                      docker load < images/backend.tar.gz
+                      docker load < images/frontend.tar.gz
+                      docker load < images/manager.tar.gz
+
+                      echo "==> Pulling postgres image (stateless, from Docker Hub)..."
+                      docker pull postgres:16-alpine
+
+                      echo "==> Restarting stack..."
+                      docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
+
+                      echo "==> Cleaning up compressed archives..."
+                      rm -f images/backend.tar.gz images/frontend.tar.gz images/manager.tar.gz
+
+                      echo "==> Removing dangling images to free disk space..."
+                      docker image prune -f
+
+                      echo "==> Stack status:"
+                      docker compose -f docker-compose.prod.yml ps
+
+                      echo "==> Deployment complete!"

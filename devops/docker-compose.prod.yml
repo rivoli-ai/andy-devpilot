@@ -1,0 +1,63 @@
+# Production docker-compose — uses pre-built images (loaded from CI artifacts)
+# DO NOT use `build:` here; images are loaded via `docker load` by the pipeline.
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER:     ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB:       ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  devpilot-backend:
+    image: devpilot-backend:latest
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file: .env
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Username=${DB_USER};Password=${DB_PASSWORD};Database=${DB_NAME}"
+      JWT__SecretKey:        ${JWT_SECRET_KEY}
+      VPS__GatewayUrl:       ${VPS__GatewayUrl:-http://sandbox-manager:8090}
+      VPS__ManagerApiKey:    ${MANAGER_API_KEY}
+      VPS__PublicIp:         ${PUBLIC_IP}
+      VPS__Enabled:          "true"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8080:8080"
+
+  devpilot-frontend:
+    image: devpilot-frontend:latest
+    restart: always
+    depends_on:
+      - devpilot-backend
+    environment:
+      API_URL: ${API_URL:-/api}
+    ports:
+      - "80:80"
+
+  sandbox-manager:
+    image: devpilot-manager:latest
+    restart: always
+    environment:
+      MANAGER_API_KEY: ${MANAGER_API_KEY}
+      HOST_IP:         ${PUBLIC_IP}
+      BACKEND:         docker
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "8090:8090"
+
+volumes:
+  postgres_data:
