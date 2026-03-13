@@ -45,7 +45,7 @@ services:
     environment:
       API_URL: ${API_URL:-/api}
     ports:
-      - "80:80"
+      - "8888:80"
 
   sandbox-manager:
     image: devpilot-manager:latest
