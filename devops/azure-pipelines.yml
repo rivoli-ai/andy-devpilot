@@ -220,6 +220,8 @@ stages:
                     overwrite: true
 
                 # 5) Load images + restart containers on server
+                # Using absolute paths throughout — SSH@0 'commands' mode does not
+                # guarantee that 'cd' persists between lines in all agent versions.
                 - task: SSH@0
                   displayName: "Load images and restart stack"
                   inputs:
@@ -227,26 +229,25 @@ stages:
                     runOptions: commands
                     commands: |
                       set -e
-                      cd $(DEPLOY_DIR)
 
                       echo "==> Loading Docker images..."
-                      docker load < images/backend.tar.gz
-                      docker load < images/frontend.tar.gz
-                      docker load < images/manager.tar.gz
+                      docker load < /opt/devpilot/images/backend.tar.gz
+                      docker load < /opt/devpilot/images/frontend.tar.gz
+                      docker load < /opt/devpilot/images/manager.tar.gz
 
-                      echo "==> Pulling postgres image (stateless, from Docker Hub)..."
+                      echo "==> Pulling postgres image..."
                       docker pull postgres:16-alpine
 
                       echo "==> Restarting stack..."
-                      docker compose -f docker-compose.prod.yml --env-file .env up -d --remove-orphans
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans
 
                       echo "==> Cleaning up compressed archives..."
-                      rm -f images/backend.tar.gz images/frontend.tar.gz images/manager.tar.gz
+                      rm -f /opt/devpilot/images/backend.tar.gz /opt/devpilot/images/frontend.tar.gz /opt/devpilot/images/manager.tar.gz
 
                       echo "==> Removing dangling images to free disk space..."
                       docker image prune -f
 
                       echo "==> Stack status:"
-                      docker compose -f docker-compose.prod.yml ps
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml ps
 
                       echo "==> Deployment complete!"
