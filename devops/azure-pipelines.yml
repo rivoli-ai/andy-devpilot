@@ -238,17 +238,8 @@ stages:
                       echo "==> Pulling postgres image..."
                       docker pull postgres:16-alpine
 
-                      echo "==> Detecting docker compose version..."
-                      if docker compose version >/dev/null 2>&1; then
-                        DC="docker compose"
-                        echo "  Using docker compose (V2 plugin)"
-                      else
-                        DC="docker-compose"
-                        echo "  Using docker-compose (V1 standalone)"
-                      fi
-
                       echo "==> Restarting stack..."
-                      $DC -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans
 
                       echo "==> Cleaning up compressed archives..."
                       rm -f /opt/devpilot/images/backend.tar.gz /opt/devpilot/images/frontend.tar.gz /opt/devpilot/images/manager.tar.gz
@@ -257,6 +248,6 @@ stages:
                       docker image prune -f
 
                       echo "==> Stack status:"
-                      $DC -f /opt/devpilot/docker-compose.prod.yml ps
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml ps
 
                       echo "==> Deployment complete!"
