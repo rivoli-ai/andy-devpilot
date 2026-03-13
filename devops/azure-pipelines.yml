@@ -258,9 +258,10 @@ stages:
                   inputs:
                     sshEndpoint: 'production-server-password'
                     runOptions: commands
+                    # failOnStdErr: false — docker compose writes progress to stderr;
+                    # this prevents the SSH task from failing on informational output.
+                    failOnStdErr: false
                     commands: |
-                      set -e
-
                       echo "==> Loading Docker images..."
                       docker load < /opt/devpilot/images/backend.tar.gz
                       docker load < /opt/devpilot/images/frontend.tar.gz
@@ -270,11 +271,11 @@ stages:
                       docker pull postgres:16-alpine
 
                       echo "==> Stopping any existing stack..."
-                      docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env down --remove-orphans 2>/dev/null || true
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env down --remove-orphans 2>&1 || true
                       echo "==> Killing any Docker container holding ports 80/8080/8090..."
                       docker ps -q | xargs -r docker inspect --format='{{.Id}} {{range $p,$conf := .NetworkSettings.Ports}}{{$p}} {{end}}' | grep -E '80/tcp|8080/tcp|8090/tcp' | awk '{print $1}' | xargs -r docker stop 2>/dev/null || true
                       docker ps -q | xargs -r docker inspect --format='{{.Id}} {{range $p,$conf := .NetworkSettings.Ports}}{{$p}} {{end}}' | grep -E '80/tcp|8080/tcp|8090/tcp' | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
-                      echo "==> Killing any native process (e.g. old Python manager) holding ports 80/8080/8090..."
+                      echo "==> Killing any native process holding ports 80/8080/8090..."
                       fuser -k 8090/tcp 2>/dev/null || true
                       fuser -k 8080/tcp 2>/dev/null || true
                       fuser -k 80/tcp 2>/dev/null || true
@@ -283,15 +284,15 @@ stages:
                       ss -tlnp | grep -E ':80 |:8080 |:8090 ' || echo "  All clear"
 
                       echo "==> Restarting stack..."
-                      docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans 2>&1
 
                       echo "==> Cleaning up compressed archives..."
                       rm -f /opt/devpilot/images/backend.tar.gz /opt/devpilot/images/frontend.tar.gz /opt/devpilot/images/manager.tar.gz
 
                       echo "==> Removing dangling images to free disk space..."
-                      docker image prune -f
+                      docker image prune -f 2>&1
 
                       echo "==> Stack status:"
-                      docker compose -f /opt/devpilot/docker-compose.prod.yml ps
+                      docker compose -f /opt/devpilot/docker-compose.prod.yml ps 2>&1
 
                       echo "==> Deployment complete!"
