@@ -29,6 +29,7 @@ public class AuthController : ControllerBase
     private readonly IMediator _mediator;
     private readonly ILogger<AuthController> _logger;
     private readonly IMemoryCache _memoryCache;
+    private readonly IConfiguration _configuration;
 
     public AuthController(
         IUserRepository userRepository,
@@ -39,7 +40,8 @@ public class AuthController : ControllerBase
         AuthProviderRegistry providerRegistry,
         IMediator mediator,
         ILogger<AuthController> logger,
-        IMemoryCache memoryCache)
+        IMemoryCache memoryCache,
+        IConfiguration configuration)
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
@@ -50,6 +52,7 @@ public class AuthController : ControllerBase
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _memoryCache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
     }
 
     #region Provider Configuration (public)
