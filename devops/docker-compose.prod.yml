@@ -51,9 +51,13 @@ services:
     image: devpilot-manager:latest
     restart: always
     environment:
-      MANAGER_API_KEY: ${MANAGER_API_KEY}
-      HOST_IP:         ${PUBLIC_IP}
-      BACKEND:         docker
+      MANAGER_API_KEY:  ${MANAGER_API_KEY}
+      HOST_IP:          ${PUBLIC_IP}
+      BACKEND:          docker
+      # When set, manager returns HTTPS proxy URLs (via nginx) instead of raw
+      # http://<ip>:<port> URLs — required to avoid mixed-content errors when
+      # the frontend is served over HTTPS.
+      HTTPS_PROXY_BASE: ${HTTPS_PROXY_BASE:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
     ports:

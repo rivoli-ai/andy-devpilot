@@ -87,6 +87,73 @@ sudo mkdir -p /opt/devpilot/images
 sudo chown $USER:$USER /opt/devpilot
 ```
 
+### 6. Nginx — HTTPS + sandbox proxy (run once on the server)
+
+The frontend is served over HTTPS. Sandbox VNC and bridge endpoints must also be
+reachable over HTTPS to avoid **mixed-content** browser errors.  
+Nginx proxies `/sandbox-vnc/<port>/` and `/sandbox-bridge/<port>/` to the
+corresponding host port.
+
+```bash
+sudo apt-get install -y nginx certbot python3-certbot-nginx
+
+# Write the config (replace flexagent.online with your domain)
+sudo tee /etc/nginx/sites-available/devpilot > /dev/null <<'EOF'
+server {
+    listen 80;
+    server_name flexagent.online;
+    # Certbot will add HTTPS redirect automatically
+    location / {
+        proxy_pass http://localhost:8888;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+EOF
+
+sudo ln -sf /etc/nginx/sites-available/devpilot /etc/nginx/sites-enabled/devpilot
+sudo rm -f /etc/nginx/sites-enabled/default
+sudo nginx -t && sudo systemctl restart nginx
+
+# Issue SSL certificate
+sudo certbot --nginx -d flexagent.online --non-interactive --agree-tos -m your@email.com
+
+# After Certbot, add the sandbox proxy blocks into the 443 server block
+sudo tee /etc/nginx/snippets/devpilot-sandbox-proxy.conf > /dev/null <<'EOF'
+    # ── Sandbox VNC proxy (avoids mixed-content: HTTPS → HTTP) ──────────────
+    # Proxies https://domain/sandbox-vnc/<port>/<path> → http://localhost:<port>/<path>
+    location ~ ^/sandbox-vnc/(?<sbport>6[0-9]{3})(/.*)? {
+        proxy_pass          http://localhost:$sbport$2$is_args$args;
+        proxy_http_version  1.1;
+        proxy_set_header    Upgrade $http_upgrade;
+        proxy_set_header    Connection "upgrade";
+        proxy_set_header    Host $host;
+        proxy_read_timeout  3600s;
+    }
+
+    # ── Sandbox bridge API proxy ─────────────────────────────────────────────
+    # Proxies https://domain/sandbox-bridge/<port>/<path> → http://localhost:<port>/<path>
+    location ~ ^/sandbox-bridge/(?<sbport>7[0-9]{3})(/.*)? {
+        proxy_pass          http://localhost:$sbport$2$is_args$args;
+        proxy_http_version  1.1;
+        proxy_set_header    Host $host;
+        proxy_set_header    X-Real-IP $remote_addr;
+        proxy_read_timeout  300s;
+    }
+EOF
+
+# Inject the snippet into the SSL server block Certbot created
+sudo sed -i '/server_name flexagent.online;/a \    include snippets/devpilot-sandbox-proxy.conf;' \
+    /etc/nginx/sites-enabled/devpilot
+
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+> **Variable group**: set `PUBLIC_IP` to `flexagent.online` (not the raw IP) so that
+> `HTTPS_PROXY_BASE=https://flexagent.online` is generated correctly in the `.env`.
+
 ---
 
 ## Files

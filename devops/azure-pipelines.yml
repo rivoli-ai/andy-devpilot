@@ -155,6 +155,9 @@ stages:
                     MANAGER_API_KEY=$(MANAGER_API_KEY)
                     PUBLIC_IP=$(PUBLIC_IP)
                     VPS__GatewayUrl=http://sandbox-manager:8090
+                    # HTTPS proxy base — makes sandbox manager return https:// URLs so the
+                    # browser (on HTTPS) can reach VNC/bridge without mixed-content errors.
+                    HTTPS_PROXY_BASE=https://$(PUBLIC_IP)
 
                     # ── Frontend ──────────────────────────────────────────────
                     API_URL=$(API_URL)
@@ -167,7 +170,7 @@ stages:
                     AuthProviders__GitHub__Type=BackendOAuth
                     AuthProviders__GitHub__ClientId=$(AuthProviders__GitHub__ClientId)
                     AuthProviders__GitHub__ClientSecret=$(AuthProviders__GitHub__ClientSecret)
-                    AuthProviders__GitHub__RedirectUri=http://$(PUBLIC_IP)/auth/callback/GitHub
+                    AuthProviders__GitHub__RedirectUri=https://$(PUBLIC_IP)/auth/callback/GitHub
                     AuthProviders__GitHub__Scopes=repo,read:org
 
                     # ── Azure AD OIDC ─────────────────────────────────────────

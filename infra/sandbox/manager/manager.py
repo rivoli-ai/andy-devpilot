@@ -20,9 +20,25 @@ CORS(app)
 
 SANDBOX_MANAGER_VERSION = "3.0.0"
 
-BACKEND         = os.environ.get("BACKEND", "docker").lower()  # "docker" | "k8s"
-MANAGER_API_KEY = os.environ.get("MANAGER_API_KEY", "")
-HOST_IP         = os.environ.get("HOST_IP", "localhost")
+BACKEND          = os.environ.get("BACKEND", "docker").lower()  # "docker" | "k8s"
+MANAGER_API_KEY  = os.environ.get("MANAGER_API_KEY", "")
+HOST_IP          = os.environ.get("HOST_IP", "localhost")
+# When the frontend is served over HTTPS, direct HTTP sandbox URLs cause mixed-content
+# errors in the browser.  Set HTTPS_PROXY_BASE to the public HTTPS origin
+# (e.g. https://flexagent.online) and the manager will return proxy URLs that go
+# through nginx's /sandbox-vnc/<port>/ and /sandbox-bridge/<port>/ locations.
+HTTPS_PROXY_BASE = os.environ.get("HTTPS_PROXY_BASE", "").rstrip("/")
+
+
+def _build_sandbox_urls(vnc_port: int, bridge_port: int) -> tuple[str, str]:
+    """Return (vnc_url, bridge_url) — HTTPS proxy variants when HTTPS_PROXY_BASE is set."""
+    if HTTPS_PROXY_BASE:
+        vnc_url    = f"{HTTPS_PROXY_BASE}/sandbox-vnc/{vnc_port}/vnc.html"
+        bridge_url = f"{HTTPS_PROXY_BASE}/sandbox-bridge/{bridge_port}"
+    else:
+        vnc_url    = f"http://{HOST_IP}:{vnc_port}/vnc.html"
+        bridge_url = f"http://{HOST_IP}:{bridge_port}"
+    return vnc_url, bridge_url
 
 # In-memory cache: sandbox_id -> {created_at, port, bridge_port, sandbox_token, vnc_password}
 # K8s is the source of truth for running state; this cache holds secrets + timestamps.
@@ -252,12 +268,13 @@ def _docker_create_sandbox():
                 "vnc_password": vnc_password,
             }
 
+        vnc_url, bridge_url = _build_sandbox_urls(port, bridge_port)
         return jsonify({
             "id": sandbox_id,
             "port": port,
             "bridge_port": bridge_port,
-            "url":        f"http://{HOST_IP}:{port}/vnc.html",
-            "bridge_url": f"http://{HOST_IP}:{bridge_port}",
+            "url":        vnc_url,
+            "bridge_url": bridge_url,
             "status": "starting",
             "sandbox_token": sandbox_token,
             "vnc_password":  vnc_password,
@@ -350,12 +367,13 @@ def _k8s_create_sandbox():
                 "vnc_password": vnc_password,
             }
 
+        vnc_url, bridge_url = _build_sandbox_urls(vnc_port, bridge_port)
         return jsonify({
             "id": sandbox_id,
             "port": vnc_port,
             "bridge_port": bridge_port,
-            "url":        f"http://{HOST_IP}:{vnc_port}/vnc.html",
-            "bridge_url": f"http://{HOST_IP}:{bridge_port}",
+            "url":        vnc_url,
+            "bridge_url": bridge_url,
             "status": "starting",
             "sandbox_token": sandbox_token,
             "vnc_password":  vnc_password,
