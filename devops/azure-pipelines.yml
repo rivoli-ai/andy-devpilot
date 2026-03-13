@@ -35,7 +35,9 @@ stages:
               command: build
               repository: devpilot-backend
               dockerfile: backend/Dockerfile
-              buildContext: .
+              # Use backend/ as context — mirrors docker-compose.yml (context: ./backend)
+              # so that COPY certs/ and COPY src/ resolve correctly inside the Dockerfile
+              buildContext: backend
               tags: latest
               arguments: "--no-cache"
 
