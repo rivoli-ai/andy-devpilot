@@ -123,8 +123,20 @@ export class VncService {
     
     // If URL already contains vnc.html, ensure autoconnect is set then append password
     if (url.includes('vnc.html')) {
+      const sep = () => url.includes('?') ? '&' : '?';
+
+      // When VNC is served via nginx HTTPS proxy (/sandbox-vnc/<port>/vnc.html),
+      // noVNC defaults its WebSocket path to /websockify (root), which nginx routes
+      // to the frontend. Tell noVNC to use the proxied path instead.
+      if (url.includes('/sandbox-vnc/') && !url.includes('path=')) {
+        const m = url.match(/\/sandbox-vnc\/(\d+)/);
+        if (m) {
+          url += sep() + `path=sandbox-vnc/${m[1]}/websockify`;
+        }
+      }
+
       if (!url.includes('autoconnect')) {
-        url += (url.includes('?') ? '&' : '?') + 'autoconnect=true';
+        url += sep() + 'autoconnect=true';
       }
       if (vncPassword) {
         url += `&password=${encodeURIComponent(vncPassword)}`;

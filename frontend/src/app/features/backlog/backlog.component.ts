@@ -1070,7 +1070,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
           // Open VNC viewer with implementation context for Push & Create PR
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
@@ -1333,7 +1333,7 @@ Start by exploring the codebase and then provide your implementation plan.`;
         setTimeout(() => {
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true

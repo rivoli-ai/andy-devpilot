@@ -667,7 +667,7 @@ export class CodeComponent implements OnInit, OnDestroy {
         setTimeout(() => {
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}?autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
