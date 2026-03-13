@@ -157,7 +157,17 @@ stages:
                     EOF
                   displayName: "Generate .env file"
 
-                # 3) Copy docker-compose.prod.yml and .env to server
+                # 3a) Ensure deploy directories exist on the server
+                - task: SSH@0
+                  displayName: "Create deploy directories on server"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    runOptions: commands
+                    commands: |
+                      mkdir -p $(DEPLOY_DIR)/images
+                      echo "Deploy dirs ready: $(DEPLOY_DIR) and $(DEPLOY_DIR)/images"
+
+                # 3b) Copy docker-compose.prod.yml and .env to server
                 - task: CopyFilesOverSSH@0
                   displayName: "Copy compose + env to server"
                   inputs:
