@@ -53,12 +53,13 @@ public class LlmSetting : Entity
             IsDefault = false,
         };
 
-    public void Update(string name, string? apiKey, string model, string? baseUrl)
+    public void Update(string? name, string? apiKey, string? model, string? baseUrl, string? provider = null)
     {
-        Name = name ?? Name;
+        if (name != null) Name = name;
         if (apiKey != null) ApiKey = apiKey;
-        Model = model ?? Model;
-        BaseUrl = baseUrl;
+        if (model != null) Model = model;
+        if (baseUrl != null) BaseUrl = baseUrl;
+        if (provider != null) Provider = provider;
         MarkAsUpdated();
     }
 

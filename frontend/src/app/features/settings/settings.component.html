@@ -201,79 +201,19 @@
     }
   </section>
 
-  <!-- AI providers (single section for all AI config) -->
+  <!-- AI providers -->
   <section class="card card--ai">
     <header class="card__header">
       <h2>AI providers</h2>
-      <p>Choose from shared providers configured by your admin, or add your own. Set a default; you can override per repository on the Repositories page.</p>
+      @if (isAdmin()) {
+        <p>Manage shared providers for all users. Users will select one as their default.</p>
+      } @else {
+        <p>Select a default AI provider from the list below. You can override the default per repository on the Repositories page.</p>
+      }
     </header>
 
-    @if (llmFormOpen()) {
-      <div class="llm-form-block">
-        <div class="llm-form-block__head">{{ llmFormId() ? 'Edit' : 'New' }} provider</div>
-        <div class="llm-form-block__body">
-          <div class="field">
-            <label for="llmFormName">Name</label>
-            <input id="llmFormName" type="text" placeholder="e.g. OpenAI prod" [ngModel]="llmFormName()" (ngModelChange)="llmFormName.set($event)" />
-          </div>
-          <div class="field">
-            <label>Provider</label>
-            <div class="ai-chips">
-              <button type="button" class="chip" [class.active]="llmFormProvider() === 'openai'" (click)="setLlmFormProvider('openai')">OpenAI</button>
-              <button type="button" class="chip" [class.active]="llmFormProvider() === 'anthropic'" (click)="setLlmFormProvider('anthropic')">Anthropic</button>
-              <button type="button" class="chip" [class.active]="llmFormProvider() === 'ollama'" (click)="setLlmFormProvider('ollama')">Ollama</button>
-              <button type="button" class="chip" [class.active]="llmFormProvider() === 'custom'" (click)="setLlmFormProvider('custom')">Custom</button>
-            </div>
-          </div>
-          <div class="field-row">
-            <div class="field field--grow">
-              <label for="llmFormApiKey">
-                API Key {{ llmFormId() ? '(blank = keep)' : '' }}
-                @if (llmFormProvider() === 'openai') { <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener" class="field__link">Get key</a> }
-                @if (llmFormProvider() === 'anthropic') { <a href="https://console.anthropic.com/" target="_blank" rel="noopener" class="field__link">Get key</a> }
-              </label>
-              <div class="input-secret">
-                <input id="llmFormApiKey" [type]="llmFormShowApiKey() ? 'text' : 'password'" placeholder="API key" [ngModel]="llmFormApiKey()" (ngModelChange)="llmFormApiKey.set($event)" />
-                <button type="button" class="eye-toggle" (click)="toggleLlmFormShowApiKey()">
-                  @if (llmFormShowApiKey()) {
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                  } @else {
-                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                  }
-                </button>
-              </div>
-            </div>
-            <div class="field">
-              <label for="llmFormModel">Model</label>
-              <input id="llmFormModel" type="text" placeholder="Model name" [ngModel]="llmFormModel()" (ngModelChange)="llmFormModel.set($event)" />
-            </div>
-          </div>
-          @if (llmFormProvider() === 'ollama' || llmFormProvider() === 'custom') {
-            <div class="field">
-              <label for="llmFormBaseUrl">Base URL</label>
-              <input id="llmFormBaseUrl" type="text" [placeholder]="llmFormProvider() === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'" [ngModel]="llmFormBaseUrl()" (ngModelChange)="llmFormBaseUrl.set($event)" />
-            </div>
-          }
-          <div class="btn-bar">
-            <button class="btn btn--primary btn--sm" (click)="saveLlmSetting()" [disabled]="actionLoading() === 'llm-save'">
-              @if (actionLoading() === 'llm-save') { <span class="btn-spin"></span> }
-              Save
-            </button>
-            <button class="btn btn--ghost btn--sm" (click)="cancelLlmForm()">Cancel</button>
-          </div>
-        </div>
-      </div>
-    }
-
-    <!-- ── Shared providers (visible to all users) ───────────────────── -->
+    <!-- ── Shared providers (visible to all) ─────────────────────────── -->
     @if (sharedLlmSettings().length > 0) {
-      <div class="llm-section-label">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="llm-section-icon"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-        Shared providers
-        @if (isAdmin()) {
-          <span class="llm-section-badge llm-section-badge--admin">Admin managed</span>
-        }
-      </div>
       <ul class="llm-rows">
         @for (item of sharedLlmSettings(); track item.id) {
           <li class="llm-row llm-row--shared" [class.llm-row--default]="item.isDefault">
@@ -292,10 +232,10 @@
                 </button>
               }
               @if (isAdmin()) {
-                <button type="button" class="llm-row__btn" (click)="openAdminEditLlmForm(item)" title="Edit (admin)">
+                <button type="button" class="llm-row__btn" (click)="openAdminEditLlmForm(item)" title="Edit">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 </button>
-                <button type="button" class="llm-row__btn llm-row__btn--danger" (click)="deleteAdminLlmSetting(item.id)" [disabled]="actionLoading() === 'admin-llm-delete'" title="Delete (admin)">
+                <button type="button" class="llm-row__btn llm-row__btn--danger" (click)="deleteAdminLlmSetting(item.id)" [disabled]="actionLoading() === 'admin-llm-delete'" title="Delete">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
                 </button>
               }
@@ -305,7 +245,14 @@
       </ul>
     }
 
-    <!-- ── Admin: add/edit shared provider form ───────────────────────── -->
+    <!-- No providers yet — non-admin message -->
+    @if (!isAdmin() && sharedLlmSettings().length === 0) {
+      <div class="llm-empty">
+        <p class="llm-empty__p">No AI providers have been configured yet. Contact your administrator.</p>
+      </div>
+    }
+
+    <!-- ── Admin: add/edit shared provider ───────────────────────────── -->
     @if (isAdmin()) {
       @if (adminLlmFormOpen()) {
         <div class="llm-form-block llm-form-block--admin">
@@ -355,7 +302,7 @@
             <div class="btn-bar">
               <button class="btn btn--primary btn--sm" (click)="saveAdminLlmSetting()" [disabled]="actionLoading() === 'admin-llm-save'">
                 @if (actionLoading() === 'admin-llm-save') { <span class="btn-spin"></span> }
-                Save shared provider
+                Save
               </button>
               <button class="btn btn--ghost btn--sm" (click)="cancelAdminLlmForm()">Cancel</button>
             </div>
@@ -363,66 +310,12 @@
         </div>
       } @else {
         <div class="llm-add-wrap">
-          <button type="button" class="btn btn--outline btn--sm" (click)="openAdminAddLlmForm()">
+          <button type="button" class="btn btn--primary btn--sm" (click)="openAdminAddLlmForm()">
             <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add shared provider
+            Add provider
           </button>
         </div>
       }
-    }
-
-    <!-- ── Personal providers (separator) ────────────────────────────── -->
-    @if (sharedLlmSettings().length > 0 || isAdmin()) {
-      <div class="llm-section-label llm-section-label--personal">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="llm-section-icon"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        My providers
-      </div>
-    }
-
-    @if (llmSettings().length > 0 && !llmFormOpen()) {
-      <ul class="llm-rows">
-        @for (item of llmSettings(); track item.id) {
-          <li class="llm-row" [class.llm-row--default]="item.isDefault">
-            <span class="llm-row__dot" [attr.data-provider]="item.provider"></span>
-            <div class="llm-row__main">
-              <span class="llm-row__name">{{ item.name || item.model || 'Unnamed' }}</span>
-              <span class="llm-row__detail">{{ item.provider }} · {{ item.model }}</span>
-            </div>
-            @if (item.isDefault) {
-              <span class="llm-row__default-tag">Default</span>
-            }
-            <div class="llm-row__actions">
-              @if (!item.isDefault) {
-                <button type="button" class="llm-row__btn" (click)="setDefaultLlm(item.id)" [disabled]="actionLoading() === 'llm-default'" title="Set as default">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
-                </button>
-              }
-              <button type="button" class="llm-row__btn" (click)="openEditLlmForm(item)" title="Edit">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-              </button>
-              <button type="button" class="llm-row__btn llm-row__btn--danger" (click)="deleteLlmSetting(item.id)" [disabled]="actionLoading() === 'llm-delete'" title="Delete">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
-              </button>
-            </div>
-          </li>
-        }
-      </ul>
-      <div class="llm-add-wrap">
-        <button type="button" class="btn btn--primary btn--sm" (click)="openAddLlmForm()">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add provider
-        </button>
-      </div>
-    }
-
-    @if (llmSettings().length === 0 && !llmFormOpen()) {
-      <div class="llm-empty">
-        <p class="llm-empty__p">No personal AI providers configured. Add one, or use a shared provider above as your default.</p>
-        <button type="button" class="btn btn--primary btn--sm" (click)="openAddLlmForm()">
-          <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add personal provider
-        </button>
-      </div>
     }
   </section>
 </div>

@@ -369,6 +369,7 @@ export interface CreateLlmSettingRequest {
 
 export interface UpdateLlmSettingRequest {
   name?: string;
+  provider?: string;
   apiKey?: string;
   model?: string;
   baseUrl?: string;

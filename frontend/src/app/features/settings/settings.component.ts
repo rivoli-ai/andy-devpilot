@@ -355,7 +355,9 @@ export class SettingsComponent implements OnInit {
   openAdminEditLlmForm(item: LlmSettingDto): void {
     this.adminLlmFormId.set(item.id);
     this.adminLlmFormName.set(item.name || '');
-    this.adminLlmFormProvider.set((item.provider as any) || 'openai');
+    const raw = (item.provider || '').toLowerCase();
+    const valid: Array<'openai' | 'anthropic' | 'ollama' | 'custom'> = ['openai', 'anthropic', 'ollama', 'custom'];
+    this.adminLlmFormProvider.set(valid.includes(raw as any) ? (raw as any) : 'openai');
     this.adminLlmFormModel.set(item.model || 'gpt-4o');
     this.adminLlmFormBaseUrl.set(item.baseUrl || '');
     this.adminLlmFormApiKey.set('');
@@ -389,7 +391,7 @@ export class SettingsComponent implements OnInit {
     this.error.set(null);
     try {
       if (id) {
-        await firstValueFrom(this.authService.adminUpdateSharedLlmSetting(id, { name, apiKey, model, baseUrl }));
+        await firstValueFrom(this.authService.adminUpdateSharedLlmSetting(id, { name, provider, apiKey, model, baseUrl }));
         this.successMessage.set('Shared AI provider updated');
       } else {
         await firstValueFrom(this.authService.adminCreateSharedLlmSetting({ name, provider, apiKey, model, baseUrl }));

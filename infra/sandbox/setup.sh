@@ -1796,12 +1796,12 @@ def zed_open_agent():
     import time
     try:
         window_id = None
-        for attempt in range(6):
+        for attempt in range(14):
             window_id = find_zed_window()
             if window_id:
                 break
-            if attempt < 5:
-                time.sleep(3)
+            if attempt < 13:
+                time.sleep(4)
         
         if not window_id:
             return jsonify({"error": "Zed window not found"}), 404
@@ -1919,15 +1919,19 @@ def zed_send_prompt():
     logger.info(f"Prompt: {prompt[:100]}...")
     
     try:
-        # Retry finding Zed window (Zed can take 20-30s to show window with software rendering)
+        # Retry finding Zed window (Zed can take 20-40s to show window with software rendering)
         window_id = None
-        for attempt in range(8):
+        max_retries = 14
+        retry_interval = 4
+        # Brief initial delay: Zed may need a few seconds before its window is mapped
+        time.sleep(2)
+        for attempt in range(max_retries):
             window_id = find_zed_window()
             if window_id:
                 break
-            if attempt < 7:
-                logger.info(f"Zed window not found yet, retry {attempt + 1}/8 in 3s...")
-                time.sleep(3)
+            if attempt < max_retries - 1:
+                logger.info(f"Zed window not found yet, retry {attempt + 1}/{max_retries} in {retry_interval}s...")
+                time.sleep(retry_interval)
         
         if not window_id:
             logger.error("Zed window not found after retries!")

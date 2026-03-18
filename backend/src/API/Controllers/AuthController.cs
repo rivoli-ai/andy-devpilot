@@ -746,10 +746,11 @@ public class AuthController : ControllerBase
         if (entity == null || entity.UserId != userId.Value) return NotFound();
 
         entity.Update(
-            request.Name ?? entity.Name,
+            request.Name,
             request.ApiKey,
-            request.Model ?? entity.Model,
-            request.BaseUrl);
+            request.Model,
+            request.BaseUrl,
+            request.Provider);
         if (request.IsDefault.HasValue) entity.SetDefault(request.IsDefault.Value);
         await _llmSettingRepository.UpdateAsync(entity, cancellationToken);
         return Ok(new LlmSettingDto
@@ -857,7 +858,7 @@ public class AuthController : ControllerBase
         var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
         if (entity == null || !entity.IsShared) return NotFound();
 
-        entity.Update(request.Name ?? entity.Name, request.ApiKey, request.Model ?? entity.Model, request.BaseUrl);
+        entity.Update(request.Name, request.ApiKey, request.Model, request.BaseUrl, request.Provider);
         await _llmSettingRepository.UpdateAsync(entity, cancellationToken);
         return Ok(new LlmSettingDto
         {
@@ -894,12 +895,34 @@ public class AuthController : ControllerBase
 
     /// <summary>
     /// Returns true when the given email is designated as super-admin via the ADMIN_EMAIL env var / config.
+    /// Handles Microsoft Azure AD external users whose email is stored as
+    /// "original_email_gmail.com#EXT#@tenant.onmicrosoft.com" — the original email is extracted
+    /// by replacing the last underscore before "#EXT#" with "@".
     /// </summary>
     private bool IsAdminEmail(string email)
     {
-        var adminEmail = _configuration["AdminEmail"] ?? string.Empty;
-        return !string.IsNullOrEmpty(adminEmail) &&
-               string.Equals(adminEmail.Trim(), email.Trim(), StringComparison.OrdinalIgnoreCase);
+        var adminEmail = (_configuration["AdminEmail"] ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(adminEmail)) return false;
+
+        var candidate = email.Trim();
+        if (string.Equals(adminEmail, candidate, StringComparison.OrdinalIgnoreCase))
+            return true;
+
+        // Unwrap Microsoft #EXT# external user format → recover original email
+        var extIdx = candidate.IndexOf("#EXT#", StringComparison.OrdinalIgnoreCase);
+        if (extIdx > 0)
+        {
+            var localPart = candidate[..extIdx]; // e.g. "user_gmail.com"
+            var lastUnderscore = localPart.LastIndexOf('_');
+            if (lastUnderscore > 0)
+            {
+                var recovered = localPart[..lastUnderscore] + "@" + localPart[(lastUnderscore + 1)..];
+                if (string.Equals(adminEmail, recovered, StringComparison.OrdinalIgnoreCase))
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static UserDto MapUserDto(UserEntity user) => new()
@@ -1069,6 +1092,7 @@ public class AuthController : ControllerBase
     public class UpdateLlmSettingRequest
     {
         public string? Name { get; set; }
+        public string? Provider { get; set; }
         public string? ApiKey { get; set; }
         public string? Model { get; set; }
         public string? BaseUrl { get; set; }
