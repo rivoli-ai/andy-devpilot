@@ -165,7 +165,7 @@ stages:
                     # ── Super-admin designation ────────────────────────────────────────
                     # Users logging in with this email receive the "admin" JWT role claim
                     # and can manage shared AI providers for all users.
-                    AdminEmail=$(ADMIN_EMAIL)
+                    ADMIN_EMAIL=$(ADMIN_EMAIL)
 
                     # ── Frontend ──────────────────────────────────────────────
                     API_URL=$(API_URL)
