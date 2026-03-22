@@ -144,7 +144,7 @@ function Test-KubectlClusterReachable {
 
 function Stop-K8s {
     if (-not (Test-KubectlClusterReachable)) {
-        Write-Info "Skipping Kubernetes cleanup — kubectl cannot reach a cluster. If you use Docker Desktop, start it and enable Kubernetes (Settings → Kubernetes). Otherwise check your kubeconfig. Docker Compose will continue."
+        Write-Info "Skipping Kubernetes cleanup - kubectl cannot reach a cluster. If you use Docker Desktop, start it and enable Kubernetes (Docker Desktop Settings, Kubernetes tab). Otherwise check your kubeconfig. Docker Compose will continue."
         return
     }
     # --ignore-not-found: missing namespace must not write to stderr (PowerShell surfaces it as an error)
