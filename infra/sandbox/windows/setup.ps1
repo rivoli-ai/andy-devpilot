@@ -113,6 +113,9 @@ if ($imageExists -and -not $Rebuild) {
 # - 3. Generate or load API key -
 Write-Step "Configuring API key..."
 
+# Required under Set-StrictMode: .env may exist without MANAGER_API_KEY, so $apiKey might never be assigned.
+$apiKey = $null
+
 # Priority: env var > existing .env > generate new
 if ($env:MANAGER_API_KEY) {
     $apiKey = $env:MANAGER_API_KEY
