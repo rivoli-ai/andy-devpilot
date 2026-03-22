@@ -132,6 +132,8 @@ if ($desktopExists -and -not $Rebuild) {
     $driveLetter   = $sandboxDir.Substring(0,1).ToLower()
     $dockerSandbox = "/" + $driveLetter + ($sandboxDir.Substring(2) -replace "\\", "/")
 
+    $innerScript = "${dockerSandbox}/build-desktop-docker-inner.sh"
+
     $proc = Start-Process -FilePath "docker" -ArgumentList @(
         "run", "--rm",
         "-v", "//./pipe/docker_engine://./pipe/docker_engine",
@@ -141,16 +143,7 @@ if ($desktopExists -and -not $Rebuild) {
         "-e", "SCRIPT_SOURCE_DIR=${dockerSandbox}",
         "-w", $dockerSandbox,
         "ubuntu:24.04",
-        "bash", "-c",
-        @"
-set -e
-echo '[DEBUG] apt-get update...' | tee build.log
-apt-get update 2>&1 | tee -a build.log
-echo '[DEBUG] apt-get install docker.io curl wget git...' | tee -a build.log
-apt-get install -y docker.io curl wget git 2>&1 | tee -a build.log
-echo '[DEBUG] running setup.sh...' | tee -a build.log
-bash setup.sh 2>&1 | tee -a build.log
-"@
+        "bash", $innerScript
     ) -NoNewWindow -PassThru -Wait
 
     if ($proc.ExitCode -ne 0) { Write-Fail "Desktop image build failed." }

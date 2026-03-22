@@ -89,16 +89,24 @@ if ($desktopExists -and -not $Rebuild) {
     $driveLetter = $sandboxDir.Substring(0,1).ToLower()
     $dockerPath  = "/" + $driveLetter + ($sandboxDir.Substring(2) -replace "\\", "/")
 
-    $proc = Start-Process -FilePath "docker" -ArgumentList @(
+    # Run build-desktop-docker-inner.sh (not bash -c multi-line — Start-Process can break that on Windows).
+    $innerScript = "${dockerPath}/build-desktop-docker-inner.sh"
+
+    $buildArgs = @(
         "run", "--rm",
         "-v", "//./pipe/docker_engine://./pipe/docker_engine",
-        "-v", "${sandboxDir}:${dockerPath}:ro",
+        "-v", "${sandboxDir}:${dockerPath}:rw",
         "-e", "BUILD_ONLY=1",
+        "-e", "SCRIPT_SOURCE_DIR=${dockerPath}",
+        "-w", $dockerPath,
         "ubuntu:24.04",
-        "bash", "-c",
-        "apt-get update -qq && apt-get install -y docker.io curl wget git -qq && bash /workspace/setup.sh"
-    ) -NoNewWindow -PassThru -Wait
-    if ($proc.ExitCode -ne 0) { Write-Fail "devpilot-desktop build failed." }
+        "bash", $innerScript
+    )
+
+    $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
+    if ($proc.ExitCode -ne 0) {
+        Write-Fail "devpilot-desktop build failed. If Docker reported EOF or pipe errors, restart Docker Desktop and retry. See infra/sandbox/build.log in the sandbox folder for details."
+    }
     Write-Info "devpilot-desktop built successfully"
 }
 

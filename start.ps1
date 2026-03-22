@@ -135,16 +135,16 @@ function Test-KubectlClusterReachable {
     if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
         return $false
     }
-    $null = & kubectl config current-context 2>&1 | Out-Null
-    if ($LASTEXITCODE -ne 0) {
-        return $false
-    }
-    $null = & kubectl cluster-info --request-timeout=5s 2>&1 | Out-Null
+    # Use cmd so kubectl stderr does not become a PowerShell NativeCommandError (Stop mode).
+    cmd /c "kubectl config current-context >nul 2>&1"
+    if ($LASTEXITCODE -ne 0) { return $false }
+    cmd /c "kubectl cluster-info --request-timeout=5s >nul 2>&1"
     return ($LASTEXITCODE -eq 0)
 }
 
 function Stop-K8s {
     if (-not (Test-KubectlClusterReachable)) {
+        Write-Info "Skipping Kubernetes cleanup — kubectl cannot reach a cluster. If you use Docker Desktop, start it and enable Kubernetes (Settings → Kubernetes). Otherwise check your kubeconfig. Docker Compose will continue."
         return
     }
     # --ignore-not-found: missing namespace must not write to stderr (PowerShell surfaces it as an error)
