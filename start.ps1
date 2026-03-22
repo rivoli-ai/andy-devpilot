@@ -147,7 +147,8 @@ function Stop-K8s {
     if (-not (Test-KubectlClusterReachable)) {
         return
     }
-    $ns = kubectl get namespace sandboxes 2>$null
+    # --ignore-not-found: missing namespace must not write to stderr (PowerShell surfaces it as an error)
+    $ns = (& kubectl get namespace sandboxes --ignore-not-found -o name 2>&1 | Out-String).Trim()
     if ($ns) {
         Write-Warn "K8s sandbox namespace found -- removing it before switching to Docker..."
         kubectl delete namespace sandboxes --ignore-not-found

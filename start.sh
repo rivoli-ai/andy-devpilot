@@ -129,7 +129,7 @@ stop_k8s() {
     command -v kubectl &>/dev/null || return 0
     kubectl config current-context &>/dev/null || return 0
     kubectl cluster-info --request-timeout=5s &>/dev/null || return 0
-    if kubectl get namespace sandboxes &>/dev/null 2>&1; then
+    if [ -n "$(kubectl get namespace sandboxes --ignore-not-found -o name 2>/dev/null)" ]; then
         warn "K8s sandbox namespace found — removing it before switching to Docker..."
         kubectl delete namespace sandboxes --ignore-not-found
         info "K8s sandboxes namespace removed."
