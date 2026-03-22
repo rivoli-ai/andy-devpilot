@@ -198,10 +198,12 @@ kubectl create secret generic manager-secrets `
     -n sandboxes `
     --dry-run=client -o yaml | kubectl apply -f -
 
-# Patch manager-deployment.yaml: swap GHCR image for local, set imagePullPolicy: Never
+# Patch manager-deployment.yaml: swap GHCR image for local, use IfNotPresent.
+# Docker Desktop with containerd stores images in a namespace invisible to K8s with Never;
+# IfNotPresent finds locally built images and does not pull from a registry for non-:latest tags.
 $deployYaml = Get-Content "$manifestsDir\manager-deployment.yaml" -Raw
 $deployYaml = $deployYaml -replace "ghcr\.io/YOUR_ORG/devpilot-manager:latest", "devpilot-manager:local"
-$deployYaml = $deployYaml -replace "imagePullPolicy: Always", "imagePullPolicy: Never"
+$deployYaml = $deployYaml -replace "imagePullPolicy: Always", "imagePullPolicy: IfNotPresent"
 $deployYaml | kubectl apply -f -
 
 Write-Info "Manifests applied"

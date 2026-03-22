@@ -52,15 +52,69 @@ if (-not (Test-Path $envFile)) {
     exit 1
 }
 
-# ── Handle -Stop / -Reset ─────────────────────────────────────────────────────
+# ── Handle -Stop / -Reset — clean BOTH modes so switching is seamless ─────────
 if ($Stop -or $Reset) {
-    $passArgs = @()
-    if ($Stop)  { $passArgs += "-Stop" }
-    if ($Reset) { $passArgs += "-Reset" }
-    $target = if ($Mode -eq "k8s") { "$repoRoot\infra\sandbox\k8s\setup-local.ps1" } `
-                                   else { "$repoRoot\infra\local\setup.ps1" }
-    & $target @passArgs
-    exit $LASTEXITCODE
+    Write-Host ""
+    Write-Host "==========================================" -ForegroundColor Yellow
+    Write-Host "  DevPilot - Cleaning up all services     " -ForegroundColor Yellow
+    Write-Host "==========================================" -ForegroundColor Yellow
+    Write-Host ""
+
+    # 1. Stop Docker Compose (all services)
+    $composeFile = Join-Path $repoRoot "docker-compose.yml"
+    $composeRunning = docker compose -f $composeFile ps -q 2>$null
+    if ($composeRunning) {
+        Write-Warn "Stopping Docker Compose stack..."
+        if ($Reset) {
+            docker compose -f $composeFile down -v
+            Write-Info "Docker Compose stopped and volumes removed."
+        } else {
+            docker compose -f $composeFile down
+            Write-Info "Docker Compose stopped."
+        }
+    } else {
+        Write-Info "Docker Compose is not running."
+    }
+
+    # 2. Stop K8s sandboxes namespace (if cluster is reachable)
+    if (Get-Command kubectl -ErrorAction SilentlyContinue) {
+        cmd /c "kubectl cluster-info --request-timeout=5s >nul 2>&1"
+        if ($LASTEXITCODE -eq 0) {
+            $ns = (cmd /c "kubectl get namespace sandboxes --ignore-not-found -o name 2>&1")
+            if ($ns -and $ns -match "namespace") {
+                Write-Warn "Removing K8s sandboxes namespace..."
+                kubectl delete namespace sandboxes --ignore-not-found
+                Write-Info "K8s sandboxes namespace removed."
+            } else {
+                Write-Info "No K8s sandboxes namespace found."
+            }
+        } else {
+            Write-Info "K8s cluster not reachable - skipping."
+        }
+    }
+
+    # 3. Remove sandbox containers (leftover from either mode)
+    $sandboxContainers = docker ps -aq --filter "name=sandbox-" 2>$null
+    if ($sandboxContainers) {
+        Write-Warn "Removing leftover sandbox containers..."
+        docker rm -f $sandboxContainers 2>$null
+        Write-Info "Sandbox containers removed."
+    }
+
+    # 4. On -Reset, also remove built images and prune volumes
+    if ($Reset) {
+        Write-Warn "Removing DevPilot images..."
+        docker rmi devpilot-desktop:latest 2>$null
+        docker rmi devpilot-manager:local 2>$null
+        docker image prune -f 2>$null
+        docker volume prune -f 2>$null
+        Write-Info "Images and unused volumes removed."
+    }
+
+    Write-Host ""
+    Write-Info "Cleanup complete. Run .\start.ps1 to start fresh."
+    Write-Host ""
+    exit 0
 }
 
 # ── Banner ────────────────────────────────────────────────────────────────────
