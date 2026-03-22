@@ -131,7 +131,22 @@ function Stop-FullDockerCompose {
     }
 }
 
+function Test-KubectlClusterReachable {
+    if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
+        return $false
+    }
+    $null = & kubectl config current-context 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        return $false
+    }
+    $null = & kubectl cluster-info --request-timeout=5s 2>&1 | Out-Null
+    return ($LASTEXITCODE -eq 0)
+}
+
 function Stop-K8s {
+    if (-not (Test-KubectlClusterReachable)) {
+        return
+    }
     $ns = kubectl get namespace sandboxes 2>$null
     if ($ns) {
         Write-Warn "K8s sandbox namespace found -- removing it before switching to Docker..."
