@@ -178,7 +178,7 @@ fi
 
 if [ "$ALREADY_HEALTHY" = false ]; then
     kubectl rollout restart deployment/sandbox-manager -n sandboxes 2>/dev/null || true
-    kubectl rollout status deployment/sandbox-manager -n sandboxes --timeout=120s
+    kubectl rollout status deployment/sandbox-manager -n sandboxes --timeout=300s
 fi
 
 info "Manager is ready"

@@ -7,6 +7,10 @@ metadata:
     app: sandbox-manager
 spec:
   replicas: 1
+  # Single replica: avoid long "old replica pending termination" during RollingUpdate
+  # (Flask/Werkzeug can be slow to exit on SIGTERM). Recreate = stop old, then start new.
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: sandbox-manager
@@ -15,6 +19,7 @@ spec:
       labels:
         app: sandbox-manager
     spec:
+      terminationGracePeriodSeconds: 15
       serviceAccountName: sandbox-manager
       containers:
       - name: manager

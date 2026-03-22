@@ -210,7 +210,7 @@ Write-Info "Manifests applied"
 Write-Step "Waiting for sandbox-manager pod to be ready..."
 
 kubectl rollout restart deployment/sandbox-manager -n sandboxes 2>$null
-kubectl rollout status deployment/sandbox-manager -n sandboxes --timeout=120s
+kubectl rollout status deployment/sandbox-manager -n sandboxes --timeout=300s
 
 Write-Info "Manager is ready"
 
