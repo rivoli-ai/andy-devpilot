@@ -136,7 +136,7 @@ if ($desktopExists -and -not $Rebuild) {
 
     $proc = Start-Process -FilePath "docker" -ArgumentList @(
         "run", "--rm",
-        "-v", "//./pipe/docker_engine://./pipe/docker_engine",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
         # Mount sandbox dir read-write so the build container can write logs (build.log)
         "-v", "${sandboxDir}:${dockerSandbox}:rw",
         "-e", "BUILD_ONLY=1",

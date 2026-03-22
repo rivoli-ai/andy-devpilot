@@ -110,13 +110,14 @@ Register-ScheduledTask -TaskName "DevPilot Sandbox Manager" -Action $action -Tri
 ### Desktop image build fails
 
 ```powershell
-# Check what went wrong — run with verbose output
+# Check what went wrong — run with verbose output (use host Docker socket, not the Win named pipe)
 docker run --rm `
-  -v "//./pipe/docker_engine://./pipe/docker_engine" `
+  -v "/var/run/docker.sock:/var/run/docker.sock" `
   -v "${PWD}\infra\sandbox:/workspace" `
+  -w /workspace `
   -e BUILD_ONLY=1 `
   ubuntu:24.04 `
-  bash -c "apt-get install -y docker.io curl wget git -qq && bash /workspace/setup.sh"
+  bash -c "apt-get update && apt-get install -y docker.io curl wget git && bash setup.sh"
 ```
 
 ### Named pipe error on older Docker Desktop

@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Run *inside* ubuntu:24.04 on Windows Docker Desktop (host pipe → host daemon).
-# Called by infra/sandbox/windows/setup.ps1, infra/local/setup.ps1, k8s/setup-local.ps1.
-# Do not run this directly on the host OS — use those scripts.
+# Run *inside* ubuntu:24.04 with the host Docker socket mounted at /var/run/docker.sock
+# (Docker Desktop Linux containers). Called by Windows setup.ps1, infra/local/setup.ps1, k8s/setup-local.ps1.
 set -euo pipefail
+
+export DOCKER_BUILDKIT=1
 
 echo '[DEBUG] apt-get update...' | tee build.log
 apt-get update 2>&1 | tee -a build.log

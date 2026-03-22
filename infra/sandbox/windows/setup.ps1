@@ -83,7 +83,8 @@ if ($imageExists -and -not $Rebuild) {
 
     $buildArgs = @(
         "run", "--rm",
-        "-v", "//./pipe/docker_engine://./pipe/docker_engine",
+        # Linux containers talk to the host daemon via the Unix socket (not the Win named pipe).
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
         # Mount sandbox dir read-write so the build container can write logs (build.log)
         "-v", "${sandboxDir}:${dockerSandboxDir}:rw",
         "-e", "BUILD_ONLY=1",

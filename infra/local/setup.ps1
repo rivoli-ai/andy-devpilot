@@ -94,7 +94,7 @@ if ($desktopExists -and -not $Rebuild) {
 
     $buildArgs = @(
         "run", "--rm",
-        "-v", "//./pipe/docker_engine://./pipe/docker_engine",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
         "-v", "${sandboxDir}:${dockerPath}:rw",
         "-e", "BUILD_ONLY=1",
         "-e", "SCRIPT_SOURCE_DIR=${dockerPath}",
