@@ -121,12 +121,13 @@ if ($proc.ExitCode -ne 0) { Write-Fail "docker compose up failed." }
 
 # ── 5. Wait for backend ───────────────────────────────────────────────────────
 Write-Step "Waiting for backend to be ready..."
-$retries = 30
+# Backend runs DB migrations on first start; allow several minutes.
+$retries = 60
 $ready   = $false
 while ($retries -gt 0 -and -not $ready) {
     Start-Sleep -Seconds 3
     try {
-        Invoke-RestMethod -Uri "http://localhost:8080/health" -TimeoutSec 2 | Out-Null
+        Invoke-RestMethod -Uri "http://localhost:8080/health" -TimeoutSec 10 | Out-Null
         $ready = $true
     } catch { $retries-- }
 }

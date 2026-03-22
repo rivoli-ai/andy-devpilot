@@ -64,6 +64,9 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
+// Used by infra/local/setup.ps1 and setup.sh (docker compose readiness). No auth; JSON body so Invoke-RestMethod succeeds.
+app.MapGet("/health", () => Results.Json(new { status = "ok" }));
+
 app.UseHttpsRedirection();
 
 // Configure CORS for SignalR and frontend

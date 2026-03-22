@@ -97,7 +97,7 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $BUILD_FLAG
 
 # ── 5. Wait for backend to be ready ──────────────────────────────────────────
 step "Waiting for backend to be ready..."
-RETRIES=30
+RETRIES=60
 until curl -sf http://localhost:8080/health &>/dev/null || [ $RETRIES -eq 0 ]; do
     sleep 3
     RETRIES=$((RETRIES - 1))
