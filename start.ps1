@@ -214,12 +214,41 @@ function Build-DesktopImage {
     $desktopExists = docker images -q devpilot-desktop:latest 2>$null
     if ($desktopExists -and -not $Rebuild) {
         Write-Info "devpilot-desktop already built. Skipping. (use -Rebuild to force)"
-    } else {
-        & "$repoRoot\infra\sandbox\windows\setup.ps1" @passArgs
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Sandbox image build failed. Sandboxes may not work."
-        }
+        return
     }
+
+    if ($Rebuild) { Write-Warn "Rebuilding devpilot-desktop..." }
+    else { Write-Info "Building devpilot-desktop (this takes 10-20 min first time)..." }
+
+    $sandboxDir  = Join-Path $repoRoot "infra\sandbox"
+    $driveLetter = $sandboxDir.Substring(0,1).ToLower()
+    $dockerPath  = "/" + $driveLetter + ($sandboxDir.Substring(2) -replace "\\", "/")
+
+    $innerScript = "${dockerPath}/build-desktop-docker-inner.sh"
+
+    $buildArgs = @(
+        "run", "--rm",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", "${sandboxDir}:${dockerPath}:rw",
+        "-e", "BUILD_ONLY=1",
+        "-e", "SCRIPT_SOURCE_DIR=${dockerPath}",
+        "-w", $dockerPath,
+        "ubuntu:24.04",
+        "bash", $innerScript
+    )
+
+    $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
+    if ($proc.ExitCode -ne 0) {
+        Write-Warn "Sandbox image build failed. Check infra/sandbox/build.log for details."
+        return
+    }
+
+    $imageExists = docker images -q devpilot-desktop:latest 2>$null
+    if (-not $imageExists) {
+        Write-Warn "Image 'devpilot-desktop' was not created. Something went wrong."
+        return
+    }
+    Write-Info "devpilot-desktop built successfully"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════

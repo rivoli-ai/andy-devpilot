@@ -52,40 +52,45 @@ fi
 
 # ============================================================
 # FULL CLEANUP - Remove everything and start fresh
+# Skipped in BUILD_ONLY mode (Windows) — only the image build is needed.
 # ============================================================
-log_info "Starting full cleanup..."
-
-# Stop and disable the systemd service (Linux only)
-if [ "$IS_LINUX" = true ]; then
-    log_info "Stopping DevPilot service..."
-    systemctl stop devpilot-sandbox 2>/dev/null || true
-    systemctl disable devpilot-sandbox 2>/dev/null || true
-    rm -f /etc/systemd/system/devpilot-sandbox.service 2>/dev/null || true
-    systemctl daemon-reload 2>/dev/null || true
+if [ "${BUILD_ONLY:-0}" = "1" ]; then
+    log_info "BUILD_ONLY mode — skipping cleanup of existing containers/images."
 else
-    log_info "Stopping any running manager process..."
-    pkill -f "manager.py" 2>/dev/null || true
+    log_info "Starting full cleanup..."
+
+    # Stop and disable the systemd service (Linux only)
+    if [ "$IS_LINUX" = true ]; then
+        log_info "Stopping DevPilot service..."
+        systemctl stop devpilot-sandbox 2>/dev/null || true
+        systemctl disable devpilot-sandbox 2>/dev/null || true
+        rm -f /etc/systemd/system/devpilot-sandbox.service 2>/dev/null || true
+        systemctl daemon-reload 2>/dev/null || true
+    else
+        log_info "Stopping any running manager process..."
+        pkill -f "manager.py" 2>/dev/null || true
+    fi
+
+    # Stop and remove all sandbox containers
+    log_info "Removing all sandbox containers..."
+    docker ps -q --filter "name=sandbox-" 2>/dev/null | xargs docker stop 2>/dev/null || true
+    docker ps -aq --filter "name=sandbox-" 2>/dev/null | xargs docker rm -f 2>/dev/null || true
+
+    # Remove the devpilot-desktop image
+    log_info "Removing devpilot-desktop Docker image..."
+    docker rmi devpilot-desktop 2>/dev/null || true
+
+    # Remove unused Docker volumes
+    log_info "Cleaning up Docker volumes..."
+    docker volume prune -f 2>/dev/null || true
+
+    # Remove the project directory and recreate
+    # PROJECT_DIR is already set based on OS detection
+    log_info "Removing old project directory: $PROJECT_DIR"
+    rm -rf "$PROJECT_DIR"
+
+    log_info "Cleanup complete!"
 fi
-
-# Stop and remove all sandbox containers
-log_info "Removing all sandbox containers..."
-docker ps -q --filter "name=sandbox-" 2>/dev/null | xargs docker stop 2>/dev/null || true
-docker ps -aq --filter "name=sandbox-" 2>/dev/null | xargs docker rm -f 2>/dev/null || true
-
-# Remove the devpilot-desktop image
-log_info "Removing devpilot-desktop Docker image..."
-docker rmi devpilot-desktop 2>/dev/null || true
-
-# Remove unused Docker volumes
-log_info "Cleaning up Docker volumes..."
-docker volume prune -f 2>/dev/null || true
-
-# Remove the project directory and recreate
-# PROJECT_DIR is already set based on OS detection
-log_info "Removing old project directory: $PROJECT_DIR"
-rm -rf "$PROJECT_DIR"
-
-log_info "Cleanup complete!"
 echo ""
 
 # ============================================================
@@ -1791,42 +1796,34 @@ def find_zed_window():
     return None
 
 def open_agent_panel(window_id, env, max_attempts=3):
-    """Open Zed's agent panel with retry and multiple keystroke strategies.
-    
-    The Zed shortcut is Ctrl+? which is Ctrl+Shift+/ on US keyboards.
-    Different X11 configurations interpret keysyms differently, so we try
-    multiple approaches: ctrl+shift+slash (safest), then the keysym
-    ctrl+shift+question as fallback.
+    """Open Zed's agent panel via the command palette.
+
+    Direct shortcuts (ctrl+shift+slash / ctrl+shift+question) are unreliable
+    across Zed versions and X11 keyboard configurations.  The command palette
+    (Ctrl+Shift+P -> "agent: toggle") works consistently.
     """
     import time
-    
-    keystrokes = [
-        ('ctrl+shift+slash', 'Ctrl+Shift+/ (explicit slash)'),
-        ('ctrl+shift+question', 'Ctrl+Shift+? (question keysym)'),
-    ]
-    
+
     for attempt in range(max_attempts):
-        key_combo, description = keystrokes[attempt % len(keystrokes)]
-        logger.info(f"Opening agent panel attempt {attempt + 1}/{max_attempts}: {description}")
-        
+        logger.info(f"Opening agent panel attempt {attempt + 1}/{max_attempts} via command palette")
+
         subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
+        subprocess.run(['xdotool', 'windowfocus', '--sync', window_id], env=env)
         time.sleep(0.5)
-        
-        subprocess.run(['xdotool', 'key', '--clearmodifiers', key_combo], env=env)
+
+        # Open command palette
+        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+shift+p'], env=env)
         time.sleep(1.5)
-        
-        # Verify the panel opened by checking if we can type in the input area:
-        # Move to end, select all — if the panel is open the focus is in the input box
-        subprocess.run(['xdotool', 'key', 'End'], env=env)
-        time.sleep(0.1)
-        
-        logger.info(f"Agent panel keystroke sent ({description})")
-        
-        if attempt < max_attempts - 1:
-            # Press Escape first to reset before next attempt
-            subprocess.run(['xdotool', 'key', 'Escape'], env=env)
-            time.sleep(0.3)
-    
+
+        # Type the command and execute it
+        subprocess.run(['xdotool', 'type', '--delay', '30', 'agent: toggle'], env=env)
+        time.sleep(0.5)
+        subprocess.run(['xdotool', 'key', 'Return'], env=env)
+        time.sleep(1.5)
+
+        logger.info(f"Agent panel toggle sent (attempt {attempt + 1})")
+        break
+
     return True
 
 @app.route('/zed/open-agent', methods=['POST'])
