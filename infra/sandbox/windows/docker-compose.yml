@@ -8,10 +8,9 @@ services:
     ports:
       - "8090:8090"
     volumes:
-      # Mount the Windows Docker Desktop named pipe so the manager can create sibling containers
-      - type: npipe
-        source: \\.\pipe\docker_engine
-        target: /var/run/docker.sock
+      # Docker Desktop (WSL2 backend) exposes the daemon via the Unix socket inside the Linux VM.
+      # This works for both WSL2 and Hyper-V backends.
+      - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env
     restart: unless-stopped
