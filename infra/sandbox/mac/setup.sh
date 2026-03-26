@@ -19,5 +19,18 @@ if [ "$(id -u)" -eq 0 ]; then
     [[ "$answer" =~ ^[Yy]$ ]] || exit 0
 fi
 
+if ! command -v docker &>/dev/null; then
+    echo "[ERROR] docker CLI not found. Install Docker Desktop: https://www.docker.com/products/docker-desktop"
+    exit 1
+fi
+if ! docker info &>/dev/null; then
+    echo "[ERROR] Cannot connect to the Docker daemon (e.g. unix://\$HOME/.docker/run/docker.sock)."
+    echo "        Fix:"
+    echo "          1) Open Docker Desktop and wait until the engine is running."
+    echo "          2) docker context use default"
+    echo "          3) docker info   # should succeed"
+    exit 1
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 exec bash "$SCRIPT_DIR/../setup.sh" "$@"

@@ -1790,6 +1790,45 @@ def find_zed_window():
 
     return None
 
+def open_agent_panel(window_id, env, max_attempts=3):
+    """Open Zed's agent panel with retry and multiple keystroke strategies.
+    
+    The Zed shortcut is Ctrl+? which is Ctrl+Shift+/ on US keyboards.
+    Different X11 configurations interpret keysyms differently, so we try
+    multiple approaches: ctrl+shift+slash (safest), then the keysym
+    ctrl+shift+question as fallback.
+    """
+    import time
+    
+    keystrokes = [
+        ('ctrl+shift+slash', 'Ctrl+Shift+/ (explicit slash)'),
+        ('ctrl+shift+question', 'Ctrl+Shift+? (question keysym)'),
+    ]
+    
+    for attempt in range(max_attempts):
+        key_combo, description = keystrokes[attempt % len(keystrokes)]
+        logger.info(f"Opening agent panel attempt {attempt + 1}/{max_attempts}: {description}")
+        
+        subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
+        time.sleep(0.5)
+        
+        subprocess.run(['xdotool', 'key', '--clearmodifiers', key_combo], env=env)
+        time.sleep(1.5)
+        
+        # Verify the panel opened by checking if we can type in the input area:
+        # Move to end, select all — if the panel is open the focus is in the input box
+        subprocess.run(['xdotool', 'key', 'End'], env=env)
+        time.sleep(0.1)
+        
+        logger.info(f"Agent panel keystroke sent ({description})")
+        
+        if attempt < max_attempts - 1:
+            # Press Escape first to reset before next attempt
+            subprocess.run(['xdotool', 'key', 'Escape'], env=env)
+            time.sleep(0.3)
+    
+    return True
+
 @app.route('/zed/open-agent', methods=['POST'])
 def zed_open_agent():
     """Open Zed's agent panel using xdotool"""
@@ -1808,10 +1847,7 @@ def zed_open_agent():
         
         env = {**os.environ, 'DISPLAY': ':0'}
         
-        # Focus and send keystroke
-        subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
-        time.sleep(0.3)
-        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+shift+question'], env=env)
+        open_agent_panel(window_id, env, max_attempts=2)
         
         return jsonify({"status": "ok", "window_id": window_id})
     
@@ -1945,18 +1981,16 @@ def zed_send_prompt():
         # Step 1: Focus Zed window
         logger.info("Step 1: Focusing Zed window...")
         subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
-        time.sleep(0.3)
+        time.sleep(0.5)
         
         # Step 2: Press Escape to close any dialogs/panels and ensure clean state
         logger.info("Step 2: Pressing Escape to clear state...")
         subprocess.run(['xdotool', 'key', 'Escape'], env=env)
-        time.sleep(0.2)
+        time.sleep(0.3)
         
-        # Step 3: Open the agent panel fresh with Ctrl+Shift+?
-        # This ensures we're starting with an open panel
-        logger.info("Step 3: Opening agent panel (Ctrl+Shift+?)...")
-        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+shift+question'], env=env)
-        time.sleep(0.8)
+        # Step 3: Open the agent panel with retry + multiple keystroke strategies
+        logger.info("Step 3: Opening agent panel...")
+        open_agent_panel(window_id, env, max_attempts=2)
         
         # Step 4: Focus should now be in the agent input. 
         # Press End to go to end of any existing text, then select all and delete
@@ -1966,7 +2000,7 @@ def zed_send_prompt():
         subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+a'], env=env)
         time.sleep(0.1)
         subprocess.run(['xdotool', 'key', 'BackSpace'], env=env)
-        time.sleep(0.2)
+        time.sleep(0.3)
         
         # Step 5: Input the prompt using xsel (xclip has timeout issues)
         logger.info(f"Step 5: Inputting prompt ({len(prompt)} chars)...")
