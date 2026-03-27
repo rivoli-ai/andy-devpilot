@@ -2,7 +2,6 @@ import { Component, input, output, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BacklogService } from '../../core/services/backlog.service';
-import { AIConfigService } from '../../core/services/ai-config.service';
 
 export type AddItemType = 'epic' | 'feature' | 'story';
 
@@ -84,8 +83,7 @@ export interface EditItemData {
             <div class="form-group">
               <div class="label-row">
                 <label for="description">Description</label>
-                @if (aiConfigService.isConfigured()) {
-                  <button type="button" class="ai-suggest-btn" (click)="suggestDescription()" [disabled]="suggestingDescription || !title.trim()">
+                <button type="button" class="ai-suggest-btn" (click)="suggestDescription()" [disabled]="suggestingDescription || !title.trim()">
                     @if (suggestingDescription) {
                       <span class="ai-spinner"></span>
                       <span>Generating...</span>
@@ -97,7 +95,6 @@ export interface EditItemData {
                       <span>Suggest with AI</span>
                     }
                   </button>
-                }
               </div>
               <textarea id="description" [(ngModel)]="description" name="description" rows="6" [placeholder]="itemType() === 'story' ? 'Describe the user need and context...' : 'Provide context and scope...'" [class.ai-updated]="descriptionAiUpdated"></textarea>
               @if (aiError) {
@@ -111,8 +108,7 @@ export interface EditItemData {
               <div class="form-section form-section-main">
                 <div class="label-row">
                   <h4 class="section-title" style="margin-bottom:0">Acceptance Criteria</h4>
-                  @if (aiConfigService.isConfigured()) {
-                    <button type="button" class="ai-suggest-btn" (click)="suggestAcceptanceCriteria()" [disabled]="suggestingAcceptanceCriteria || !title.trim()">
+                  <button type="button" class="ai-suggest-btn" (click)="suggestAcceptanceCriteria()" [disabled]="suggestingAcceptanceCriteria || !title.trim()">
                       @if (suggestingAcceptanceCriteria) {
                         <span class="ai-spinner"></span>
                         <span>Generating...</span>
@@ -124,7 +120,6 @@ export interface EditItemData {
                         <span>Suggest with AI</span>
                       }
                     </button>
-                  }
                 </div>
                 <p class="field-hint">Define what must be true for this story to be considered done. Given/When/Then format.</p>
                 @if (editingAC || !acceptanceCriteria.trim()) {
@@ -747,7 +742,6 @@ export interface EditItemData {
 })
 export class AddBacklogItemModalComponent implements OnInit {
   private backlogService = inject(BacklogService);
-  aiConfigService = inject(AIConfigService);
 
   itemType = input.required<AddItemType>();
   /** Pre-selected parent ID (epicId for feature, featureId for story). When set, no parent picker shown. */
