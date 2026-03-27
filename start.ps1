@@ -94,25 +94,21 @@ if ($Stop -or $Reset) {
     }
 
     # 3. Remove sandbox containers (leftover from either mode)
-    $sandboxContainers = docker ps -aq --filter "name=sandbox-" 2>$null
-    if ($sandboxContainers) {
-        Write-Warn "Removing leftover sandbox containers..."
-        docker rm -f $sandboxContainers 2>$null
-        Write-Info "Sandbox containers removed."
-    }
+    cmd /c "docker rm -f $(docker ps -aq --filter name=sandbox- 2>nul) 2>nul" | Out-Null
+    Write-Info "Sandbox containers cleaned."
 
     # 4. On -Reset, also remove built images and prune volumes
     if ($Reset) {
         Write-Warn "Removing DevPilot images..."
-        docker rmi devpilot-desktop:latest 2>$null | Out-Null
-        docker rmi devpilot-sandbox-manager:latest 2>$null | Out-Null
-        docker rm -f devpilot-desktop-builder 2>$null | Out-Null
+        cmd /c "docker rm -f devpilot-desktop-builder devpilot-sandbox-manager 2>nul" | Out-Null
+        cmd /c "docker rmi devpilot-desktop:latest devpilot-sandbox-manager:latest 2>nul" | Out-Null
         # Also remove compose-built images (project-prefixed)
-        docker images -q --filter "reference=*devpilot*" 2>$null | ForEach-Object {
-            docker rmi $_ 2>$null | Out-Null
+        $devpilotImages = docker images -q --filter "reference=*devpilot*" 2>$null
+        if ($devpilotImages) {
+            cmd /c "docker rmi $devpilotImages 2>nul" | Out-Null
         }
-        docker image prune -f 2>$null | Out-Null
-        docker volume prune -f 2>$null | Out-Null
+        cmd /c "docker image prune -f 2>nul" | Out-Null
+        cmd /c "docker volume prune -f 2>nul" | Out-Null
         Write-Info "Images and unused volumes removed."
     }
 
@@ -238,8 +234,8 @@ if ($Mode -eq "docker") {
     $standaloneManager = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
     if ($standaloneManager) {
         Write-Warn "Stopping standalone sandbox-manager (will use docker-compose one instead)..."
-        docker stop devpilot-sandbox-manager 2>$null | Out-Null
-        docker rm -f devpilot-sandbox-manager 2>$null | Out-Null
+        cmd /c "docker stop devpilot-sandbox-manager 2>nul" | Out-Null
+        cmd /c "docker rm -f devpilot-sandbox-manager 2>nul" | Out-Null
         Write-Info "Standalone sandbox-manager stopped."
     }
 

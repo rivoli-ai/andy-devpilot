@@ -60,29 +60,21 @@ if ($Rebuild) {
     Write-Step "Cleaning up everything before rebuild..."
 
     # Stop and remove ALL sandbox containers (sandbox-*)
-    $sandboxContainers = docker ps -aq --filter "name=sandbox-" 2>$null
-    if ($sandboxContainers) {
-        Write-Warn "Removing sandbox containers..."
-        docker rm -f $sandboxContainers 2>$null | Out-Null
-    }
+    cmd /c "docker rm -f $(docker ps -aq --filter name=sandbox- 2>nul) 2>nul" | Out-Null
 
-    # Stop and remove the standalone manager
-    docker rm -f devpilot-sandbox-manager 2>$null | Out-Null
-
-    # Stop and remove the build container (leftover)
-    docker rm -f devpilot-desktop-builder 2>$null | Out-Null
+    # Stop and remove the standalone manager + build container
+    cmd /c "docker rm -f devpilot-sandbox-manager devpilot-desktop-builder 2>nul" | Out-Null
 
     # Remove the standalone manager compose stack
     Push-Location $windowsDir
     cmd /c "docker compose down --remove-orphans -v 2>nul" | Out-Null
     Pop-Location
 
-    # Remove images
-    docker rmi devpilot-desktop:latest 2>$null | Out-Null
-    docker rmi devpilot-sandbox-manager:latest 2>$null | Out-Null
+    # Remove images (ignore errors if they don't exist)
+    cmd /c "docker rmi devpilot-desktop:latest devpilot-sandbox-manager:latest 2>nul" | Out-Null
 
     # Prune dangling images
-    docker image prune -f 2>$null | Out-Null
+    cmd /c "docker image prune -f 2>nul" | Out-Null
 
     Write-Ok "Cleanup complete - starting fresh."
 }
@@ -104,7 +96,7 @@ if ($imageExists -and -not $Rebuild) {
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
     $buildContainer = "devpilot-desktop-builder"
 
-    docker rm -f $buildContainer 2>$null | Out-Null
+    cmd /c "docker rm -f $buildContainer 2>nul" | Out-Null
 
     docker run --name $buildContainer `
         -v /var/run/docker.sock:/var/run/docker.sock `
@@ -118,7 +110,7 @@ if ($imageExists -and -not $Rebuild) {
     $buildExit = $LASTEXITCODE
 
     # Always remove the build container
-    docker rm -f $buildContainer 2>$null | Out-Null
+    cmd /c "docker rm -f $buildContainer 2>nul" | Out-Null
 
     if ($buildExit -ne 0) {
         Write-Fail "Desktop image build failed (exit code $buildExit)."
