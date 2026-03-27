@@ -145,22 +145,24 @@ HOST_IP=$HostIP
 Write-Ok "Wrote .env (HOST_IP=$HostIP)"
 
 # - 4. Build manager image and start with docker-compose -
-Write-Step "Starting sandbox manager container..."
+$managerRunning = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
 
-Push-Location $windowsDir
-try {
-    # Stop any existing manager
-    docker compose down --remove-orphans 2>$null | Out-Null
-
-    # Build manager image and start
-    $composeArgs = @("compose", "up", "-d", "--build")
-    $proc = Start-Process -FilePath "docker" -ArgumentList $composeArgs -NoNewWindow -PassThru -Wait
-    if ($proc.ExitCode -ne 0) {
-        Write-Fail "Failed to start sandbox manager."
-        exit 1
+if ($managerRunning -and -not $Rebuild) {
+    Write-Step "Sandbox manager already running. Skipping (use -Rebuild to recreate)."
+} else {
+    Write-Step "Starting sandbox manager container..."
+    Push-Location $windowsDir
+    try {
+        docker compose down --remove-orphans 2>$null | Out-Null
+        $composeArgs = @("compose", "up", "-d", "--build")
+        $proc = Start-Process -FilePath "docker" -ArgumentList $composeArgs -NoNewWindow -PassThru -Wait
+        if ($proc.ExitCode -ne 0) {
+            Write-Fail "Failed to start sandbox manager."
+            exit 1
+        }
+    } finally {
+        Pop-Location
     }
-} finally {
-    Pop-Location
 }
 
 # - 5. Health check -
