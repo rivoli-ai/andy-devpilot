@@ -66,6 +66,8 @@ services:
     build:
       context: ./infra/sandbox/manager
       dockerfile: Dockerfile
+      additional_contexts:
+        certs: ./certs
     environment:
       MANAGER_API_KEY: ${MANAGER_API_KEY}
       HOST_IP:         ${PUBLIC_IP:-localhost}
