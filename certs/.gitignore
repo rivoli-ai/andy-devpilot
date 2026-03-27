@@ -1,0 +1,8 @@
+# Enterprise certificates — drop .crt/.pem/.cer files here.
+# They are gitignored so secrets stay local; only README and .gitkeep are tracked.
+*.crt
+*.pem
+*.cer
+!README.md
+!.gitkeep
+!.gitignore

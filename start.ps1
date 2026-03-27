@@ -33,7 +33,7 @@ param(
 )
 
 Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Continue"
 
 function Write-Step { param($msg) Write-Host "`n==> $msg" -ForegroundColor Cyan }
 function Write-Info { param($msg) Write-Host "  [INFO]  $msg" -ForegroundColor Green }
@@ -166,69 +166,114 @@ elseif ($Mode -eq "k8s") { Set-GatewayUrl "http://host.docker.internal:30090" }
 $passArgs = @()
 if ($Rebuild) { $passArgs += "-Rebuild" }
 
-# ── Helper: stop conflicting mode before starting ────────────────────────────
-function Stop-ComposeSandboxManager {
-    $running = docker compose -f "$repoRoot\docker-compose.yml" ps -q sandbox-manager 2>$null
-    if ($running) {
-        Write-Warn "Stopping docker-compose sandbox-manager (will run in K8s instead)..."
-        docker compose -f "$repoRoot\docker-compose.yml" stop sandbox-manager
-        docker compose -f "$repoRoot\docker-compose.yml" rm -f sandbox-manager
-        Write-Info "docker-compose sandbox-manager stopped."
-    }
-}
-
-function Stop-FullDockerCompose {
-    $running = docker compose -f "$repoRoot\docker-compose.yml" ps -q 2>$null
-    if ($running) {
-        Write-Warn "Docker Compose stack is running -- stopping it..."
-        docker compose -f "$repoRoot\docker-compose.yml" down
-        Write-Info "Docker Compose stack stopped."
-    }
-}
+# ── Helpers: stop everything before starting a mode ──────────────────────────
 
 function Test-KubectlClusterReachable {
     if (-not (Get-Command kubectl -ErrorAction SilentlyContinue)) {
         return $false
     }
-    # Use cmd so kubectl stderr does not become a PowerShell NativeCommandError (Stop mode).
     cmd /c "kubectl config current-context >nul 2>&1"
     if ($LASTEXITCODE -ne 0) { return $false }
     cmd /c "kubectl cluster-info --request-timeout=5s >nul 2>&1"
     return ($LASTEXITCODE -eq 0)
 }
 
-function Stop-K8s {
-    if (-not (Test-KubectlClusterReachable)) {
-        Write-Info "Skipping Kubernetes cleanup - kubectl cannot reach a cluster. If you use Docker Desktop, start it and enable Kubernetes (Docker Desktop Settings, Kubernetes tab). Otherwise check your kubeconfig. Docker Compose will continue."
-        return
+function Stop-Everything {
+    Write-Step "Cleaning up previous deployment..."
+
+    # 1. Stop the full Docker Compose stack so containers pick up new .env values
+    $running = docker compose -f "$repoRoot\docker-compose.yml" ps -q 2>$null
+    if ($running) {
+        Write-Warn "Stopping Docker Compose stack..."
+        docker compose -f "$repoRoot\docker-compose.yml" down --remove-orphans 2>$null
+        Write-Info "Docker Compose stack stopped."
     }
-    # --ignore-not-found: missing namespace must not write to stderr (PowerShell surfaces it as an error)
-    $ns = (& kubectl get namespace sandboxes --ignore-not-found -o name 2>&1 | Out-String).Trim()
-    if ($ns) {
-        Write-Warn "K8s sandbox namespace found -- removing it before switching to Docker..."
-        kubectl delete namespace sandboxes --ignore-not-found
-        Write-Info "K8s sandboxes namespace removed."
+
+    # 2. Stop the windows sandbox-manager compose (if leftover from standalone setup)
+    $winCompose = Join-Path $repoRoot "infra\sandbox\windows\docker-compose.yml"
+    if (Test-Path $winCompose) {
+        $winRunning = docker compose -f $winCompose ps -q 2>$null
+        if ($winRunning) {
+            Write-Warn "Stopping standalone sandbox-manager..."
+            docker compose -f $winCompose down --remove-orphans 2>$null
+            Write-Info "Standalone sandbox-manager stopped."
+        }
     }
+
+    # 3. Remove leftover sandbox containers
+    $sandboxContainers = docker ps -aq --filter "name=sandbox-" 2>$null
+    if ($sandboxContainers) {
+        Write-Warn "Removing leftover sandbox containers..."
+        docker rm -f $sandboxContainers 2>$null
+        Write-Info "Sandbox containers removed."
+    }
+
+    # 4. Clean up K8s sandboxes namespace
+    if (Test-KubectlClusterReachable) {
+        $ns = (& kubectl get namespace sandboxes --ignore-not-found -o name 2>&1 | Out-String).Trim()
+        if ($ns) {
+            Write-Warn "Removing K8s sandboxes namespace..."
+            kubectl delete namespace sandboxes --ignore-not-found 2>$null
+            Write-Info "K8s sandboxes namespace removed."
+        }
+    }
+
+    Write-Info "Cleanup complete."
 }
 
 function Build-DesktopImage {
     $desktopExists = docker images -q devpilot-desktop:latest 2>$null
     if ($desktopExists -and -not $Rebuild) {
         Write-Info "devpilot-desktop already built. Skipping. (use -Rebuild to force)"
-    } else {
-        & "$repoRoot\infra\sandbox\windows\setup.ps1" @passArgs
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warn "Sandbox image build failed. Sandboxes may not work."
-        }
+        return
     }
+
+    if ($Rebuild) { Write-Warn "Rebuilding devpilot-desktop..." }
+    else { Write-Info "Building devpilot-desktop (this takes 10-20 min first time)..." }
+
+    $sandboxDir  = Join-Path $repoRoot "infra\sandbox"
+    $driveLetter = $sandboxDir.Substring(0,1).ToLower()
+    $dockerPath  = "/" + $driveLetter + ($sandboxDir.Substring(2) -replace "\\", "/")
+
+    $innerScript = "${dockerPath}/build-desktop-docker-inner.sh"
+
+    $certsDir    = Join-Path $repoRoot "certs"
+    $certsDrive  = $certsDir.Substring(0,1).ToLower()
+    $certsDocker = "/" + $certsDrive + ($certsDir.Substring(2) -replace "\\", "/")
+
+    $buildArgs = @(
+        "run", "--rm",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", "${sandboxDir}:${dockerPath}:rw",
+        "-v", "${certsDir}:${certsDocker}:ro",
+        "-e", "BUILD_ONLY=1",
+        "-e", "SCRIPT_SOURCE_DIR=${dockerPath}",
+        "-e", "CERTS_DIR=${certsDocker}",
+        "-w", $dockerPath,
+        "ubuntu:24.04",
+        "bash", $innerScript
+    )
+
+    $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
+    if ($proc.ExitCode -ne 0) {
+        Write-Warn "Sandbox image build failed. Check infra/sandbox/build.log for details."
+        return
+    }
+
+    $imageExists = docker images -q devpilot-desktop:latest 2>$null
+    if (-not $imageExists) {
+        Write-Warn "Image 'devpilot-desktop' was not created. Something went wrong."
+        return
+    }
+    Write-Info "devpilot-desktop built successfully"
 }
 
 # ══════════════════════════════════════════════════════════════════════════════
 # DOCKER COMPOSE MODE — all 4 services in docker-compose
 # ══════════════════════════════════════════════════════════════════════════════
-if ($Mode -eq "docker") {
+Stop-Everything
 
-    Stop-K8s
+if ($Mode -eq "docker") {
 
     # Stop standalone Windows sandbox-manager if running (avoids port 8090 conflict)
     $standaloneManager = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
@@ -254,9 +299,6 @@ if ($Mode -eq "docker") {
 #     Bridge per sandbox: localhost:30101+
 # ══════════════════════════════════════════════════════════════════════════════
 } elseif ($Mode -eq "k8s") {
-
-    # Stop only the sandbox-manager from docker-compose — keep backend/frontend/postgres running
-    Stop-ComposeSandboxManager
 
     Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
     Build-DesktopImage
