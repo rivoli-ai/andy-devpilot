@@ -55,21 +55,45 @@ try {
     exit 1
 }
 
-# - 2. Build the devpilot-desktop image -
+# - 2. On -Rebuild, clean everything first -
+if ($Rebuild) {
+    Write-Step "Cleaning up everything before rebuild..."
+
+    # Stop and remove ALL sandbox containers (sandbox-*)
+    $sandboxContainers = docker ps -aq --filter "name=sandbox-" 2>$null
+    if ($sandboxContainers) {
+        Write-Warn "Removing sandbox containers..."
+        docker rm -f $sandboxContainers 2>$null | Out-Null
+    }
+
+    # Stop and remove the standalone manager
+    docker rm -f devpilot-sandbox-manager 2>$null | Out-Null
+
+    # Stop and remove the build container (leftover)
+    docker rm -f devpilot-desktop-builder 2>$null | Out-Null
+
+    # Remove the standalone manager compose stack
+    Push-Location $windowsDir
+    cmd /c "docker compose down --remove-orphans -v 2>nul" | Out-Null
+    Pop-Location
+
+    # Remove images
+    docker rmi devpilot-desktop:latest 2>$null | Out-Null
+    docker rmi devpilot-sandbox-manager:latest 2>$null | Out-Null
+
+    # Prune dangling images
+    docker image prune -f 2>$null | Out-Null
+
+    Write-Ok "Cleanup complete - starting fresh."
+}
+
+# - 3. Build the devpilot-desktop image -
 Write-Step "Building devpilot-desktop image (this can take 10-20 min on first run)..."
 
-# Check if image already exists (and skip if not forced)
 $imageExists = docker images -q devpilot-desktop 2>$null
 if ($imageExists -and -not $Rebuild) {
     Write-Ok "devpilot-desktop image already exists. Use -Rebuild to force a rebuild."
 } else {
-    if ($Rebuild) { Write-Warn "Forcing full rebuild (-Rebuild flag)" }
-
-    # We run setup.sh inside a Linux container that has access to the host Docker socket.
-    # BUILD_ONLY=1 makes setup.sh stop after building the image (skips systemd installation).
-    # The docker build commands inside setup.sh will execute on the HOST Docker daemon
-    # via the mounted named pipe.
-    $setupShPath = (Join-Path $sandboxDir "setup.sh") -replace "\\", "/"
     # Convert Windows path to Docker-friendly format (e.g. C:\Users\... -> /c/Users/...)
     $driveLetter = $sandboxDir.Substring(0,1).ToLower()
     $dockerSandboxDir = "/" + $driveLetter + ($sandboxDir.Substring(2) -replace "\\", "/")
@@ -80,10 +104,8 @@ if ($imageExists -and -not $Rebuild) {
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
     $buildContainer = "devpilot-desktop-builder"
 
-    # Remove leftover build container from a previous run
     docker rm -f $buildContainer 2>$null | Out-Null
 
-    # Run the build inside a temporary Linux container (named so we can clean up)
     docker run --name $buildContainer `
         -v /var/run/docker.sock:/var/run/docker.sock `
         -v "${sandboxDir}:${dockerSandboxDir}:rw" `
@@ -104,7 +126,6 @@ if ($imageExists -and -not $Rebuild) {
         exit 1
     }
 
-    # Verify image was built
     $imageExists = docker images -q devpilot-desktop 2>$null
     if (-not $imageExists) {
         Write-Fail "Image 'devpilot-desktop' was not created. Something went wrong."

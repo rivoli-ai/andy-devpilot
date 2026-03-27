@@ -104,10 +104,15 @@ if ($Stop -or $Reset) {
     # 4. On -Reset, also remove built images and prune volumes
     if ($Reset) {
         Write-Warn "Removing DevPilot images..."
-        docker rmi devpilot-desktop:latest 2>$null
-        docker rmi devpilot-manager:local 2>$null
-        docker image prune -f 2>$null
-        docker volume prune -f 2>$null
+        docker rmi devpilot-desktop:latest 2>$null | Out-Null
+        docker rmi devpilot-sandbox-manager:latest 2>$null | Out-Null
+        docker rm -f devpilot-desktop-builder 2>$null | Out-Null
+        # Also remove compose-built images (project-prefixed)
+        docker images -q --filter "reference=*devpilot*" 2>$null | ForEach-Object {
+            docker rmi $_ 2>$null | Out-Null
+        }
+        docker image prune -f 2>$null | Out-Null
+        docker volume prune -f 2>$null | Out-Null
         Write-Info "Images and unused volumes removed."
     }
 
