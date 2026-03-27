@@ -99,26 +99,26 @@ if ($imageExists -and -not $Rebuild) {
     Write-Host "  Mounted sandbox dir: $dockerSandboxDir" -ForegroundColor Gray
 
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
-    $buildContainer = "devpilot-desktop-builder"
 
-    cmd /c "docker rm -f $buildContainer 2>nul" | Out-Null
+    cmd /c "docker rm -f devpilot-desktop-builder 2>nul" | Out-Null
 
-    docker run --name $buildContainer `
-        -v /var/run/docker.sock:/var/run/docker.sock `
-        -v "${sandboxDir}:${dockerSandboxDir}:rw" `
-        -e BUILD_ONLY=1 `
-        -e "SCRIPT_SOURCE_DIR=${dockerSandboxDir}" `
-        -w $dockerSandboxDir `
-        ubuntu:24.04 `
-        bash $innerScript
+    $buildArgs = @(
+        "run", "--rm", "--name", "devpilot-desktop-builder",
+        "-v", "/var/run/docker.sock:/var/run/docker.sock",
+        "-v", "${absSandboxDir}:${dockerSandboxDir}:rw",
+        "-e", "BUILD_ONLY=1",
+        "-e", "SCRIPT_SOURCE_DIR=${dockerSandboxDir}",
+        "-w", $dockerSandboxDir,
+        "ubuntu:24.04",
+        "bash", $innerScript
+    )
 
-    $buildExit = $LASTEXITCODE
+    $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
 
-    # Always remove the build container
-    cmd /c "docker rm -f $buildContainer 2>nul" | Out-Null
+    cmd /c "docker rm -f devpilot-desktop-builder 2>nul" | Out-Null
 
-    if ($buildExit -ne 0) {
-        Write-Fail "Desktop image build failed (exit code $buildExit)."
+    if ($proc.ExitCode -ne 0) {
+        Write-Fail "Desktop image build failed (exit code $($proc.ExitCode))."
         Write-Host "  Check the output above for errors." -ForegroundColor Yellow
         exit 1
     }
