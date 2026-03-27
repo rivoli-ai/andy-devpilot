@@ -35,7 +35,7 @@ function Write-Fail  { param($msg) Write-Host "  [FAIL] $msg" -ForegroundColor R
 
 # - Paths -
 $windowsDir = $PSScriptRoot
-$sandboxDir  = Split-Path $windowsDir -Parent        # infra/sandbox
+$sandboxDir  = (Resolve-Path (Split-Path $windowsDir -Parent)).Path   # infra/sandbox (absolute)
 $envFile     = Join-Path $windowsDir ".env"
 
 Write-Host ""
@@ -87,8 +87,13 @@ if ($imageExists -and -not $Rebuild) {
     Write-Ok "devpilot-desktop image already exists. Use -Rebuild to force a rebuild."
 } else {
     # Convert Windows path to Docker-friendly format (e.g. C:\Users\... -> /c/Users/...)
-    $driveLetter = $sandboxDir.Substring(0,1).ToLower()
-    $dockerSandboxDir = "/" + $driveLetter + ($sandboxDir.Substring(2) -replace "\\", "/")
+    $absSandboxDir = (Resolve-Path $sandboxDir).Path
+    if ($absSandboxDir -match '^([A-Za-z]):(.*)') {
+        $dockerSandboxDir = "/" + $Matches[1].ToLower() + ($Matches[2] -replace "\\", "/")
+    } else {
+        Write-Fail "Cannot convert path to Docker format: $absSandboxDir"
+        exit 1
+    }
 
     Write-Host "  Running setup.sh in a Linux build container..." -ForegroundColor Gray
     Write-Host "  Mounted sandbox dir: $dockerSandboxDir" -ForegroundColor Gray
