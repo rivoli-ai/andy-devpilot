@@ -77,26 +77,29 @@ if ($imageExists -and -not $Rebuild) {
     Write-Host "  Running setup.sh in a Linux build container..." -ForegroundColor Gray
     Write-Host "  Mounted sandbox dir: $dockerSandboxDir" -ForegroundColor Gray
 
-    # Run a repo script file - do not use bash -c with a multi-line string here: Start-Process
-    # on Windows can split argv so only "set" runs (bash then dumps env; no image is built).
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
+    $buildContainer = "devpilot-desktop-builder"
 
-    $buildArgs = @(
-        "run", "--rm",
-        # Linux containers talk to the host daemon via the Unix socket (not the Win named pipe).
-        "-v", "/var/run/docker.sock:/var/run/docker.sock",
-        # Mount sandbox dir read-write so the build container can write logs (build.log)
-        "-v", "${sandboxDir}:${dockerSandboxDir}:rw",
-        "-e", "BUILD_ONLY=1",
-        "-e", "SCRIPT_SOURCE_DIR=${dockerSandboxDir}",
-        "-w", $dockerSandboxDir,
-        "ubuntu:24.04",
-        "bash", $innerScript
-    )
+    # Remove leftover build container from a previous run
+    docker rm -f $buildContainer 2>$null | Out-Null
 
-    $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
-    if ($proc.ExitCode -ne 0) {
-        Write-Fail "Desktop image build failed (exit code $($proc.ExitCode))."
+    # Run the build inside a temporary Linux container (named so we can clean up)
+    docker run --name $buildContainer `
+        -v /var/run/docker.sock:/var/run/docker.sock `
+        -v "${sandboxDir}:${dockerSandboxDir}:rw" `
+        -e BUILD_ONLY=1 `
+        -e "SCRIPT_SOURCE_DIR=${dockerSandboxDir}" `
+        -w $dockerSandboxDir `
+        ubuntu:24.04 `
+        bash $innerScript
+
+    $buildExit = $LASTEXITCODE
+
+    # Always remove the build container
+    docker rm -f $buildContainer 2>$null | Out-Null
+
+    if ($buildExit -ne 0) {
+        Write-Fail "Desktop image build failed (exit code $buildExit)."
         Write-Host "  Check the output above for errors." -ForegroundColor Yellow
         exit 1
     }
