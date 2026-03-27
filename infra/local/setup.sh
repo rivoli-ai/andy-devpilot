@@ -93,7 +93,7 @@ step "Building and starting all services..."
 BUILD_FLAG=""
 [ "$REBUILD" = true ] && BUILD_FLAG="--build"
 
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d $BUILD_FLAG
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate $BUILD_FLAG
 
 # ── 5. Wait for backend to be ready ──────────────────────────────────────────
 step "Waiting for backend to be ready..."

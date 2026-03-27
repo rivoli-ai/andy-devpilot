@@ -253,7 +253,7 @@ if ($Mode -eq "docker") {
 
     Write-Step "Step 2/2a - Starting postgres, backend, frontend (docker-compose, without sandbox-manager)..."
     docker compose -f "$repoRoot\docker-compose.yml" --env-file "$repoRoot\.env" `
-        up -d postgres devpilot-backend devpilot-frontend
+        up -d --force-recreate postgres devpilot-backend devpilot-frontend
 
     Write-Step "Step 2/2b - Setting up sandbox-manager in Kubernetes..."
     & "$repoRoot\infra\sandbox\k8s\setup-local.ps1" @passArgs

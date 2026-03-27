@@ -113,7 +113,7 @@ if ($desktopExists -and -not $Rebuild) {
 # ── 4. Build and start all services ──────────────────────────────────────────
 Write-Step "Building and starting all services..."
 
-$buildArgs = @("-f", $composeFile, "--env-file", $envFile, "up", "-d")
+$buildArgs = @("-f", $composeFile, "--env-file", $envFile, "up", "-d", "--force-recreate")
 if ($Rebuild) { $buildArgs += "--build" }
 
 $proc = Start-Process -FilePath "docker" -ArgumentList (@("compose") + $buildArgs) -NoNewWindow -PassThru -Wait

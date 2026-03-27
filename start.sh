@@ -238,7 +238,7 @@ elif [ "$MODE" = "k8s" ]; then
 
     step "Step 2/2a — Starting postgres, backend, frontend (docker-compose, without sandbox-manager)..."
     docker compose -f "$REPO_ROOT/docker-compose.yml" --env-file "$ENV_FILE" \
-        up -d postgres devpilot-backend devpilot-frontend
+        up -d --force-recreate postgres devpilot-backend devpilot-frontend
 
     step "Step 2/2b — Setting up sandbox-manager in Kubernetes..."
     bash "$REPO_ROOT/infra/sandbox/k8s/setup-local.sh" "${PASSTHROUGH_ARGS[@]}"
