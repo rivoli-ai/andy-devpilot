@@ -77,7 +77,7 @@ if ($imageExists -and -not $Rebuild) {
     Write-Host "  Running setup.sh in a Linux build container..." -ForegroundColor Gray
     Write-Host "  Mounted sandbox dir: $dockerSandboxDir" -ForegroundColor Gray
 
-    # Run a repo script file — do not use bash -c with a multi-line string here: Start-Process
+    # Run a repo script file - do not use bash -c with a multi-line string here: Start-Process
     # on Windows can split argv so only "set" runs (bash then dumps env; no image is built).
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
 
@@ -201,7 +201,7 @@ if (Test-Path $rootEnvFile) {
     Set-Content $rootEnvFile $envContent -NoNewline
     Write-Ok "VPS__GatewayUrl set to: $gatewayUrl"
 } else {
-    Write-Warn "Root .env not found at $rootEnvFile — update VPS__GatewayUrl manually."
+    Write-Warn "Root .env not found at $rootEnvFile - update VPS__GatewayUrl manually."
 }
 
 # - Summary -
