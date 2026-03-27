@@ -187,6 +187,23 @@ if ($ready) {
     Write-Warn "Manager did not respond in ${maxWait}s. Check logs: docker logs devpilot-sandbox-manager"
 }
 
+# - 6. Patch VPS__GatewayUrl in root .env so the backend points at this manager -
+$rootEnvFile = Join-Path (Split-Path $sandboxDir -Parent | Split-Path -Parent) ".env"
+if (Test-Path $rootEnvFile) {
+    Write-Step "Patching VPS__GatewayUrl in root .env..."
+    $gatewayUrl = "http://host.docker.internal:8090"
+    $envContent = Get-Content $rootEnvFile -Raw
+    if ($envContent -match "(?m)^VPS__GatewayUrl=") {
+        $envContent = $envContent -replace "(?m)^VPS__GatewayUrl=.*", "VPS__GatewayUrl=$gatewayUrl"
+    } else {
+        $envContent += "`nVPS__GatewayUrl=$gatewayUrl"
+    }
+    Set-Content $rootEnvFile $envContent -NoNewline
+    Write-Ok "VPS__GatewayUrl set to: $gatewayUrl"
+} else {
+    Write-Warn "Root .env not found at $rootEnvFile — update VPS__GatewayUrl manually."
+}
+
 # - Summary -
 Write-Host ""
 Write-Host "==============================================" -ForegroundColor Green
