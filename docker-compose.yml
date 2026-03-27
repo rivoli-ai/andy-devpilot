@@ -22,6 +22,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+      additional_contexts:
+        certs: ./certs
     depends_on:
       postgres:
         condition: service_healthy
@@ -42,6 +44,8 @@ services:
     extra_hosts:
       # Allows the backend container to reach host ports (e.g. K8s NodePorts) on Linux
       - "host.docker.internal:host-gateway"
+    volumes:
+      - ./certs:/usr/local/share/ca-certificates/custom:ro
     ports:
       - "8080:8080"
 
@@ -70,8 +74,8 @@ services:
       HOST_IP:         ${PUBLIC_IP:-localhost}
       BACKEND:         docker
     volumes:
-      # Mount Docker socket so the manager can create sandbox containers on the host
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./certs:/certs:ro
     ports:
       - "8090:8090"
       # Sandbox ports (6100-6200 noVNC, 7100-7200 Bridge API) are bound directly

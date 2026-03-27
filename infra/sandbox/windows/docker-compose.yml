@@ -11,6 +11,7 @@ services:
       # Docker Desktop (WSL2 backend) exposes the daemon via the Unix socket inside the Linux VM.
       # This works for both WSL2 and Hyper-V backends.
       - /var/run/docker.sock:/var/run/docker.sock
+      - ../../../certs:/certs:ro
     env_file:
       - .env
     restart: unless-stopped

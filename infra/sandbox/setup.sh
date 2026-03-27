@@ -118,9 +118,17 @@ log_info "Creating desktop image..."
 mkdir -p desktop
 
 # ── Custom certificates ──────────────────────────────────────────────────
-# Users place .crt/.pem files in infra/sandbox/certs only.
+# Centralized: all certs live in <repo-root>/certs/.
+# CERTS_DIR env var (set by start.ps1 on Windows) takes priority,
+# otherwise resolve two levels up from infra/sandbox/ to reach repo root.
 SCRIPT_SOURCE_DIR="${SCRIPT_SOURCE_DIR:-$PROJECT_DIR}"
-CERTS_SOURCE="${SCRIPT_SOURCE_DIR}/certs"
+if [ -n "${CERTS_DIR:-}" ]; then
+    CERTS_SOURCE="$CERTS_DIR"
+elif [ -d "${SCRIPT_SOURCE_DIR}/../../certs" ]; then
+    CERTS_SOURCE="$(cd "${SCRIPT_SOURCE_DIR}/../.." 2>/dev/null && pwd)/certs"
+else
+    CERTS_SOURCE="${SCRIPT_SOURCE_DIR}/certs"
+fi
 CERTS_BUILD="desktop/certs"
 mkdir -p "$CERTS_BUILD"
 
@@ -139,7 +147,7 @@ if [ "$CERT_COUNT" -gt 0 ]; then
 else
     log_warn "No custom certificates found in $CERTS_SOURCE"
     log_warn "If you're behind a corporate proxy (Zscaler, etc.), place your"
-    log_warn "root CA .crt files in: $CERTS_SOURCE/"
+    log_warn "root CA .crt files in: <repo-root>/certs/"
     log_warn "Then re-run this script."
     # Create an empty placeholder so COPY doesn't fail
     touch "$CERTS_BUILD/.keep"

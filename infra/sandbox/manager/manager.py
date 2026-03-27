@@ -60,10 +60,29 @@ if BACKEND == "k8s":
     print(f"[K8s] Backend ready — namespace: {k8s_utils.NAMESPACE}")
 else:
     import docker as docker_sdk
+    import socket as _socket
     docker_client = docker_sdk.from_env()
     PORT_START = 6100
     PORT_END   = 6200
     used_ports: set = set()
+
+    def _discover_host_certs_dir() -> str | None:
+        """Find the host path that is bind-mounted to /certs on this container."""
+        try:
+            hostname = _socket.gethostname()
+            info = docker_client.api.inspect_container(hostname)
+            for mount in info.get("Mounts", []):
+                if mount.get("Destination") == "/certs" and mount.get("Type") == "bind":
+                    return mount["Source"]
+        except Exception:
+            pass
+        return None
+
+    HOST_CERTS_DIR = _discover_host_certs_dir()
+    if HOST_CERTS_DIR:
+        print(f"[Docker] Host certs directory: {HOST_CERTS_DIR}")
+    else:
+        print("[Docker] No host certs mount detected — sandbox containers won't get extra CAs")
     print("[Docker] Backend ready")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -247,6 +266,10 @@ def _docker_create_sandbox():
     bridge_port = port + 1000
     environment = _build_environment(data, sandbox_id, sandbox_token, vnc_password)
 
+    volumes = {}
+    if HOST_CERTS_DIR:
+        volumes[HOST_CERTS_DIR] = {"bind": "/usr/local/share/ca-certificates/custom", "mode": "ro"}
+
     try:
         container = docker_client.containers.run(
             "devpilot-desktop",
@@ -256,6 +279,7 @@ def _docker_create_sandbox():
             ports={"6080/tcp": port, "8091/tcp": bridge_port},
             shm_size="512m",
             environment=environment,
+            volumes=volumes or None,
         )
 
         with lock:

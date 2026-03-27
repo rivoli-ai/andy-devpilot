@@ -12,6 +12,7 @@ import secrets
 import threading
 import time
 import os
+import socket as _socket
 
 app = Flask(__name__)
 CORS(app)
@@ -22,6 +23,26 @@ client = docker.from_env()
 
 # API key protecting the manager — set via MANAGER_API_KEY env var
 MANAGER_API_KEY = os.environ.get('MANAGER_API_KEY', '')
+
+
+def _discover_host_certs_dir() -> str | None:
+    """Find the host path that is bind-mounted to /certs on this container."""
+    try:
+        hostname = _socket.gethostname()
+        info = client.api.inspect_container(hostname)
+        for mount in info.get("Mounts", []):
+            if mount.get("Destination") == "/certs" and mount.get("Type") == "bind":
+                return mount["Source"]
+    except Exception:
+        pass
+    return None
+
+
+HOST_CERTS_DIR = _discover_host_certs_dir()
+if HOST_CERTS_DIR:
+    print(f"[Manager] Host certs directory: {HOST_CERTS_DIR}")
+else:
+    print("[Manager] No host certs mount detected — sandbox containers won't get extra CAs")
 
 # Track active sandboxes: {sandbox_id: {container_id, port, bridge_port, created_at, sandbox_token, vnc_password}}
 sandboxes = {}
@@ -190,6 +211,10 @@ def create_sandbox():
 
         bridge_port = port + 1000
 
+        volumes = {}
+        if HOST_CERTS_DIR:
+            volumes[HOST_CERTS_DIR] = {"bind": "/usr/local/share/ca-certificates/custom", "mode": "ro"}
+
         container = client.containers.run(
             "devpilot-desktop",
             name=f"sandbox-{sandbox_id}",
@@ -200,7 +225,8 @@ def create_sandbox():
                 '8091/tcp': bridge_port
             },
             shm_size="512m",
-            environment=environment
+            environment=environment,
+            volumes=volumes or None,
         )
 
         sandboxes[sandbox_id] = {
