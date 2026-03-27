@@ -92,12 +92,17 @@ if ($desktopExists -and -not $Rebuild) {
     # Run build-desktop-docker-inner.sh (not bash -c multi-line — Start-Process can break that on Windows).
     $innerScript = "${dockerPath}/build-desktop-docker-inner.sh"
 
+    $certsDir = Join-Path $repoRoot "certs"
+    $dockerCertsDir = "/" + $driveLetter + ((Join-Path $repoRoot "certs").Substring(2) -replace "\\", "/")
+
     $buildArgs = @(
         "run", "--rm",
         "-v", "/var/run/docker.sock:/var/run/docker.sock",
         "-v", "${sandboxDir}:${dockerPath}:rw",
+        "-v", "${certsDir}:${dockerCertsDir}:ro",
         "-e", "BUILD_ONLY=1",
         "-e", "SCRIPT_SOURCE_DIR=${dockerPath}",
+        "-e", "CERTS_DIR=${dockerCertsDir}",
         "-w", $dockerPath,
         "ubuntu:24.04",
         "bash", $innerScript

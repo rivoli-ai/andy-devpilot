@@ -134,13 +134,17 @@ if ($desktopExists -and -not $Rebuild) {
 
     $innerScript = "${dockerSandbox}/build-desktop-docker-inner.sh"
 
+    $certsDir = Join-Path $repoRoot "certs"
+    $dockerCertsDir = "/" + $driveLetter + ((Join-Path $repoRoot "certs").Substring(2) -replace "\\", "/")
+
     $proc = Start-Process -FilePath "docker" -ArgumentList @(
         "run", "--rm",
         "-v", "/var/run/docker.sock:/var/run/docker.sock",
-        # Mount sandbox dir read-write so the build container can write logs (build.log)
         "-v", "${sandboxDir}:${dockerSandbox}:rw",
+        "-v", "${certsDir}:${dockerCertsDir}:ro",
         "-e", "BUILD_ONLY=1",
         "-e", "SCRIPT_SOURCE_DIR=${dockerSandbox}",
+        "-e", "CERTS_DIR=${dockerCertsDir}",
         "-w", $dockerSandbox,
         "ubuntu:24.04",
         "bash", $innerScript

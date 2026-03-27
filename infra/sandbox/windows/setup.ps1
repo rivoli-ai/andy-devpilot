@@ -102,12 +102,24 @@ if ($imageExists -and -not $Rebuild) {
 
     cmd /c "docker rm -f devpilot-desktop-builder 2>nul" | Out-Null
 
+    # Also mount repo-root certs/ so the build container can trust corporate proxies
+    $repoRoot = Split-Path $sandboxDir -Parent
+    $absRepoRoot = (Resolve-Path $repoRoot).Path
+    if ($absRepoRoot -match '^([A-Za-z]):(.*)') {
+        $dockerRepoRoot = "/" + $Matches[1].ToLower() + ($Matches[2] -replace "\\", "/")
+    } else {
+        $dockerRepoRoot = $absRepoRoot -replace "\\", "/"
+    }
+    $dockerCertsDir = "${dockerRepoRoot}/certs"
+
     $buildArgs = @(
         "run", "--rm", "--name", "devpilot-desktop-builder",
         "-v", "/var/run/docker.sock:/var/run/docker.sock",
         "-v", "${absSandboxDir}:${dockerSandboxDir}:rw",
+        "-v", "${absRepoRoot}\certs:${dockerCertsDir}:ro",
         "-e", "BUILD_ONLY=1",
         "-e", "SCRIPT_SOURCE_DIR=${dockerSandboxDir}",
+        "-e", "CERTS_DIR=${dockerCertsDir}",
         "-w", $dockerSandboxDir,
         "ubuntu:24.04",
         "bash", $innerScript
