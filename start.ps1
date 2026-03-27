@@ -229,6 +229,15 @@ if ($Mode -eq "docker") {
 
     Stop-K8s
 
+    # Stop standalone Windows sandbox-manager if running (avoids port 8090 conflict)
+    $standaloneManager = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
+    if ($standaloneManager) {
+        Write-Warn "Stopping standalone sandbox-manager (will use docker-compose one instead)..."
+        docker stop devpilot-sandbox-manager 2>$null | Out-Null
+        docker rm -f devpilot-sandbox-manager 2>$null | Out-Null
+        Write-Info "Standalone sandbox-manager stopped."
+    }
+
     Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
     Build-DesktopImage
 

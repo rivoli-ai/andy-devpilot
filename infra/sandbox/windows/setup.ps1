@@ -144,13 +144,23 @@ HOST_IP=$HostIP
 
 Write-Ok "Wrote .env (HOST_IP=$HostIP)"
 
-# - 4. Build manager image and start with docker-compose -
+# - 4. Stop conflicting sandbox-manager from main docker-compose (if any) -
+$rootComposeFile = Join-Path (Split-Path $sandboxDir -Parent | Split-Path -Parent) "docker-compose.yml"
+$mainManager = docker ps -q --filter "name=sandbox-manager" --filter "label=com.docker.compose.service=sandbox-manager" 2>$null
+if ($mainManager) {
+    Write-Step "Stopping sandbox-manager from main docker-compose (port conflict)..."
+    docker compose -f $rootComposeFile stop sandbox-manager 2>$null | Out-Null
+    docker compose -f $rootComposeFile rm -f sandbox-manager 2>$null | Out-Null
+    Write-Ok "Main docker-compose sandbox-manager stopped."
+}
+
+# - 5. Build manager image and start with docker-compose -
 $managerRunning = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
 
 if ($managerRunning -and -not $Rebuild) {
     Write-Step "Sandbox manager already running. Skipping (use -Rebuild to recreate)."
 } else {
-    Write-Step "Starting sandbox manager container..."
+    Write-Step "Starting standalone sandbox manager container..."
     Push-Location $windowsDir
     try {
         docker compose down --remove-orphans 2>$null | Out-Null
