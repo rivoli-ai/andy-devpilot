@@ -149,8 +149,8 @@ $rootComposeFile = Join-Path (Split-Path $sandboxDir -Parent | Split-Path -Paren
 $mainManager = docker ps -q --filter "name=sandbox-manager" --filter "label=com.docker.compose.service=sandbox-manager" 2>$null
 if ($mainManager) {
     Write-Step "Stopping sandbox-manager from main docker-compose (port conflict)..."
-    docker compose -f $rootComposeFile stop sandbox-manager 2>$null | Out-Null
-    docker compose -f $rootComposeFile rm -f sandbox-manager 2>$null | Out-Null
+    cmd /c "docker compose -f `"$rootComposeFile`" stop sandbox-manager 2>nul" | Out-Null
+    cmd /c "docker compose -f `"$rootComposeFile`" rm -f sandbox-manager 2>nul" | Out-Null
     Write-Ok "Main docker-compose sandbox-manager stopped."
 }
 
@@ -163,9 +163,8 @@ if ($managerRunning -and -not $Rebuild) {
     Write-Step "Starting standalone sandbox manager container..."
     Push-Location $windowsDir
     try {
-        docker compose down --remove-orphans 2>$null | Out-Null
-        $composeArgs = @("compose", "up", "-d", "--build")
-        $proc = Start-Process -FilePath "docker" -ArgumentList $composeArgs -NoNewWindow -PassThru -Wait
+        cmd /c "docker compose down --remove-orphans 2>nul" | Out-Null
+        $proc = Start-Process -FilePath "docker" -ArgumentList @("compose", "up", "-d", "--build") -NoNewWindow -PassThru -Wait
         if ($proc.ExitCode -ne 0) {
             Write-Fail "Failed to start sandbox manager."
             exit 1
