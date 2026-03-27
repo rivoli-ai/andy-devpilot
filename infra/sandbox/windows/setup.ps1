@@ -35,7 +35,7 @@ function Write-Fail  { param($msg) Write-Host "  [FAIL] $msg" -ForegroundColor R
 
 # - Paths -
 $windowsDir = $PSScriptRoot
-$sandboxDir  = (Resolve-Path (Split-Path $windowsDir -Parent)).Path   # infra/sandbox (absolute)
+$sandboxDir  = Split-Path $windowsDir -Parent        # infra/sandbox
 $envFile     = Join-Path $windowsDir ".env"
 
 Write-Host ""
@@ -55,57 +55,38 @@ try {
     exit 1
 }
 
-# - 2. On -Rebuild, clean everything first -
-if ($Rebuild) {
-    Write-Step "Cleaning up everything before rebuild..."
-
-    # Stop and remove ALL sandbox containers (sandbox-*)
-    cmd /c "docker rm -f $(docker ps -aq --filter name=sandbox- 2>nul) 2>nul" | Out-Null
-
-    # Stop and remove the standalone manager + build container
-    cmd /c "docker rm -f devpilot-sandbox-manager devpilot-desktop-builder 2>nul" | Out-Null
-
-    # Remove the standalone manager compose stack
-    Push-Location $windowsDir
-    cmd /c "docker compose down --remove-orphans -v 2>nul" | Out-Null
-    Pop-Location
-
-    # Remove images (ignore errors if they don't exist)
-    cmd /c "docker rmi devpilot-desktop:latest devpilot-sandbox-manager:latest 2>nul" | Out-Null
-
-    # Prune dangling images
-    cmd /c "docker image prune -f 2>nul" | Out-Null
-
-    Write-Ok "Cleanup complete - starting fresh."
-}
-
-# - 3. Build the devpilot-desktop image -
+# - 2. Build the devpilot-desktop image -
 Write-Step "Building devpilot-desktop image (this can take 10-20 min on first run)..."
 
+# Check if image already exists (and skip if not forced)
 $imageExists = docker images -q devpilot-desktop 2>$null
 if ($imageExists -and -not $Rebuild) {
     Write-Ok "devpilot-desktop image already exists. Use -Rebuild to force a rebuild."
 } else {
+    if ($Rebuild) { Write-Warn "Forcing full rebuild (-Rebuild flag)" }
+
+    # We run setup.sh inside a Linux container that has access to the host Docker socket.
+    # BUILD_ONLY=1 makes setup.sh stop after building the image (skips systemd installation).
+    # The docker build commands inside setup.sh will execute on the HOST Docker daemon
+    # via the mounted named pipe.
+    $setupShPath = (Join-Path $sandboxDir "setup.sh") -replace "\\", "/"
     # Convert Windows path to Docker-friendly format (e.g. C:\Users\... -> /c/Users/...)
-    $absSandboxDir = (Resolve-Path $sandboxDir).Path
-    if ($absSandboxDir -match '^([A-Za-z]):(.*)') {
-        $dockerSandboxDir = "/" + $Matches[1].ToLower() + ($Matches[2] -replace "\\", "/")
-    } else {
-        Write-Fail "Cannot convert path to Docker format: $absSandboxDir"
-        exit 1
-    }
+    $driveLetter = $sandboxDir.Substring(0,1).ToLower()
+    $dockerSandboxDir = "/" + $driveLetter + ($sandboxDir.Substring(2) -replace "\\", "/")
 
     Write-Host "  Running setup.sh in a Linux build container..." -ForegroundColor Gray
     Write-Host "  Mounted sandbox dir: $dockerSandboxDir" -ForegroundColor Gray
 
+    # Run a repo script file - do not use bash -c with a multi-line string here: Start-Process
+    # on Windows can split argv so only "set" runs (bash then dumps env; no image is built).
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
 
-    cmd /c "docker rm -f devpilot-desktop-builder 2>nul" | Out-Null
-
     $buildArgs = @(
-        "run", "--rm", "--name", "devpilot-desktop-builder",
+        "run", "--rm",
+        # Linux containers talk to the host daemon via the Unix socket (not the Win named pipe).
         "-v", "/var/run/docker.sock:/var/run/docker.sock",
-        "-v", "${absSandboxDir}:${dockerSandboxDir}:rw",
+        # Mount sandbox dir read-write so the build container can write logs (build.log)
+        "-v", "${sandboxDir}:${dockerSandboxDir}:rw",
         "-e", "BUILD_ONLY=1",
         "-e", "SCRIPT_SOURCE_DIR=${dockerSandboxDir}",
         "-w", $dockerSandboxDir,
@@ -114,15 +95,13 @@ if ($imageExists -and -not $Rebuild) {
     )
 
     $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
-
-    cmd /c "docker rm -f devpilot-desktop-builder 2>nul" | Out-Null
-
     if ($proc.ExitCode -ne 0) {
         Write-Fail "Desktop image build failed (exit code $($proc.ExitCode))."
         Write-Host "  Check the output above for errors." -ForegroundColor Yellow
         exit 1
     }
 
+    # Verify image was built
     $imageExists = docker images -q devpilot-desktop 2>$null
     if (-not $imageExists) {
         Write-Fail "Image 'devpilot-desktop' was not created. Something went wrong."

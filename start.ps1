@@ -94,21 +94,20 @@ if ($Stop -or $Reset) {
     }
 
     # 3. Remove sandbox containers (leftover from either mode)
-    cmd /c "docker rm -f $(docker ps -aq --filter name=sandbox- 2>nul) 2>nul" | Out-Null
-    Write-Info "Sandbox containers cleaned."
+    $sandboxContainers = docker ps -aq --filter "name=sandbox-" 2>$null
+    if ($sandboxContainers) {
+        Write-Warn "Removing leftover sandbox containers..."
+        docker rm -f $sandboxContainers 2>$null
+        Write-Info "Sandbox containers removed."
+    }
 
     # 4. On -Reset, also remove built images and prune volumes
     if ($Reset) {
         Write-Warn "Removing DevPilot images..."
-        cmd /c "docker rm -f devpilot-desktop-builder devpilot-sandbox-manager 2>nul" | Out-Null
-        cmd /c "docker rmi devpilot-desktop:latest devpilot-sandbox-manager:latest 2>nul" | Out-Null
-        # Also remove compose-built images (project-prefixed)
-        $devpilotImages = docker images -q --filter "reference=*devpilot*" 2>$null
-        if ($devpilotImages) {
-            cmd /c "docker rmi $devpilotImages 2>nul" | Out-Null
-        }
-        cmd /c "docker image prune -f 2>nul" | Out-Null
-        cmd /c "docker volume prune -f 2>nul" | Out-Null
+        docker rmi devpilot-desktop:latest 2>$null
+        docker rmi devpilot-manager:local 2>$null
+        docker image prune -f 2>$null
+        docker volume prune -f 2>$null
         Write-Info "Images and unused volumes removed."
     }
 
@@ -234,8 +233,8 @@ if ($Mode -eq "docker") {
     $standaloneManager = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
     if ($standaloneManager) {
         Write-Warn "Stopping standalone sandbox-manager (will use docker-compose one instead)..."
-        cmd /c "docker stop devpilot-sandbox-manager 2>nul" | Out-Null
-        cmd /c "docker rm -f devpilot-sandbox-manager 2>nul" | Out-Null
+        docker stop devpilot-sandbox-manager 2>$null | Out-Null
+        docker rm -f devpilot-sandbox-manager 2>$null | Out-Null
         Write-Info "Standalone sandbox-manager stopped."
     }
 
