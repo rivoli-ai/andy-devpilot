@@ -288,7 +288,7 @@ RUN rm -f /etc/apt/sources.list.d/azlux.list 2>/dev/null || true && \
 
 # Install desktop environment + nginx for iframe proxy + software rendering + xdotool for automation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb x11vnc websockify nginx \
+    xvfb x11vnc novnc websockify nginx \
     xfce4 xfce4-terminal xterm screen thunar mousepad \
     xterm screen \
     sudo wget curl git ca-certificates openssl unzip \
@@ -302,14 +302,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdg-utils bzip2 xz-utils \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
-
-# Install noVNC v1.6.0 (stable release with clipboard panel)
-RUN curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz -o /tmp/novnc.tar.gz && \
-    rm -rf /usr/share/novnc && \
-    mkdir -p /usr/share/novnc && \
-    tar xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 && \
-    rm -f /tmp/novnc.tar.gz && \
-    ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
 
 # Inject automatic clipboard sync into noVNC:
 # - Host→Sandbox: intercept Ctrl+V keydown, read browser clipboard, push to VNC
