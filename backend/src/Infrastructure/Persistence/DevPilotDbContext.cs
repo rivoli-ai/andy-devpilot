@@ -24,6 +24,8 @@ public class DevPilotDbContext : DbContext
     public DbSet<FileAnalysis> FileAnalyses => Set<FileAnalysis>();
     public DbSet<RepositoryShare> RepositoryShares => Set<RepositoryShare>();
     public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
+    public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
+    public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -110,6 +112,40 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.IsDefault).HasColumnName("is_default").HasDefaultValue(false);
             // Shared providers (UserId = null) have no FK; personal ones cascade-delete with the user.
             entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<McpServerConfig>(entity =>
+        {
+            entity.ToTable("mcp_server_configs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id").IsRequired(false);
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.ServerType).HasColumnName("server_type").HasMaxLength(16).IsRequired();
+            entity.Property(e => e.Command).HasColumnName("command").HasMaxLength(512);
+            entity.Property(e => e.Args).HasColumnName("args");
+            entity.Property(e => e.EnvJson).HasColumnName("env_json");
+            entity.Property(e => e.Url).HasColumnName("url").HasMaxLength(2048);
+            entity.Property(e => e.HeadersJson).HasColumnName("headers_json");
+            entity.Property(e => e.IsEnabled).HasColumnName("is_enabled").HasDefaultValue(true);
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ArtifactFeedConfig>(entity =>
+        {
+            entity.ToTable("artifact_feed_configs");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.Organization).HasColumnName("organization").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.FeedName).HasColumnName("feed_name").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.ProjectName).HasColumnName("project_name").HasMaxLength(256);
+            entity.Property(e => e.FeedType).HasColumnName("feed_type").HasMaxLength(16).IsRequired();
+            entity.Property(e => e.IsEnabled).HasColumnName("is_enabled").HasDefaultValue(true);
         });
 
         modelBuilder.Entity<RepositoryShare>(entity =>

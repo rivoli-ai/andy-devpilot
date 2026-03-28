@@ -288,7 +288,7 @@ RUN rm -f /etc/apt/sources.list.d/azlux.list 2>/dev/null || true && \
 
 # Install desktop environment + nginx for iframe proxy + software rendering + xdotool for automation
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    xvfb x11vnc novnc websockify nginx \
+    xvfb x11vnc websockify nginx \
     xfce4 xfce4-terminal xterm screen thunar mousepad \
     xterm screen \
     sudo wget curl git ca-certificates openssl unzip \
@@ -297,11 +297,51 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxkbcommon0 libvulkan1 libasound2t64 libgbm1 \
     mesa-utils libgl1-mesa-dri libegl1 libgles2 \
     mesa-vulkan-drivers \
-    xdotool wmctrl xclip xsel \
+    xdotool wmctrl xclip xsel autocutsel \
     xdg-desktop-portal xdg-desktop-portal-gtk \
     xdg-utils bzip2 xz-utils \
     gnome-keyring libsecret-1-0 \
     && rm -rf /var/lib/apt/lists/*
+
+# Install noVNC v1.6.0 (stable release with clipboard panel)
+RUN git clone --depth 1 --branch v1.6.0 https://github.com/novnc/noVNC.git /usr/share/novnc-latest && \
+    rm -rf /usr/share/novnc && \
+    mv /usr/share/novnc-latest /usr/share/novnc && \
+    rm -rf /usr/share/novnc/.git && \
+    ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
+
+# Inject automatic clipboard sync into noVNC:
+# - Host→Sandbox: intercept Ctrl+V keydown, read browser clipboard, push to VNC
+# - Sandbox→Host: poll VNC clipboard textarea, write to browser clipboard
+RUN printf '%s\n' \
+  '(function(){' \
+  ' var last="",lastPush="";' \
+  ' function ta(){return document.getElementById("noVNC_clipboard_text")}' \
+  ' function pushToVnc(text){' \
+  '  var el=ta();if(!el||!text||text===lastPush)return;' \
+  '  lastPush=text;el.value=text;el.dispatchEvent(new Event("change"));' \
+  ' }' \
+  ' function readAndPush(){' \
+  '  if(navigator.clipboard&&navigator.clipboard.readText)' \
+  '   navigator.clipboard.readText().then(function(t){pushToVnc(t);}).catch(function(){});' \
+  ' }' \
+  ' document.addEventListener("keydown",function(e){' \
+  '  if((e.ctrlKey||e.metaKey)&&e.key==="v")readAndPush();' \
+  ' },true);' \
+  ' document.addEventListener("paste",function(e){' \
+  '  var t=(e.clipboardData||window.clipboardData).getData("text");' \
+  '  if(t)pushToVnc(t);' \
+  ' });' \
+  ' window.addEventListener("focus",function(){readAndPush();});' \
+  ' document.addEventListener("click",function(){readAndPush();});' \
+  ' setInterval(function(){' \
+  '  var el=ta();if(!el)return;' \
+  '  if(el.value!==last){last=el.value;' \
+  '   if(navigator.clipboard&&navigator.clipboard.writeText)' \
+  '    navigator.clipboard.writeText(el.value).catch(function(){});}' \
+  ' },500);' \
+  '})();' > /usr/share/novnc/clipboard-sync.js && \
+    sed -i '/<\/body>/i <script src="clipboard-sync.js"><\/script>' /usr/share/novnc/vnc.html
 
 # ── SSL certificates (build-time) ──
 # Custom certificates (Zscaler, corporate proxy, etc.) are loaded from the
@@ -482,6 +522,7 @@ RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
     echo '        add_header Access-Control-Allow-Origin "*" always;' >> /etc/nginx/sites-available/novnc && \
     echo '        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;' >> /etc/nginx/sites-available/novnc && \
     echo '        add_header Access-Control-Allow-Headers "*" always;' >> /etc/nginx/sites-available/novnc && \
+    echo '        add_header Permissions-Policy "clipboard-read=*, clipboard-write=*" always;' >> /etc/nginx/sites-available/novnc && \
     echo '    }' >> /etc/nginx/sites-available/novnc && \
     echo '}' >> /etc/nginx/sites-available/novnc && \
     ln -sf /etc/nginx/sites-available/novnc /etc/nginx/sites-enabled/novnc && \
@@ -2591,8 +2632,13 @@ DISPLAY=:0 xfce4-panel &
 sleep 1
 echo "Panel restarted with Terminal, Firefox, Zed" >> /tmp/sandbox-debug.log
 
+# Clipboard sync between PRIMARY and CLIPBOARD selections (enables copy-paste via VNC)
+autocutsel -fork -selection CLIPBOARD &
+autocutsel -fork -selection PRIMARY &
+sleep 1
+
 # Start VNC server
-x11vnc -display $DISPLAY -forever -shared -rfbport 5900 -passwd "${VNC_PASSWORD:-devpilot}" -xkb &
+x11vnc -display $DISPLAY -forever -shared -rfbport 5900 -passwd "${VNC_PASSWORD:-devpilot}" -xkb -noxdamage &
 sleep 1
 
 # Start websockify on internal port 6081
@@ -2650,13 +2696,24 @@ else
     "edit_prediction_provider": "zed"
   },
   "terminal": {
+    "dock": "bottom",
     "env": {
       "LIBGL_ALWAYS_SOFTWARE": "1"
     }
   },
   "worktree": {
     "trust_by_default": true
-  }
+  },
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  },
+  "workspace": {
+    "title_bar": {
+      "show_onboarding_banner": false
+    }
+  },
+  "show_call_status_icon": false
 }
 ZEDSETTINGS
 fi
@@ -2665,6 +2722,72 @@ chmod 644 /home/sandbox/.config/zed/settings.json
 # Files are already owned by sandbox since start.sh runs as sandbox user
 echo "Zed settings written:" >> /tmp/sandbox-debug.log
 cat /home/sandbox/.config/zed/settings.json >> /tmp/sandbox-debug.log
+
+# ── Configure private artifact feeds ──────────────────────────────────────────
+if [ -n "$ARTIFACT_FEEDS_JSON" ] && [ -n "$AZURE_DEVOPS_PAT" ]; then
+    echo "Configuring artifact feeds..." >> /tmp/sandbox-debug.log
+
+    NUGET_SOURCES=""
+    NUGET_CREDS=""
+    NPM_LINES=""
+    PIP_EXTRA_URLS=""
+
+    PAT_B64=$(echo -n "$AZURE_DEVOPS_PAT" | base64 -w0 2>/dev/null || echo -n "$AZURE_DEVOPS_PAT" | base64)
+
+    FEED_COUNT=$(echo "$ARTIFACT_FEEDS_JSON" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+
+    for i in $(seq 0 $((FEED_COUNT - 1))); do
+        FEED_NAME=$(echo "$ARTIFACT_FEEDS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin)[$i]; print(d.get('name',''))")
+        FEED_ORG=$(echo "$ARTIFACT_FEEDS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin)[$i]; print(d.get('organization',''))")
+        FEED_FEED=$(echo "$ARTIFACT_FEEDS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin)[$i]; print(d.get('feed_name',d.get('feedName','')))")
+        FEED_PROJ=$(echo "$ARTIFACT_FEEDS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin)[$i]; print(d.get('project_name',d.get('projectName','')) or '')")
+        FEED_TYPE=$(echo "$ARTIFACT_FEEDS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin)[$i]; print(d.get('feed_type',d.get('feedType','nuget')))")
+
+        if [ -n "$FEED_PROJ" ]; then
+            URL_ORG_PART="${FEED_ORG}/${FEED_PROJ}"
+        else
+            URL_ORG_PART="${FEED_ORG}"
+        fi
+
+        case "$FEED_TYPE" in
+            nuget)
+                NUGET_SOURCES="${NUGET_SOURCES}    <add key=\"${FEED_NAME}\" value=\"https://pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/nuget/v3/index.json\" />\n"
+                NUGET_CREDS="${NUGET_CREDS}    <${FEED_NAME}>\n      <add key=\"Username\" value=\"az\" />\n      <add key=\"ClearTextPassword\" value=\"${AZURE_DEVOPS_PAT}\" />\n    </${FEED_NAME}>\n"
+                ;;
+            npm)
+                NPM_LINES="${NPM_LINES}registry=https://pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/npm/registry/\n"
+                NPM_LINES="${NPM_LINES}always-auth=true\n"
+                NPM_LINES="${NPM_LINES}//pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/npm/registry/:username=az\n"
+                NPM_LINES="${NPM_LINES}//pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/npm/registry/:_password=${PAT_B64}\n"
+                NPM_LINES="${NPM_LINES}//pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/npm/registry/:email=not-used\n"
+                ;;
+            pip)
+                PIP_EXTRA_URLS="${PIP_EXTRA_URLS} https://az:${AZURE_DEVOPS_PAT}@pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/pypi/simple/"
+                ;;
+        esac
+        echo "  Feed: ${FEED_NAME} (${FEED_TYPE}) -> ${URL_ORG_PART}/_packaging/${FEED_FEED}" >> /tmp/sandbox-debug.log
+    done
+
+    if [ -n "$NUGET_SOURCES" ]; then
+        mkdir -p /home/sandbox/.nuget/NuGet
+        printf "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<configuration>\n  <packageSources>\n%b  </packageSources>\n  <packageSourceCredentials>\n%b  </packageSourceCredentials>\n</configuration>\n" "$NUGET_SOURCES" "$NUGET_CREDS" > /home/sandbox/.nuget/NuGet/NuGet.Config
+        chown -R sandbox:sandbox /home/sandbox/.nuget
+        echo "NuGet.Config written" >> /tmp/sandbox-debug.log
+    fi
+
+    if [ -n "$NPM_LINES" ]; then
+        printf "%b" "$NPM_LINES" > /home/sandbox/.npmrc
+        chown sandbox:sandbox /home/sandbox/.npmrc
+        echo ".npmrc written" >> /tmp/sandbox-debug.log
+    fi
+
+    if [ -n "$PIP_EXTRA_URLS" ]; then
+        mkdir -p /home/sandbox/.config/pip
+        printf "[global]\nextra-index-url =%s\n" "$PIP_EXTRA_URLS" > /home/sandbox/.config/pip/pip.conf
+        chown -R sandbox:sandbox /home/sandbox/.config/pip
+        echo "pip.conf written" >> /tmp/sandbox-debug.log
+    fi
+fi
 
 # Clone repository if URL provided
 WORK_DIR="/home/sandbox/projects"
@@ -2913,6 +3036,20 @@ sleep 3
 ZED_PID=$(pgrep -f "zed-editor" || pgrep -f "/home/sandbox/.local/bin/zed" || echo "")
 if [ -n "$ZED_PID" ]; then
     echo "Zed is running with PID: $ZED_PID" >> /tmp/sandbox-debug.log
+    # Open terminal panel by default (ctrl+backtick toggles terminal in Zed)
+    sleep 2
+    ZED_WID=$(DISPLAY=:0 xdotool search --pid "$ZED_PID" 2>/dev/null | head -1)
+    if [ -z "$ZED_WID" ]; then
+        ZED_WID=$(DISPLAY=:0 xdotool search --class "zed" 2>/dev/null | head -1)
+    fi
+    if [ -n "$ZED_WID" ]; then
+        DISPLAY=:0 xdotool windowactivate "$ZED_WID" 2>/dev/null
+        sleep 0.5
+        DISPLAY=:0 xdotool key --clearmodifiers ctrl+grave 2>/dev/null
+        echo "Terminal panel opened via ctrl+backtick (WID: $ZED_WID)" >> /tmp/sandbox-debug.log
+    else
+        echo "WARNING: Could not find Zed window to open terminal" >> /tmp/sandbox-debug.log
+    fi
 else
     echo "WARNING: Zed process not found, check /tmp/zed-stdout.log" >> /tmp/sandbox-debug.log
 fi
@@ -2934,352 +3071,7 @@ docker build -t devpilot-desktop ./desktop
 # ============================================================
 log_info "Creating sandbox manager..."
 
-cat > manager.py << 'MANAGER_PY'
-#!/usr/bin/env python3
-"""
-DevPilot Sandbox Manager
-Simple API to create/destroy isolated desktop containers
-"""
-
-from flask import Flask, jsonify, request
-from flask_cors import CORS
-import docker
-import uuid
-import secrets
-import threading
-import time
-import os
-
-app = Flask(__name__)
-CORS(app)
-
-SANDBOX_MANAGER_VERSION = "2.3.0"  # Bump this when deploying changes
-
-client = docker.from_env()
-
-# API key protecting the manager — set via MANAGER_API_KEY env var on the host
-MANAGER_API_KEY = os.environ.get('MANAGER_API_KEY', '')
-
-# Track active sandboxes: {sandbox_id: {container_id, port, created_at, sandbox_token, vnc_password}}
-sandboxes = {}
-PORT_START = 6100
-PORT_END = 6200
-used_ports = set()
-lock = threading.Lock()
-
-def require_api_key():
-    """Return a 401 response if the request does not include a valid X-Api-Key header."""
-    if MANAGER_API_KEY:
-        provided = request.headers.get('X-Api-Key', '')
-        if provided != MANAGER_API_KEY:
-            return jsonify({'error': 'Unauthorized'}), 401
-    return None
-
-def get_free_port():
-    """Get next available port"""
-    with lock:
-        for port in range(PORT_START, PORT_END):
-            if port not in used_ports:
-                used_ports.add(port)
-                return port
-    return None
-
-def release_port(port):
-    """Release a port back to the pool"""
-    with lock:
-        used_ports.discard(port)
-
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({
-        "status": "ok",
-        "version": SANDBOX_MANAGER_VERSION,
-        "active_sandboxes": len(sandboxes)
-    })
-
-@app.route('/sandboxes', methods=['GET'])
-def list_sandboxes():
-    """List all active sandboxes"""
-    err = require_api_key()
-    if err:
-        return err
-    result = []
-    for sid, info in sandboxes.items():
-        try:
-            container = client.containers.get(info['container_id'])
-            result.append({
-                "id": sid,
-                "port": info['port'],
-                "bridge_port": info.get('bridge_port', 0),
-                "status": container.status,
-                "created_at": info['created_at']
-            })
-        except:
-            pass
-    return jsonify({"sandboxes": result})
-
-@app.route('/sandboxes', methods=['POST'])
-def create_sandbox():
-    """Create a new isolated sandbox with optional repo and AI config"""
-    err = require_api_key()
-    if err:
-        return err
-
-    import json
-    
-    # Log incoming request
-    print("=" * 50)
-    print(f"CREATE SANDBOX REQUEST (Manager v{SANDBOX_MANAGER_VERSION})")
-    print("=" * 50)
-    print(f"Request JSON: {request.json}")
-    print("=" * 50)
-    
-    sandbox_id = str(uuid.uuid4())[:8]
-    port = get_free_port()
-    # Per-sandbox secrets generated at creation time
-    sandbox_token = secrets.token_urlsafe(32)
-    # VNC passwords are limited to 8 chars by the VNC protocol
-    vnc_password = secrets.token_urlsafe(8)[:8]
-    
-    if not port:
-        return jsonify({"error": "No ports available"}), 503
-    
-    try:
-        data = request.json or {}
-        
-        # Build environment variables
-        environment = {
-            "SANDBOX_ID": sandbox_id,
-            "RESOLUTION": data.get("resolution", "1920x1080x24"),
-            "SANDBOX_TOKEN": sandbox_token,
-            "VNC_PASSWORD": vnc_password,
-        }
-        
-        # Add repository info if provided
-        repo_url = data.get("repo_url", "")
-        github_token = data.get("github_token", "")
-        
-        # If GitHub token is provided, inject it into the URL for authentication
-        if repo_url and github_token and "github.com" in repo_url:
-            # Convert https://github.com/user/repo.git to https://TOKEN@github.com/user/repo.git
-            repo_url = repo_url.replace("https://github.com/", f"https://{github_token}@github.com/")
-        
-        if repo_url:
-            environment["REPO_URL"] = repo_url
-        if data.get("repo_name"):
-            environment["REPO_NAME"] = data["repo_name"]
-        if data.get("repo_branch"):
-            environment["REPO_BRANCH"] = data["repo_branch"]
-        if data.get("repo_archive_url"):
-            environment["REPO_ARCHIVE_URL"] = data["repo_archive_url"]
-        
-        # Add AI config - use environment variables for API keys (avoids keychain issues)
-        if data.get("ai_config"):
-            ai = data["ai_config"]
-            provider = ai.get("provider", "openai")
-            model = ai.get("model", "gpt-4o")
-            api_key = ai.get("api_key", "")
-            base_url = ai.get("base_url", "")
-            
-            # Set DevPilot environment variables
-            environment["DEVPILOT_MODEL"] = model
-            environment["DEVPILOT_PROVIDER"] = provider
-            
-            # Set API key as environment variable (Zed reads these automatically)
-            if api_key:
-                if provider == "openai":
-                    environment["OPENAI_API_KEY"] = api_key
-                elif provider == "anthropic":
-                    environment["ANTHROPIC_API_KEY"] = api_key
-                elif provider == "custom":
-                    # For custom providers, use OPENAI_API_KEY with custom base URL
-                    environment["OPENAI_API_KEY"] = api_key
-                    if base_url:
-                        environment["OPENAI_API_BASE"] = base_url
-            
-            # Use zed_settings from frontend if provided (includes theme, fonts, etc.)
-            # Otherwise build minimal settings
-            if data.get("zed_settings"):
-                # Frontend sent complete settings, use them directly (formatted)
-                environment["ZED_SETTINGS_JSON"] = json.dumps(data["zed_settings"], indent=2)
-            else:
-                # Build Zed settings (2025 format - uses "agent" not "assistant")
-                # For custom providers, use "openai" as the provider type with custom base URL
-                zed_provider = "openai" if provider == "custom" else provider
-                
-                settings = {
-                    "theme": "One Dark",
-                    "ui_font_size": 14,
-                    "buffer_font_size": 14,
-                    "agent": {
-                        "enabled": True,
-                        "default_model": {
-                            "provider": zed_provider,
-                            "model": model
-                        },
-                        "always_allow_tool_actions": True
-                    },
-                    "features": {"edit_prediction_provider": "zed"},
-                    "terminal": {"env": {"LIBGL_ALWAYS_SOFTWARE": "1"}},
-                    "worktree": {
-                        "trust_by_default": True
-                    }
-                }
-                
-                # Configure language models for Zed's built-in agent
-                if provider == "ollama":
-                    settings["language_models"] = {
-                        "ollama": {"api_url": ai.get("base_url", "http://localhost:11434")}
-                    }
-                else:
-                    # Route through Bridge API proxy (captures conversations for frontend)
-                    settings["language_models"] = {
-                        "openai": {
-                            "api_url": "http://localhost:8091/v1",
-                            "available_models": [
-                                {"name": model, "display_name": model, "max_tokens": 128000}
-                            ]
-                        }
-                    }
-                
-                # Note: DevPilot agent server removed - using Bridge API proxy instead
-                # The proxy at http://localhost:8091/v1 captures all conversations
-                
-                environment["ZED_SETTINGS_JSON"] = json.dumps(settings, indent=2)
-        elif data.get("zed_settings"):
-            environment["ZED_SETTINGS_JSON"] = json.dumps(data["zed_settings"], indent=2)
-        
-        # Log environment variables (hide sensitive data)
-        safe_env = {k: ('***' if 'KEY' in k or 'TOKEN' in k else v) for k, v in environment.items()}
-        print(f"Environment variables: {safe_env}")
-        
-        # Calculate bridge API port (VNC port + 1000, e.g., 6100 -> 7100)
-        bridge_port = port + 1000
-        
-        container = client.containers.run(
-            "devpilot-desktop",
-            name=f"sandbox-{sandbox_id}",
-            detach=True,
-            remove=False,
-            ports={
-                '6080/tcp': port,
-                '8091/tcp': bridge_port
-            },
-            shm_size="512m",
-            environment=environment
-        )
-        
-        sandboxes[sandbox_id] = {
-            "container_id": container.id,
-            "port": port,
-            "bridge_port": bridge_port,
-            "created_at": time.time(),
-            "sandbox_token": sandbox_token,
-            "vnc_password": vnc_password,
-        }
-        
-        return jsonify({
-            "id": sandbox_id,
-            "port": port,
-            "bridge_port": bridge_port,
-            "url": f"http://HOST_IP:{port}/vnc.html",
-            "bridge_url": f"http://HOST_IP:{bridge_port}",
-            "status": "starting",
-            "sandbox_token": sandbox_token,
-            "vnc_password": vnc_password,
-        }), 201
-        
-    except Exception as e:
-        release_port(port)
-        return jsonify({"error": str(e)}), 500
-
-@app.route('/sandboxes/<sandbox_id>', methods=['GET'])
-def get_sandbox(sandbox_id):
-    """Get sandbox status"""
-    err = require_api_key()
-    if err:
-        return err
-    if sandbox_id not in sandboxes:
-        return jsonify({"error": "Sandbox not found"}), 404
-    
-    info = sandboxes[sandbox_id]
-    try:
-        container = client.containers.get(info['container_id'])
-        return jsonify({
-            "id": sandbox_id,
-            "port": info['port'],
-            "status": container.status
-        })
-    except:
-        return jsonify({"error": "Container not found"}), 404
-
-@app.route('/sandboxes/<sandbox_id>', methods=['DELETE'])
-def delete_sandbox(sandbox_id):
-    """Stop and remove a sandbox"""
-    err = require_api_key()
-    if err:
-        return err
-    if sandbox_id not in sandboxes:
-        return jsonify({"error": "Sandbox not found"}), 404
-    
-    info = sandboxes[sandbox_id]
-    try:
-        container = client.containers.get(info['container_id'])
-        container.stop(timeout=5)
-        container.remove()
-    except:
-        pass
-    
-    release_port(info['port'])
-    del sandboxes[sandbox_id]
-    
-    return jsonify({"status": "deleted"})
-
-@app.route('/sandboxes/<sandbox_id>/stop', methods=['POST'])
-def stop_sandbox(sandbox_id):
-    """Stop a sandbox (keep container)"""
-    err = require_api_key()
-    if err:
-        return err
-    if sandbox_id not in sandboxes:
-        return jsonify({"error": "Sandbox not found"}), 404
-    
-    info = sandboxes[sandbox_id]
-    try:
-        container = client.containers.get(info['container_id'])
-        container.stop(timeout=5)
-        return jsonify({"status": "stopped"})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-# Cleanup old sandboxes (>2 hours)
-def cleanup_old_sandboxes():
-    while True:
-        time.sleep(300)  # Check every 5 min
-        now = time.time()
-        to_delete = []
-        for sid, info in sandboxes.items():
-            if now - info['created_at'] > 7200:  # 2 hours
-                to_delete.append(sid)
-        for sid in to_delete:
-            try:
-                info = sandboxes[sid]
-                container = client.containers.get(info['container_id'])
-                container.stop(timeout=5)
-                container.remove()
-                release_port(info['port'])
-                del sandboxes[sid]
-                print(f"Cleaned up sandbox {sid}")
-            except:
-                pass
-
-if __name__ == '__main__':
-    # Start cleanup thread
-    threading.Thread(target=cleanup_old_sandboxes, daemon=True).start()
-    
-    print(f"DevPilot Sandbox Manager v{SANDBOX_MANAGER_VERSION} starting on port 8090...")
-    app.run(host='0.0.0.0', port=8090)
-MANAGER_PY
+cp "${SCRIPT_SOURCE_DIR}/manager/manager.py" manager.py
 
 # ============================================================
 # BUILD_ONLY mode — used by Windows Docker setup (setup.ps1)

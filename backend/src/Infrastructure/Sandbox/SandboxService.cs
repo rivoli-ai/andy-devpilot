@@ -195,6 +195,14 @@ public class SandboxService : ISandboxService
                 base_url = req.AiConfig.BaseUrl,
             },
             zed_settings = req.ZedSettings,
+            artifact_feeds = req.ArtifactFeeds?.Select(f => new
+            {
+                name = f.Name,
+                organization = f.Organization,
+                feed_name = f.FeedName,
+                project_name = f.ProjectName,
+                feed_type = f.FeedType,
+            }).ToList(),
         };
     }
 

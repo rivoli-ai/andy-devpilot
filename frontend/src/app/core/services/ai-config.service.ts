@@ -1,5 +1,6 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { AuthService, AiSettings, AiSettingsFull, LlmSettingDto } from './auth.service';
+import { McpConfigService, McpServerDto } from './mcp-config.service';
 import { firstValueFrom } from 'rxjs';
 
 export interface AIProviderConfig {
@@ -190,8 +191,9 @@ export class AIConfigService {
   /**
    * Get Zed settings.json content for AI configuration.
    * @param config Optional config to use (e.g. effective config for a repo); otherwise uses default.
+   * @param mcpServers Optional list of enabled MCP servers to inject as Zed context_servers.
    */
-  getZedSettingsJson(config?: AIProviderConfig): object {
+  getZedSettingsJson(config?: AIProviderConfig, mcpServers?: McpServerDto[]): object {
     const cfg = config ?? this.configSignal();
     
     const zedProvider = cfg.provider === 'custom' ? 'openai' : cfg.provider;
@@ -216,6 +218,7 @@ export class AIConfigService {
       },
       
       "terminal": {
+        "dock": "bottom",
         "env": {
           "LIBGL_ALWAYS_SOFTWARE": "1"
         }
@@ -223,7 +226,20 @@ export class AIConfigService {
       
       "worktree": {
         "trust_by_default": true
-      }
+      },
+
+      "telemetry": {
+        "diagnostics": false,
+        "metrics": false
+      },
+
+      "workspace": {
+        "title_bar": {
+          "show_onboarding_banner": false
+        }
+      },
+
+      "show_call_status_icon": false
     };
 
     if (cfg.provider === 'ollama') {
@@ -245,6 +261,28 @@ export class AIConfigService {
           ]
         }
       };
+    }
+
+    if (mcpServers?.length) {
+      settings.context_servers = {} as Record<string, any>;
+      for (const mcp of mcpServers) {
+        if (mcp.serverType === 'remote') {
+          const entry: any = { url: mcp.url };
+          if (mcp.headers && Object.keys(mcp.headers).length > 0) {
+            entry.headers = mcp.headers;
+          }
+          settings.context_servers[mcp.name] = entry;
+        } else {
+          const entry: any = { command: mcp.command };
+          if (mcp.args?.length) {
+            entry.args = mcp.args;
+          }
+          if (mcp.env && Object.keys(mcp.env).length > 0) {
+            entry.env = mcp.env;
+          }
+          settings.context_servers[mcp.name] = entry;
+        }
+      }
     }
 
     return settings;

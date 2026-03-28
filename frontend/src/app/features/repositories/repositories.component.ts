@@ -11,6 +11,8 @@ import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { SandboxService } from '../../core/services/sandbox.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
+import { McpConfigService } from '../../core/services/mcp-config.service';
+import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
 import { Repository } from '../../shared/models/repository.model';
 import { ButtonComponent, CardComponent, BadgeComponent, DataGridComponent, GridColumn } from '../../shared/components';
@@ -120,6 +122,8 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     private vncViewerService: VncViewerService,
     private sandboxService: SandboxService,
     private aiConfigService: AIConfigService,
+    private mcpConfigService: McpConfigService,
+    private artifactFeedService: ArtifactFeedService,
     private sandboxBridgeService: SandboxBridgeService,
     private elementRef: ElementRef
   ) {}
@@ -767,35 +771,31 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     this.creatingSandboxFor.set(repositoryId);
     this.error.set(null);
 
-    // Get AI config
     const aiConfig = this.aiConfigService.defaultProvider();
-    const zedSettings = this.aiConfigService.getZedSettingsJson();
+    Promise.all([
+      this.mcpConfigService.getEnabledServers(),
+      this.artifactFeedService.getEnabledFeeds(),
+    ]).then(([mcpServers, artifactFeeds]) => {
+      const zedSettings = this.aiConfigService.getZedSettingsJson(undefined, mcpServers);
+      const feedsPayload = artifactFeeds.map(f => ({
+        name: f.name, organization: f.organization, feedName: f.feedName,
+        projectName: f.projectName, feedType: f.feedType,
+      }));
 
-    // Fetch authenticated clone URL (and archive URL for GitHub so sandbox can use zip when clone is blocked)
-    this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-      next: (result) => {
-        console.log('=== Sandbox Request ===');
-        console.log('Repo URL:', result.cloneUrl);
-        if (result.archiveUrl) console.log('Repo archive URL:', result.archiveUrl);
-        console.log('Repo Name:', repo.name);
-        console.log('Repo Branch:', repo.defaultBranch || 'main');
-        console.log('AI Provider:', aiConfig.provider);
-        console.log('AI Model:', aiConfig.model);
-        console.log('Zed Settings:', JSON.stringify(zedSettings, null, 2));
-
-        this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
-      },
-      error: (err) => {
-        console.error('Failed to get authenticated clone URL:', err);
-        // Fallback to regular clone URL (no archiveUrl)
-        const repoUrl = this.buildRepoCloneUrl(repo);
-        this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings);
-      }
+      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+        next: (result) => {
+          this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl, feedsPayload);
+        },
+        error: (err) => {
+          console.error('Failed to get authenticated clone URL:', err);
+          const repoUrl = this.buildRepoCloneUrl(repo);
+          this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings, undefined, feedsPayload);
+        }
+      });
     });
   }
 
-  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string): void {
-    // Create sandbox with repo and AI config; pass archive URL so sandbox can download code without clone when clone is blocked
+  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
@@ -807,7 +807,8 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
         model: aiConfig.model,
         base_url: aiConfig.baseUrl
       },
-      zed_settings: zedSettings
+      zed_settings: zedSettings,
+      artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created:', sandbox);

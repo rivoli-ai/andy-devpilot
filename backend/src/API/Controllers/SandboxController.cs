@@ -3,6 +3,7 @@ namespace DevPilot.API.Controllers;
 using System.Security.Claims;
 using System.Text.Json.Serialization;
 using DevPilot.Application.Services;
+using DevPilot.Domain.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
@@ -17,11 +18,13 @@ using Microsoft.AspNetCore.Mvc;
 public class SandboxController : ControllerBase
 {
     private readonly ISandboxService _sandboxService;
+    private readonly IUserRepository _userRepository;
     private readonly ILogger<SandboxController> _logger;
 
-    public SandboxController(ISandboxService sandboxService, ILogger<SandboxController> logger)
+    public SandboxController(ISandboxService sandboxService, IUserRepository userRepository, ILogger<SandboxController> logger)
     {
         _sandboxService = sandboxService;
+        _userRepository = userRepository;
         _logger = logger;
     }
 
@@ -57,6 +60,13 @@ public class SandboxController : ControllerBase
 
         try
         {
+            var azureDevOpsPat = request.AzureDevOpsPat;
+            if (string.IsNullOrEmpty(azureDevOpsPat) && request.ArtifactFeeds?.Count > 0)
+            {
+                var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+                azureDevOpsPat = user?.AzureDevOpsAccessToken;
+            }
+
             var result = await _sandboxService.CreateSandboxAsync(
                 userId,
                 new SandboxCreateRequest
@@ -67,7 +77,7 @@ public class SandboxController : ControllerBase
                     RepoBranch = request.RepoBranch,
                     RepoArchiveUrl = request.RepoArchiveUrl,
                     GithubToken = request.GithubToken,
-                    AzureDevOpsPat = request.AzureDevOpsPat,
+                    AzureDevOpsPat = azureDevOpsPat,
                     AiConfig = request.AiConfig is null ? null : new SandboxAiConfig
                     {
                         Provider = request.AiConfig.Provider,
@@ -76,6 +86,14 @@ public class SandboxController : ControllerBase
                         BaseUrl = request.AiConfig.BaseUrl,
                     },
                     ZedSettings = request.ZedSettings,
+                    ArtifactFeeds = request.ArtifactFeeds?.Select(f => new SandboxArtifactFeed
+                    {
+                        Name = f.Name,
+                        Organization = f.Organization,
+                        FeedName = f.FeedName,
+                        ProjectName = f.ProjectName,
+                        FeedType = f.FeedType,
+                    }).ToList(),
                 },
                 cancellationToken);
 
@@ -165,6 +183,27 @@ public class CreateSandboxRequest
 
     [JsonPropertyName("zed_settings")]
     public object? ZedSettings { get; set; }
+
+    [JsonPropertyName("artifact_feeds")]
+    public List<ArtifactFeedPayload>? ArtifactFeeds { get; set; }
+}
+
+public class ArtifactFeedPayload
+{
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("organization")]
+    public string Organization { get; set; } = "";
+
+    [JsonPropertyName("feedName")]
+    public string FeedName { get; set; } = "";
+
+    [JsonPropertyName("projectName")]
+    public string? ProjectName { get; set; }
+
+    [JsonPropertyName("feedType")]
+    public string FeedType { get; set; } = "nuget";
 }
 
 public class AiConfigRequest

@@ -42,6 +42,16 @@ public record SandboxCreateRequest
     public string? AzureDevOpsPat { get; init; }
     public SandboxAiConfig? AiConfig { get; init; }
     public object? ZedSettings { get; init; }
+    public List<SandboxArtifactFeed>? ArtifactFeeds { get; init; }
+}
+
+public record SandboxArtifactFeed
+{
+    public string Name { get; init; } = "";
+    public string Organization { get; init; } = "";
+    public string FeedName { get; init; } = "";
+    public string? ProjectName { get; init; }
+    public string FeedType { get; init; } = "nuget";
 }
 
 public record SandboxAiConfig

@@ -45,6 +45,8 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ICodeAnalysisRepository, PostgresCodeAnalysisRepository>();
         services.AddScoped<IFileAnalysisRepository, PostgresFileAnalysisRepository>();
         services.AddScoped<ILlmSettingRepository, PostgresLlmSettingRepository>();
+        services.AddScoped<IMcpServerConfigRepository, PostgresMcpServerConfigRepository>();
+        services.AddScoped<IArtifactFeedConfigRepository, PostgresArtifactFeedConfigRepository>();
         services.AddScoped<IEffectiveAiConfigResolver, EffectiveAiConfigResolver>();
 
         // Register authentication service

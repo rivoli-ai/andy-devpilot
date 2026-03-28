@@ -8,6 +8,8 @@ import { BacklogService } from '../../core/services/backlog.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { RepositoryService } from '../../core/services/repository.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
+import { McpConfigService } from '../../core/services/mcp-config.service';
+import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { Repository } from '../../shared/models/repository.model';
 import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
 import { ButtonComponent } from '../../shared/components';
@@ -419,7 +421,9 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
     private backlogService: BacklogService,
     private vncViewerService: VncViewerService,
     private repositoryService: RepositoryService,
-    private aiConfigService: AIConfigService
+    private aiConfigService: AIConfigService,
+    private mcpConfigService: McpConfigService,
+    private artifactFeedService: ArtifactFeedService
   ) { }
 
   ngOnInit(): void {
@@ -527,16 +531,25 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
         this.errorMessage.set('AI is not configured. Please configure AI settings first.');
         return;
       }
-      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig);
-      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-        next: (result) => {
-          this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
-        },
-        error: (err) => {
-          console.error('Failed to get authenticated clone URL:', err);
-          const repoUrl = this.buildRepoCloneUrl(repo);
-          this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings);
-        }
+      Promise.all([
+        this.mcpConfigService.getEnabledServers(),
+        this.artifactFeedService.getEnabledFeeds(),
+      ]).then(([mcpServers, artifactFeeds]) => {
+        const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig, mcpServers);
+        const feedsPayload = artifactFeeds.map(f => ({
+          name: f.name, organization: f.organization, feedName: f.feedName,
+          projectName: f.projectName, feedType: f.feedType,
+        }));
+        this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+          next: (result) => {
+            this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl, feedsPayload);
+          },
+          error: (err) => {
+            console.error('Failed to get authenticated clone URL:', err);
+            const repoUrl = this.buildRepoCloneUrl(repo);
+            this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings, undefined, feedsPayload);
+          }
+        });
       });
     }).catch((err) => {
       console.error('Failed to get AI config:', err);
@@ -545,8 +558,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
     });
   }
 
-  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string): void {
-    // Create sandbox
+  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
@@ -558,7 +570,8 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
         model: aiConfig.model,
         base_url: aiConfig.baseUrl
       },
-      zed_settings: zedSettings
+      zed_settings: zedSettings,
+      artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created for backlog generation:', sandbox);

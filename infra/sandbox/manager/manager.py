@@ -229,8 +229,11 @@ def _build_environment(data: dict, sandbox_id: str, sandbox_token: str, vnc_pass
                     "always_allow_tool_actions": True,
                 },
                 "features": {"edit_prediction_provider": "zed"},
-                "terminal": {"env": {"LIBGL_ALWAYS_SOFTWARE": "1"}},
+                "terminal": {"dock": "bottom", "env": {"LIBGL_ALWAYS_SOFTWARE": "1"}},
                 "worktree": {"trust_by_default": True},
+                "telemetry": {"diagnostics": False, "metrics": False},
+                "workspace": {"title_bar": {"show_onboarding_banner": False}},
+                "show_call_status_icon": False,
                 "language_models": {
                     "openai": {
                         "api_url": "http://localhost:8091/v1",
@@ -247,7 +250,12 @@ def _build_environment(data: dict, sandbox_id: str, sandbox_token: str, vnc_pass
     elif data.get("zed_settings"):
         environment["ZED_SETTINGS_JSON"] = json.dumps(data["zed_settings"], indent=2)
 
-    safe_env = {k: ("***" if "KEY" in k or "TOKEN" in k else v) for k, v in environment.items()}
+    if data.get("artifact_feeds"):
+        environment["ARTIFACT_FEEDS_JSON"] = json.dumps(data["artifact_feeds"])
+    if data.get("azure_devops_pat"):
+        environment["AZURE_DEVOPS_PAT"] = data["azure_devops_pat"]
+
+    safe_env = {k: ("***" if "KEY" in k or "TOKEN" in k or "PAT" in k else v) for k, v in environment.items()}
     print(f"Environment (redacted): {safe_env}")
     return environment
 

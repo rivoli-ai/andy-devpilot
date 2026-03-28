@@ -9,6 +9,8 @@ import { SandboxService } from '../../core/services/sandbox.service';
 import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
+import { McpConfigService } from '../../core/services/mcp-config.service';
+import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { AuthService } from '../../core/services/auth.service';
 import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
 import { Epic } from '../../shared/models/epic.model';
@@ -391,6 +393,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
     private sandboxBridgeService: SandboxBridgeService,
     private vncViewerService: VncViewerService,
     private aiConfigService: AIConfigService,
+    private mcpConfigService: McpConfigService,
+    private artifactFeedService: ArtifactFeedService,
     private authService: AuthService
   ) {
     // Sync with backlog service signal for real-time updates (e.g., when PR is created)
@@ -990,19 +994,26 @@ export class BacklogComponent implements OnInit, OnDestroy {
         this.error.set('AI is not configured. Please configure AI settings first.');
         return;
       }
-      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig);
       const defaultBranch = repo.defaultBranch || 'main';
 
+      Promise.all([
+        this.mcpConfigService.getEnabledServers(),
+        this.artifactFeedService.getEnabledFeeds(),
+      ]).then(([mcpServers, artifactFeeds]) => {
+      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig, mcpServers);
+      const feedsPayload = artifactFeeds.map(f => ({
+        name: f.name, organization: f.organization, feedName: f.feedName,
+        projectName: f.projectName, feedType: f.feedType,
+      }));
+
       const openSandboxWithBranch = (repoUrl: string, branch: string, archiveUrl?: string) => {
-        this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings, branch, archiveUrl);
+        this.createImplementationSandbox(repo, repoUrl, story, featureTitle, epicTitle, aiConfig, zedSettings, branch, archiveUrl, feedsPayload);
       };
 
       const resolveBranch = (repoUrl: string, archiveUrl?: string) => {
         if (story.prUrl && repo.provider === 'GitHub') {
-          console.log('[Sandbox] Fetching PR head branch for:', story.prUrl);
           this.backlogService.getPrHeadBranch(story.prUrl).subscribe({
             next: (res) => {
-              console.log('[Sandbox] Using PR branch:', res.branch);
               openSandboxWithBranch(repoUrl, res.branch, archiveUrl);
             },
             error: (err) => {
@@ -1023,6 +1034,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
           resolveBranch(repoUrl);
         }
       });
+      });
     }).catch((err) => {
       console.error('Failed to get AI config:', err);
       this.creatingSandboxForStory.set(null);
@@ -1039,9 +1051,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
     aiConfig: any,
     zedSettings: object,
     branch: string,
-    repoArchiveUrl?: string
+    repoArchiveUrl?: string,
+    artifactFeeds?: any[]
   ): void {
-    // Create sandbox (branch may be PR head branch when story already has a PR)
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
@@ -1053,7 +1065,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
         model: aiConfig.model,
         base_url: aiConfig.baseUrl
       },
-      zed_settings: zedSettings
+      zed_settings: zedSettings,
+      artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created for user story:', story.title);
@@ -1283,16 +1296,25 @@ Start by exploring the codebase and then provide your implementation plan.`;
     this.generationError.set(null);
 
     this.aiConfigService.getEffectiveConfig(repo.id).then((aiConfig) => {
-      const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig);
-      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-        next: (result) => {
-          this.createSandboxWithConfig(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl);
-        },
-        error: (err) => {
-          console.error('Failed to get authenticated clone URL:', err);
-          const repoUrl = this.buildRepoCloneUrl(repo);
-          this.createSandboxWithConfig(repo, repoUrl, aiConfig, zedSettings);
-        }
+      Promise.all([
+        this.mcpConfigService.getEnabledServers(),
+        this.artifactFeedService.getEnabledFeeds(),
+      ]).then(([mcpServers, artifactFeeds]) => {
+        const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig, mcpServers);
+        const feedsPayload = artifactFeeds.map(f => ({
+          name: f.name, organization: f.organization, feedName: f.feedName,
+          projectName: f.projectName, feedType: f.feedType,
+        }));
+        this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+          next: (result) => {
+            this.createSandboxWithConfig(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl, feedsPayload);
+          },
+          error: (err) => {
+            console.error('Failed to get authenticated clone URL:', err);
+            const repoUrl = this.buildRepoCloneUrl(repo);
+            this.createSandboxWithConfig(repo, repoUrl, aiConfig, zedSettings, undefined, feedsPayload);
+          }
+        });
       });
     }).catch((err) => {
       console.error('Failed to get AI config:', err);
@@ -1306,7 +1328,8 @@ Start by exploring the codebase and then provide your implementation plan.`;
     repoUrl: string, 
     aiConfig: any, 
     zedSettings: object,
-    repoArchiveUrl?: string
+    repoArchiveUrl?: string,
+    artifactFeeds?: any[]
   ): void {
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
@@ -1319,7 +1342,8 @@ Start by exploring the codebase and then provide your implementation plan.`;
         model: aiConfig.model,
         base_url: aiConfig.baseUrl
       },
-      zed_settings: zedSettings
+      zed_settings: zedSettings,
+      artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
         if (!sandbox.bridge_port) {

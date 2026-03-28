@@ -169,6 +169,14 @@ public interface IAzureDevOpsService
         string prUrl,
         CancellationToken cancellationToken = default,
         bool useBasicAuth = false);
+
+    /// <summary>
+    /// Lists artifact feeds in an Azure DevOps organization.
+    /// </summary>
+    System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsFeedDto>> GetFeedsAsync(
+        string organization,
+        string accessToken,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>
@@ -282,4 +290,13 @@ public class AzureDevOpsWorkItemsHierarchyDto
     public List<AzureDevOpsWorkItemDto> UserStories { get; set; } = new();
     public List<AzureDevOpsWorkItemDto> Tasks { get; set; } = new();
     public List<AzureDevOpsWorkItemDto> Bugs { get; set; } = new();
+}
+
+public class AzureDevOpsFeedDto
+{
+    public required string Id { get; set; }
+    public required string Name { get; set; }
+    public string? FullyQualifiedName { get; set; }
+    public string? Project { get; set; }
+    public string? Url { get; set; }
 }

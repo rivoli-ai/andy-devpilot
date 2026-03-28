@@ -47,6 +47,7 @@ export interface CreateSandboxRequest {
     base_url?: string;
   };
   zed_settings?: object;
+  artifact_feeds?: { name: string; organization: string; feedName: string; projectName?: string; feedType: string }[];
 }
 
 /**

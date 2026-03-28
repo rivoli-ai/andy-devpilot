@@ -4,7 +4,7 @@ WORKDIR /app
 
 RUN pip install --no-cache-dir flask flask-cors docker
 
-COPY manager.py .
+COPY manager/manager.py .
 
 EXPOSE 8090
 

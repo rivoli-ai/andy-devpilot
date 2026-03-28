@@ -6,6 +6,8 @@ import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { AuthService, LinkedProvider, User, ProviderSettings, LlmSettingDto } from '../../core/services/auth.service';
 import { AuthProviderConfig } from '../../core/auth/oidc-config.loader';
 import { AIConfigService } from '../../core/services/ai-config.service';
+import { McpConfigService, McpServerDto, McpToolInfo } from '../../core/services/mcp-config.service';
+import { ArtifactFeedService, ArtifactFeedDto, AzureDevOpsFeedDto } from '../../core/services/artifact-feed.service';
 import { firstValueFrom } from 'rxjs';
 
 /**
@@ -65,9 +67,35 @@ export class SettingsComponent implements OnInit {
     this.authService.providerConfigs().find(p => p.name.toLowerCase() === 'github') ?? null
   );
 
+  // MCP servers
+  mcpFormOpen = signal<boolean>(false);
+  mcpFormId = signal<string | null>(null);
+  mcpFormIsAdmin = signal<boolean>(false);
+  mcpFormName = signal<string>('');
+  mcpFormServerType = signal<'stdio' | 'remote'>('stdio');
+  mcpFormCommand = signal<string>('');
+  mcpFormArgsStr = signal<string>('');
+  mcpFormEnvStr = signal<string>('');
+  mcpFormUrl = signal<string>('');
+  mcpFormHeadersStr = signal<string>('');
+
+  // Artifact feeds
+  artifactFormOpen = signal(false);
+  artifactFormId = signal<string | null>(null);
+  artifactFormName = signal('');
+  artifactFormOrg = signal('');
+  artifactFormFeedName = signal('');
+  artifactFormProjectName = signal('');
+  artifactFormFeedType = signal<'nuget' | 'npm' | 'pip'>('nuget');
+  artifactBrowseLoading = signal(false);
+  artifactBrowseFeeds = signal<AzureDevOpsFeedDto[]>([]);
+  artifactBrowseError = signal<string | null>(null);
+
   constructor(
     private authService: AuthService,
     private aiConfigService: AIConfigService,
+    private mcpConfigService: McpConfigService,
+    public artifactFeedService: ArtifactFeedService,
     private oidcSecurityService: OidcSecurityService,
     private router: Router,
     private route: ActivatedRoute
@@ -87,6 +115,9 @@ export class SettingsComponent implements OnInit {
     this.loadLinkedProviders();
     this.loadProviderSettings();
     await this.aiConfigService.loadLlmSettings();
+    await this.mcpConfigService.loadServers();
+    await this.artifactFeedService.loadFeeds();
+    this.discoverAllRemoteTools();
 
     // Check for success message from OAuth callback
     this.route.queryParams.subscribe(params => {
@@ -519,6 +550,314 @@ export class SettingsComponent implements OnInit {
       this.error.set(err?.error?.message || err?.message || 'Failed to delete');
     } finally {
       this.actionLoading.set(null);
+    }
+  }
+
+  // ---- MCP servers ----
+
+  mcpServers(): McpServerDto[] {
+    return this.mcpConfigService.servers();
+  }
+
+  mcpPersonalServers(): McpServerDto[] {
+    return this.mcpConfigService.servers().filter(s => !s.isShared);
+  }
+
+  mcpSharedServers(): McpServerDto[] {
+    return this.mcpConfigService.servers().filter(s => s.isShared);
+  }
+
+  openAddMcpForm(isAdmin: boolean): void {
+    this.mcpFormId.set(null);
+    this.mcpFormIsAdmin.set(isAdmin);
+    this.mcpFormName.set('');
+    this.mcpFormServerType.set('stdio');
+    this.mcpFormCommand.set('');
+    this.mcpFormArgsStr.set('');
+    this.mcpFormEnvStr.set('');
+    this.mcpFormUrl.set('');
+    this.mcpFormHeadersStr.set('');
+    this.mcpFormOpen.set(true);
+  }
+
+  openEditMcpForm(mcp: McpServerDto): void {
+    this.mcpFormId.set(mcp.id);
+    this.mcpFormIsAdmin.set(false);
+    this.mcpFormName.set(mcp.name);
+    this.mcpFormServerType.set(mcp.serverType);
+    this.mcpFormCommand.set(mcp.command || '');
+    this.mcpFormArgsStr.set(mcp.args?.join(', ') || '');
+    this.mcpFormEnvStr.set(this.dictToLines(mcp.env));
+    this.mcpFormUrl.set(mcp.url || '');
+    this.mcpFormHeadersStr.set(this.dictToLines(mcp.headers));
+    this.mcpFormOpen.set(true);
+  }
+
+  openEditMcpFormAdmin(mcp: McpServerDto): void {
+    this.openEditMcpForm(mcp);
+    this.mcpFormIsAdmin.set(true);
+  }
+
+  cancelMcpForm(): void {
+    this.mcpFormOpen.set(false);
+    this.mcpFormId.set(null);
+  }
+
+  async saveMcpServer(): Promise<void> {
+    const id = this.mcpFormId();
+    const payload: any = {
+      name: this.mcpFormName().trim() || undefined,
+      serverType: this.mcpFormServerType(),
+      command: this.mcpFormServerType() === 'stdio' ? (this.mcpFormCommand().trim() || undefined) : undefined,
+      args: this.mcpFormServerType() === 'stdio' ? this.parseArgsStr(this.mcpFormArgsStr()) : undefined,
+      env: this.mcpFormServerType() === 'stdio' ? this.parseKvLines(this.mcpFormEnvStr()) : undefined,
+      url: this.mcpFormServerType() === 'remote' ? (this.mcpFormUrl().trim() || undefined) : undefined,
+      headers: this.mcpFormServerType() === 'remote' ? this.parseKvLines(this.mcpFormHeadersStr()) : undefined,
+    };
+
+    this.actionLoading.set('mcp-save');
+    this.error.set(null);
+    try {
+      if (id) {
+        await this.mcpConfigService.adminUpdate(id, payload);
+        this.successMessage.set('MCP server updated');
+      } else {
+        await this.mcpConfigService.adminCreate(payload);
+        this.successMessage.set('MCP server added');
+      }
+      this.cancelMcpForm();
+      this.discoverAllRemoteTools();
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to save MCP server');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async deleteMcpServer(id: string): Promise<void> {
+    if (!confirm('Delete this MCP server configuration?')) return;
+    this.actionLoading.set('mcp-delete');
+    this.error.set(null);
+    try {
+      await this.mcpConfigService.delete(id);
+      this.successMessage.set('MCP server deleted');
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to delete');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async deleteMcpServerAdmin(id: string): Promise<void> {
+    if (!confirm('Delete this shared MCP server? All users will lose access.')) return;
+    this.actionLoading.set('mcp-admin-delete');
+    this.error.set(null);
+    try {
+      await this.mcpConfigService.adminDelete(id);
+      this.successMessage.set('Shared MCP server deleted');
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to delete');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async toggleMcpServer(id: string): Promise<void> {
+    try {
+      await this.mcpConfigService.toggle(id);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || 'Failed to toggle MCP server');
+    }
+  }
+
+  async toggleMcpServerAdmin(mcp: McpServerDto): Promise<void> {
+    try {
+      await this.mcpConfigService.adminUpdate(mcp.id, { isEnabled: !mcp.isEnabled });
+    } catch (err: any) {
+      this.error.set(err?.error?.message || 'Failed to toggle MCP server');
+    }
+  }
+
+  // ---- MCP tool discovery ----
+
+  mcpExpandedTools = signal<string | null>(null);
+
+  private discoverAllRemoteTools(): void {
+    for (const mcp of this.mcpServers()) {
+      if (mcp.serverType === 'remote' && mcp.isEnabled) {
+        this.mcpConfigService.discoverTools(mcp.id);
+      }
+    }
+  }
+
+  toggleToolsPanel(id: string): void {
+    if (this.mcpExpandedTools() === id) {
+      this.mcpExpandedTools.set(null);
+      return;
+    }
+    this.mcpExpandedTools.set(id);
+    const cached = this.mcpConfigService.getToolsState(id);
+    if (!cached || cached.error) {
+      this.mcpConfigService.discoverTools(id);
+    }
+  }
+
+  refreshTools(id: string): void {
+    this.mcpConfigService.discoverTools(id);
+  }
+
+  getToolsState(id: string) {
+    return this.mcpConfigService.toolsCache()[id];
+  }
+
+  private parseArgsStr(str: string): string[] | undefined {
+    const trimmed = str.trim();
+    if (!trimmed) return undefined;
+    return trimmed.split(',').map(s => s.trim()).filter(Boolean);
+  }
+
+  private parseKvLines(str: string): Record<string, string> | undefined {
+    const trimmed = str.trim();
+    if (!trimmed) return undefined;
+    const result: Record<string, string> = {};
+    for (const line of trimmed.split('\n')) {
+      const eqIdx = line.indexOf('=');
+      if (eqIdx > 0) {
+        result[line.substring(0, eqIdx).trim()] = line.substring(eqIdx + 1).trim();
+      }
+    }
+    return Object.keys(result).length > 0 ? result : undefined;
+  }
+
+  private dictToLines(dict?: Record<string, string>): string {
+    if (!dict) return '';
+    return Object.entries(dict).map(([k, v]) => `${k}=${v}`).join('\n');
+  }
+
+  // ---- Artifact feeds ----
+
+  artifactFeeds(): ArtifactFeedDto[] {
+    return this.artifactFeedService.feeds();
+  }
+
+  openAddArtifactForm(): void {
+    this.artifactFormId.set(null);
+    this.artifactFormName.set('');
+    this.artifactFormOrg.set(this.azureDevOpsOrg() || '');
+    this.artifactFormFeedName.set('');
+    this.artifactFormProjectName.set('');
+    this.artifactFormFeedType.set('nuget');
+    this.artifactBrowseFeeds.set([]);
+    this.artifactBrowseError.set(null);
+    this.artifactFormOpen.set(true);
+  }
+
+  openEditArtifactForm(feed: ArtifactFeedDto): void {
+    this.artifactFormId.set(feed.id);
+    this.artifactFormName.set(feed.name);
+    this.artifactFormOrg.set(feed.organization);
+    this.artifactFormFeedName.set(feed.feedName);
+    this.artifactFormProjectName.set(feed.projectName || '');
+    this.artifactFormFeedType.set(feed.feedType);
+    this.artifactBrowseFeeds.set([]);
+    this.artifactBrowseError.set(null);
+    this.artifactFormOpen.set(true);
+  }
+
+  cancelArtifactForm(): void {
+    this.artifactFormOpen.set(false);
+    this.artifactFormId.set(null);
+  }
+
+  async browseArtifactFeeds(): Promise<void> {
+    const org = this.artifactFormOrg().trim();
+    if (!org) return;
+
+    this.artifactBrowseLoading.set(true);
+    this.artifactBrowseError.set(null);
+    try {
+      const feeds = await this.artifactFeedService.browseAzureFeeds(org);
+      this.artifactBrowseFeeds.set(feeds);
+    } catch (e: any) {
+      this.artifactBrowseError.set(e?.error?.message || e?.message || 'Failed to browse feeds');
+      this.artifactBrowseFeeds.set([]);
+    } finally {
+      this.artifactBrowseLoading.set(false);
+    }
+  }
+
+  selectBrowsedFeed(feed: AzureDevOpsFeedDto): void {
+    this.artifactFormFeedName.set(feed.name);
+    this.artifactFormProjectName.set(feed.project || '');
+    if (!this.artifactFormName()) {
+      this.artifactFormName.set(feed.name);
+    }
+  }
+
+  async saveArtifactFeed(): Promise<void> {
+    const id = this.artifactFormId();
+    const name = this.artifactFormName().trim();
+    const organization = this.artifactFormOrg().trim();
+    const feedName = this.artifactFormFeedName().trim();
+    const projectName = this.artifactFormProjectName().trim() || undefined;
+    const feedType = this.artifactFormFeedType();
+
+    if (!name || !organization || !feedName) {
+      this.error.set('Name, organization, and feed name are required.');
+      return;
+    }
+
+    this.actionLoading.set('artifact-save');
+    this.error.set(null);
+    try {
+      if (id) {
+        await this.artifactFeedService.update(id, { name, organization, feedName, projectName, feedType });
+        this.successMessage.set('Artifact feed updated');
+      } else {
+        await this.artifactFeedService.create({ name, organization, feedName, projectName, feedType });
+        this.successMessage.set('Artifact feed added');
+      }
+      this.cancelArtifactForm();
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to save artifact feed');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async deleteArtifactFeed(id: string): Promise<void> {
+    if (!confirm('Delete this artifact feed configuration?')) return;
+    this.actionLoading.set('artifact-delete');
+    this.error.set(null);
+    try {
+      await this.artifactFeedService.delete(id);
+      this.successMessage.set('Artifact feed deleted');
+      setTimeout(() => this.successMessage.set(null), 3000);
+    } catch (err: any) {
+      this.error.set(err?.error?.message || err?.message || 'Failed to delete');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async toggleArtifactFeed(feed: ArtifactFeedDto): Promise<void> {
+    try {
+      await this.artifactFeedService.update(feed.id, { isEnabled: !feed.isEnabled });
+    } catch (err: any) {
+      this.error.set(err?.error?.message || 'Failed to toggle artifact feed');
+    }
+  }
+
+  getFeedTypeBadgeClass(feedType: string): string {
+    switch (feedType) {
+      case 'nuget': return 'feed-badge--nuget';
+      case 'npm': return 'feed-badge--npm';
+      case 'pip': return 'feed-badge--pip';
+      default: return '';
     }
   }
 

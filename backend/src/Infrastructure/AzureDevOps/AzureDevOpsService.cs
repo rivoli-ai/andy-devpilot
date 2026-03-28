@@ -1387,6 +1387,70 @@ public class AzureDevOpsService : IAzureDevOpsService
         }
     }
 
+    public async System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsFeedDto>> GetFeedsAsync(
+        string organization,
+        string accessToken,
+        CancellationToken cancellationToken = default)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth: true);
+
+        try
+        {
+            var url = $"https://feeds.dev.azure.com/{organization}/_apis/packaging/feeds?api-version={AzureDevOpsApiVersion}";
+            var response = await httpClient.GetAsync(url, cancellationToken);
+
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (content.TrimStart().StartsWith("<") || content.TrimStart().StartsWith("<!"))
+            {
+                _logger.LogError("Azure DevOps returned HTML instead of JSON for feeds query");
+                throw new InvalidOperationException($"Azure DevOps authentication failed for organization '{organization}'.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Azure DevOps feeds API failed: {StatusCode} - {Content}", response.StatusCode, content);
+                throw new HttpRequestException($"Azure DevOps API returned {response.StatusCode}: {content}");
+            }
+
+            var doc = JsonDocument.Parse(content);
+            var result = new List<AzureDevOpsFeedDto>();
+
+            if (doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                foreach (var feed in valueArray.EnumerateArray())
+                {
+                    string? projectName = null;
+                    if (feed.TryGetProperty("project", out var proj) && proj.ValueKind == JsonValueKind.Object)
+                    {
+                        projectName = proj.TryGetProperty("name", out var pn) ? pn.GetString() : null;
+                    }
+
+                    result.Add(new AzureDevOpsFeedDto
+                    {
+                        Id = feed.TryGetProperty("id", out var id) ? id.GetString() ?? "" : "",
+                        Name = feed.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
+                        FullyQualifiedName = feed.TryGetProperty("fullyQualifiedName", out var fqn) ? fqn.GetString() : null,
+                        Project = projectName,
+                        Url = feed.TryGetProperty("url", out var feedUrl) ? feedUrl.GetString() : null,
+                    });
+                }
+            }
+
+            _logger.LogInformation("Found {Count} artifact feeds in organization {Organization}", result.Count, organization);
+            return result;
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching artifact feeds from Azure DevOps for organization {Organization}", organization);
+            throw;
+        }
+    }
+
     /// <summary>
     /// Parses an Azure DevOps PR URL to extract organization, project, repository, and PR ID.
     /// Expected format: https://dev.azure.com/{organization}/{project}/_git/{repo}/pullrequest/{prId}
