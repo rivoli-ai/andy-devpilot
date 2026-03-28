@@ -118,8 +118,12 @@ if ($desktopExists -and -not $Rebuild) {
 # ── 4. Build and start all services ──────────────────────────────────────────
 Write-Step "Building and starting all services..."
 
+if ($Rebuild) {
+    Write-Warn "Rebuilding all images from scratch (--no-cache)..."
+    $buildProc = Start-Process -FilePath "docker" -ArgumentList @("compose", "-f", $composeFile, "--env-file", $envFile, "build", "--no-cache") -NoNewWindow -PassThru -Wait
+    if ($buildProc.ExitCode -ne 0) { Write-Fail "docker compose build --no-cache failed." }
+}
 $buildArgs = @("-f", $composeFile, "--env-file", $envFile, "up", "-d", "--force-recreate")
-if ($Rebuild) { $buildArgs += "--build" }
 
 $proc = Start-Process -FilePath "docker" -ArgumentList (@("compose") + $buildArgs) -NoNewWindow -PassThru -Wait
 if ($proc.ExitCode -ne 0) { Write-Fail "docker compose up failed." }

@@ -90,10 +90,12 @@ fi
 # ── 4. Build and start all services ──────────────────────────────────────────
 step "Building and starting all services..."
 
-BUILD_FLAG=""
-[ "$REBUILD" = true ] && BUILD_FLAG="--build"
+if [ "$REBUILD" = true ]; then
+    warn "Rebuilding all images from scratch (--no-cache)..."
+    docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" build --no-cache
+fi
 
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate $BUILD_FLAG
+docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate
 
 # ── 5. Wait for backend to be ready ──────────────────────────────────────────
 step "Waiting for backend to be ready..."

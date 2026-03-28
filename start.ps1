@@ -303,7 +303,12 @@ if ($Mode -eq "docker") {
     Write-Step "Step 1/2 - Building sandbox image (devpilot-desktop)..."
     Build-DesktopImage
 
-    Write-Step "Step 2/2a - Starting postgres, backend, frontend (docker-compose, without sandbox-manager)..."
+    if ($Rebuild) {
+        Write-Step "Step 2/2a - Rebuilding backend & frontend images (--no-cache)..."
+        docker compose -f "$repoRoot\docker-compose.yml" --env-file "$repoRoot\.env" `
+            build --no-cache devpilot-backend devpilot-frontend
+    }
+    Write-Step "Step 2/2a - Starting postgres, backend, frontend (docker-compose)..."
     docker compose -f "$repoRoot\docker-compose.yml" --env-file "$repoRoot\.env" `
         up -d --force-recreate postgres devpilot-backend devpilot-frontend
 
