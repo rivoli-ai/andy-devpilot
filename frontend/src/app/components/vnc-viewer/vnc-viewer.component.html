@@ -1,5 +1,5 @@
 <!-- Backdrop (only visible when floating, not when docked or embedded) -->
-@if (dockPosition() === 'floating' && !embedded()) {
+@if (dockPosition() === 'floating' && !embedded() && !isFullscreen()) {
   <div class="vnc-backdrop visible" (click)="toggleMinimize()"></div>
 }
 
@@ -83,16 +83,17 @@
 @if (dockPosition() !== 'minimized' || embedded()) {
   <div class="vnc-popup"
        [class.embedded]="embedded()"
+       [class.vnc-popup-fullscreen]="isFullscreen()"
        #popupContainer
        [class.floating]="dockPosition() === 'floating'"
        [class.docked-right]="dockPosition() === 'right'"
        [class.docked-bottom]="dockPosition() === 'bottom'"
-       [style.width]="popupStyle().width"
-       [style.height]="popupStyle().height"
-       [style.left]="popupStyle().left"
-       [style.top]="popupStyle().top"
-       [style.right]="popupStyle().right"
-       [style.bottom]="popupStyle().bottom">
+       [style.width]="isFullscreen() ? null : popupStyle().width"
+       [style.height]="isFullscreen() ? null : popupStyle().height"
+       [style.left]="isFullscreen() ? null : popupStyle().left"
+       [style.top]="isFullscreen() ? null : popupStyle().top"
+       [style.right]="isFullscreen() ? null : popupStyle().right"
+       [style.bottom]="isFullscreen() ? null : popupStyle().bottom">
 
     <!-- Header / Title Bar -->
     <div class="popup-header" (mousedown)="onDragStart($event)">
@@ -188,70 +189,7 @@
 
     <!-- Content Area with Split View -->
     <div class="popup-content" [class.with-conversations]="showConversations() && bridgePort()">
-      <!-- VNC Section -->
-      <div class="vnc-section">
-        <!-- Connection Controls (only show when error, not when connecting) -->
-        @if (hasError()) {
-          <div class="connection-overlay">
-            <div class="connection-card">
-              <div class="error-icon">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                  <circle cx="12" cy="12" r="10"/>
-                  <line x1="12" y1="8" x2="12" y2="12"/>
-                  <line x1="12" y1="16" x2="12.01" y2="16"/>
-                </svg>
-              </div>
-              <h3>Connection Failed</h3>
-              <p>{{ error() || 'Unable to connect to remote desktop' }}</p>
-              <button class="connect-button" (click)="connect()">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <polygon points="5 3 19 12 5 21 5 3"/>
-                </svg>
-                Retry
-              </button>
-            </div>
-          </div>
-        }
-
-        <!-- Loading State (show while connecting - covers vnc-section until ready) -->
-        @if (isConnecting()) {
-          <div class="loading-overlay">
-            <div class="loading-card">
-              <div class="loading-card-icon">
-                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-                  <rect x="2" y="3" width="20" height="14" rx="2"/>
-                  <path d="M8 21h8"/>
-                  <path d="M12 17v4"/>
-                </svg>
-              </div>
-              <h3 class="loading-card-title">Initializing sandbox</h3>
-              <p class="loading-card-subtitle">Preparing your environment and AI assistant...</p>
-              <div class="loader">
-                <div class="loader-ring"></div>
-                <div class="loader-ring"></div>
-                <div class="loader-ring"></div>
-              </div>
-              <p class="loading-card-hint">This usually takes a few seconds</p>
-            </div>
-          </div>
-        }
-
-        <!-- VNC Iframe - always render when we have a URL -->
-        <iframe 
-          #vncIframe
-          [src]="iframeSrc()"
-          class="vnc-iframe"
-          [class.visible]="hasIframeUrl()"
-          width="100%"
-          height="100%"
-          style="border: none;"
-          allow="clipboard-read; clipboard-write"
-          (load)="onIframeLoad()"
-          (error)="onIframeError()">
-        </iframe>
-      </div>
-
-      <!-- AI Conversations Panel (Right Side) -->
+      <!-- AI Conversations Panel (Left Side) -->
       @if (bridgePort()) {
         <div class="conversations-panel" [class.collapsed]="!showConversations()">
           <!-- Push & Create PR Button (only for story implementation, not backlog/analysis sandboxes) -->
@@ -369,6 +307,94 @@
           }
         </div>
       }
+
+      <!-- VNC Section -->
+      <div class="vnc-section">
+        <!-- Connection Controls (only show when error, not when connecting) -->
+        @if (hasError()) {
+          <div class="connection-overlay">
+            <div class="connection-card">
+              <div class="error-icon">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+              </div>
+              <h3>Connection Failed</h3>
+              <p>{{ error() || 'Unable to connect to remote desktop' }}</p>
+              <button class="connect-button" (click)="connect()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Retry
+              </button>
+            </div>
+          </div>
+        }
+
+        <!-- Loading State (show while connecting - covers vnc-section until ready) -->
+        @if (isConnecting()) {
+          <div class="loading-overlay">
+            <div class="loading-card">
+              <div class="loading-card-icon">
+                <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <path d="M8 21h8"/>
+                  <path d="M12 17v4"/>
+                </svg>
+              </div>
+              <h3 class="loading-card-title">Initializing sandbox</h3>
+              <p class="loading-card-subtitle">Preparing your environment and AI assistant...</p>
+              <div class="loader">
+                <div class="loader-ring"></div>
+                <div class="loader-ring"></div>
+                <div class="loader-ring"></div>
+              </div>
+              <p class="loading-card-hint">This usually takes a few seconds</p>
+            </div>
+          </div>
+        }
+
+        <!-- VNC Iframe - always render when we have a URL -->
+        <iframe 
+          #vncIframe
+          [src]="iframeSrc()"
+          class="vnc-iframe"
+          [class.visible]="hasIframeUrl()"
+          width="100%"
+          height="100%"
+          style="border: none;"
+          allow="clipboard-read; clipboard-write"
+          (load)="onIframeLoad()"
+          (error)="onIframeError()">
+        </iframe>
+
+        <!-- Fullscreen floating bar (RDP-style, always visible, centered) -->
+        @if (isFullscreen()) {
+          <div class="fullscreen-bar">
+            <span class="fullscreen-bar-title">{{ viewerTitle() }}</span>
+            <div class="fullscreen-bar-actions">
+              <button class="fullscreen-bar-btn" (click)="exitFullscreen(); toggleMinimize()" title="Minimize">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+              <button class="fullscreen-bar-btn" (click)="exitFullscreen()" title="Exit Fullscreen">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>
+                </svg>
+              </button>
+              <button class="fullscreen-bar-btn close" (click)="exitFullscreen(); close()" title="Close">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+        }
+      </div>
     </div>
 
     <!-- Resize Handles (only for floating mode) -->

@@ -313,9 +313,6 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       this.centerPopup();
     }
 
-    // Listen for fullscreen changes
-    document.addEventListener('fullscreenchange', this.handleFullscreenChange);
-
     // Iframe URL is set by the effect when config (and optional bridgePort) is available
 
     // Start conversation polling if bridge port is provided
@@ -520,7 +517,6 @@ export class VncViewerComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.disconnect();
-    document.removeEventListener('fullscreenchange', this.handleFullscreenChange);
     if (this.connectionTimeout) {
       clearTimeout(this.connectionTimeout);
     }
@@ -693,13 +689,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   }
 
   toggleFullscreen(): void {
-    if (this.vncIframeRef?.nativeElement) {
-      if (!document.fullscreenElement) {
-        this.vncIframeRef.nativeElement.requestFullscreen();
-      } else {
-        document.exitFullscreen();
-      }
-    }
+    this.isFullscreen.set(!this.isFullscreen());
   }
 
   openInNewTab(): void {
@@ -757,10 +747,6 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       }, 1000);
     }
   }
-
-  private handleFullscreenChange = (): void => {
-    this.isFullscreen.set(!!document.fullscreenElement);
-  };
 
   close(): void {
     this.disconnect();
@@ -899,11 +885,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     }
   }
 
-  // Keyboard shortcuts
-  @HostListener('document:keydown', ['$event'])
-  onKeyDown(event: KeyboardEvent): void {
-    if (event.key === 'Escape' && this.dockPosition() !== 'minimized') {
-      this.toggleMinimize();
-    }
+  exitFullscreen(): void {
+    this.isFullscreen.set(false);
   }
 }

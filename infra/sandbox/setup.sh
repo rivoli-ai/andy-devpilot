@@ -304,7 +304,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Inject automatic clipboard sync into noVNC:
-# - Host→Sandbox: intercept Ctrl+V keydown, read browser clipboard, push to VNC
+# - Host→Sandbox: on Ctrl+V/focus/click, read browser clipboard and push to VNC clipboard textarea
 # - Sandbox→Host: poll VNC clipboard textarea, write to browser clipboard
 RUN printf '%s\n' \
   '(function(){' \
@@ -334,7 +334,8 @@ RUN printf '%s\n' \
   '    navigator.clipboard.writeText(el.value).catch(function(){});}' \
   ' },500);' \
   '})();' > /usr/share/novnc/clipboard-sync.js && \
-    sed -i '/<\/body>/i <script src="clipboard-sync.js"><\/script>' /usr/share/novnc/vnc.html
+    sed -i '/<\/body>/i <script src="clipboard-sync.js"><\/script>' /usr/share/novnc/vnc.html && \
+    sed -i '/<\/head>/i <style>#noVNC_control_bar_anchor{display:none!important;}</style>' /usr/share/novnc/vnc.html
 
 # ── SSL certificates (build-time) ──
 # Custom certificates (Zscaler, corporate proxy, etc.) are loaded from the
@@ -516,6 +517,11 @@ RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
     echo '        add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;' >> /etc/nginx/sites-available/novnc && \
     echo '        add_header Access-Control-Allow-Headers "*" always;' >> /etc/nginx/sites-available/novnc && \
     echo '        add_header Permissions-Policy "clipboard-read=*, clipboard-write=*" always;' >> /etc/nginx/sites-available/novnc && \
+    echo '    }' >> /etc/nginx/sites-available/novnc && \
+    echo '    location /api/ {' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_pass http://127.0.0.1:8091/;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_set_header Host $host;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/sites-available/novnc && \
     echo '    }' >> /etc/nginx/sites-available/novnc && \
     echo '}' >> /etc/nginx/sites-available/novnc && \
     ln -sf /etc/nginx/sites-available/novnc /etc/nginx/sites-enabled/novnc && \
@@ -950,6 +956,9 @@ PROJECT_PATH = os.environ.get('DEVPILOT_PROJECT_PATH', '/home/sandbox/projects')
 
 # Conversation history
 conversation_history = []
+
+# Track whether the terminal panel has been opened in Zed
+_terminal_panel_opened = False
 
 try:
     from openai import OpenAI
@@ -2109,7 +2118,17 @@ def zed_send_prompt():
         # Step 6: Submit with Enter
         logger.info("Step 6: Submitting with Enter...")
         subprocess.run(['xdotool', 'key', 'Return'], env=env)
-        time.sleep(0.1)
+        time.sleep(0.5)
+        
+        # Step 7: Open terminal panel (once) now that the prompt is safely submitted
+        global _terminal_panel_opened
+        if not _terminal_panel_opened:
+            logger.info("Step 7: Opening terminal panel (ctrl+backtick)...")
+            subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
+            time.sleep(0.3)
+            subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+grave'], env=env)
+            time.sleep(0.3)
+            _terminal_panel_opened = True
         
         # Track pending prompt
         try:
@@ -2133,6 +2152,43 @@ def zed_send_prompt():
         logger.error(f"Zed send prompt error: {e}")
         import traceback
         logger.error(traceback.format_exc())
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/clipboard/paste', methods=['POST'])
+def clipboard_paste():
+    """Set the X11 CLIPBOARD via xclip and trigger Ctrl+V via xdotool.
+    
+    x11vnc's clipboard channel is broken on Ubuntu 24.04 (libvncserver 0.9.14 bug)
+    and doesn't provide UTF8_STRING targets that Zed requires.
+    xclip properly forks a daemon that maintains ownership and serves UTF8_STRING.
+    xdotool sends a real X11 keystroke so the focused app pastes reliably.
+    """
+    import time as _time
+    data = request.get_json()
+    text = data.get('text', '')
+    if not text:
+        return jsonify({"status": "empty"}), 200
+    
+    env = {**os.environ, 'DISPLAY': ':0'}
+    try:
+        proc = subprocess.Popen(
+            ['xclip', '-selection', 'clipboard'],
+            stdin=subprocess.PIPE,
+            env=env
+        )
+        proc.communicate(input=text.encode('utf-8'), timeout=5)
+        
+        _time.sleep(0.1)
+        
+        subprocess.run(
+            ['xdotool', 'key', '--clearmodifiers', 'ctrl+v'],
+            env=env,
+            timeout=5
+        )
+        
+        return jsonify({"status": "ok"})
+    except Exception as e:
+        logger.error(f"clipboard/paste error: {e}")
         return jsonify({"error": str(e)}), 500
 
 @app.route('/history', methods=['GET'])
@@ -2314,7 +2370,26 @@ def git_push_and_create_pr():
         logger.exception("Push failed")
         return jsonify({"error": str(e)}), 500
 
+def _deferred_terminal_open():
+    """Open the terminal panel after a delay if no prompt was sent."""
+    import time
+    time.sleep(60)
+    global _terminal_panel_opened
+    if _terminal_panel_opened:
+        return
+    logger.info("No prompt sent after 60s — opening terminal panel now")
+    env = {**os.environ, 'DISPLAY': ':0'}
+    window_id = find_zed_window()
+    if window_id:
+        subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
+        time.sleep(0.3)
+        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+grave'], env=env)
+        _terminal_panel_opened = True
+        logger.info("Terminal panel opened (deferred)")
+
 if __name__ == '__main__':
+    import threading
+    threading.Thread(target=_deferred_terminal_open, daemon=True).start()
     port = int(os.environ.get('BRIDGE_PORT', 8091))
     logger.info(f"Starting DevPilot Bridge API on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
@@ -3029,20 +3104,8 @@ sleep 3
 ZED_PID=$(pgrep -f "zed-editor" || pgrep -f "/home/sandbox/.local/bin/zed" || echo "")
 if [ -n "$ZED_PID" ]; then
     echo "Zed is running with PID: $ZED_PID" >> /tmp/sandbox-debug.log
-    # Open terminal panel by default (ctrl+backtick toggles terminal in Zed)
-    sleep 2
-    ZED_WID=$(DISPLAY=:0 xdotool search --pid "$ZED_PID" 2>/dev/null | head -1)
-    if [ -z "$ZED_WID" ]; then
-        ZED_WID=$(DISPLAY=:0 xdotool search --class "zed" 2>/dev/null | head -1)
-    fi
-    if [ -n "$ZED_WID" ]; then
-        DISPLAY=:0 xdotool windowactivate "$ZED_WID" 2>/dev/null
-        sleep 0.5
-        DISPLAY=:0 xdotool key --clearmodifiers ctrl+grave 2>/dev/null
-        echo "Terminal panel opened via ctrl+backtick (WID: $ZED_WID)" >> /tmp/sandbox-debug.log
-    else
-        echo "WARNING: Could not find Zed window to open terminal" >> /tmp/sandbox-debug.log
-    fi
+    # Terminal panel will be opened after the first prompt is pasted (via /zed/send-prompt)
+    # to avoid the terminal stealing focus and capturing the prompt text.
 else
     echo "WARNING: Zed process not found, check /tmp/zed-stdout.log" >> /tmp/sandbox-debug.log
 fi

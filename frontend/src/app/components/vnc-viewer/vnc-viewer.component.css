@@ -289,6 +289,25 @@
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
+/* Fullscreen mode (CSS-based, not browser fullscreen — Escape key goes to sandbox) */
+.vnc-popup.vnc-popup-fullscreen {
+  position: fixed !important;
+  inset: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  border-radius: 0 !important;
+  z-index: 99999 !important;
+  border: none !important;
+}
+
+.vnc-popup-fullscreen .popup-header {
+  display: none !important;
+}
+
+.vnc-popup-fullscreen .resize-handle {
+  display: none !important;
+}
+
 /* Dock Modes */
 .vnc-popup.floating {
   border-radius: 12px;
@@ -667,6 +686,64 @@
   display: none;
 }
 
+/* ==================== FULLSCREEN BAR (RDP-style, always visible, centered) ==================== */
+.fullscreen-bar {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  background: rgba(15, 15, 25, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: none;
+  border-radius: 0 0 10px 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  white-space: nowrap;
+}
+
+.fullscreen-bar-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.7);
+  letter-spacing: 0.02em;
+}
+
+.fullscreen-bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.fullscreen-bar-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.fullscreen-bar-btn:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: white;
+}
+
+.fullscreen-bar-btn.close:hover {
+  background: rgba(239, 68, 68, 0.3);
+  color: #fca5a5;
+}
+
 /* ==================== RESIZE HANDLES ==================== */
 .resize-handle {
   position: absolute;
@@ -887,7 +964,7 @@
 /* Light mode for Conversations Panel */
 :host-context([data-theme="light"]) .conversations-panel {
   background: #ffffff;
-  border-left: 1px solid rgba(0, 0, 0, 0.1);
+  border-right: 1px solid rgba(0, 0, 0, 0.1);
 }
 
 :host-context([data-theme="light"]) .push-pr-section {
@@ -1027,7 +1104,7 @@
   width: 350px;
   min-width: 350px;
   background: var(--surface-default, #171723);
-  border-left: 1px solid var(--border-light, rgba(255, 255, 255, 0.1));
+  border-right: 1px solid var(--border-light, rgba(255, 255, 255, 0.1));
   display: flex;
   flex-direction: column;
   transition: width 0.3s ease, min-width 0.3s ease;
@@ -1113,14 +1190,14 @@
 
 .conversations-toggle {
   position: absolute;
-  left: -16px;
+  right: -16px;
   top: 50%;
   transform: translateY(-50%);
   width: 32px;
   height: 48px;
   background: var(--surface-elevated, #1e1e2e);
   border: 1px solid var(--border-light, rgba(255, 255, 255, 0.1));
-  border-radius: 8px 0 0 8px;
+  border-radius: 0 8px 8px 0;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1679,23 +1756,23 @@
 @media (max-width: 900px) {
   .conversations-panel {
     position: absolute;
-    right: 0;
+    left: 0;
     top: 0;
     bottom: 0;
     width: 320px;
     min-width: 320px;
     z-index: 20;
-    box-shadow: -4px 0 20px rgba(0, 0, 0, 0.3);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
   }
   
   .conversations-panel.collapsed {
     width: 0;
     min-width: 0;
-    border-left: none;
+    border-right: none;
   }
   
   .conversations-toggle {
-    left: -40px;
+    right: -40px;
   }
 }
 
