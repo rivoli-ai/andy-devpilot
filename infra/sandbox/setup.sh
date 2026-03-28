@@ -304,10 +304,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install noVNC v1.6.0 (stable release with clipboard panel)
-RUN git clone --depth 1 --branch v1.6.0 https://github.com/novnc/noVNC.git /usr/share/novnc-latest && \
+RUN curl -fsSL https://github.com/novnc/noVNC/archive/refs/tags/v1.6.0.tar.gz -o /tmp/novnc.tar.gz && \
     rm -rf /usr/share/novnc && \
-    mv /usr/share/novnc-latest /usr/share/novnc && \
-    rm -rf /usr/share/novnc/.git && \
+    mkdir -p /usr/share/novnc && \
+    tar xzf /tmp/novnc.tar.gz -C /usr/share/novnc --strip-components=1 && \
+    rm -f /tmp/novnc.tar.gz && \
     ln -sf /usr/share/novnc/vnc.html /usr/share/novnc/index.html
 
 # Inject automatic clipboard sync into noVNC:
