@@ -110,6 +110,9 @@
           <span class="badge-dot"></span>
           <span class="badge-text">{{ connectionStateText() }}</span>
         </div>
+        @if (pasteFromHostMessage(); as pMsg) {
+          <span class="paste-host-hint" role="status">{{ pMsg }}</span>
+        }
       </div>
 
       <div class="header-actions">
@@ -142,6 +145,24 @@
         </button>
         
         <div class="action-divider"></div>
+
+        @if (bridgePort() && isConnected()) {
+          <button
+            class="action-btn"
+            type="button"
+            (click)="pasteFromHostClipboard()"
+            [disabled]="pasteFromHostBusy()"
+            title="Paste into Zed: copies text from your computer into the sandbox (use if Ctrl+V in the desktop does not work)">
+            @if (pasteFromHostBusy()) {
+              <span class="send-spinner send-spinner--tiny"></span>
+            } @else {
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+              </svg>
+            }
+          </button>
+        }
         
         <!-- Refresh -->
         <button class="action-btn" (click)="refreshIframe()" title="Refresh">
@@ -380,7 +401,27 @@
         @if (isFullscreen()) {
           <div class="fullscreen-bar">
             <span class="fullscreen-bar-title">{{ viewerTitle() }}</span>
+            @if (pasteFromHostMessage(); as fsMsg) {
+              <span class="fullscreen-bar-hint">{{ fsMsg }}</span>
+            }
             <div class="fullscreen-bar-actions">
+              @if (bridgePort() && isConnected()) {
+                <button
+                  class="fullscreen-bar-btn"
+                  type="button"
+                  (click)="pasteFromHostClipboard()"
+                  [disabled]="pasteFromHostBusy()"
+                  title="Paste from your computer into Zed (host clipboard)">
+                  @if (pasteFromHostBusy()) {
+                    <span class="send-spinner send-spinner--tiny"></span>
+                  } @else {
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                    </svg>
+                  }
+                </button>
+              }
               <button class="fullscreen-bar-btn" (click)="exitFullscreen(); toggleMinimize()" title="Minimize">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <line x1="5" y1="12" x2="19" y2="12"/>

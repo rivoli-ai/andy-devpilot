@@ -129,6 +129,18 @@ export class SandboxBridgeService {
   }
 
   /**
+   * Paste text from the host into the focused X11 app (e.g. Zed) via xclip + xdotool.
+   * Use this when browser/VNC clipboard sync fails (common with Zed in noVNC).
+   */
+  pasteHostClipboardIntoSandbox(bridgePort: number, text: string): Observable<{ status: string; error?: string }> {
+    return this.http.post<{ status: string; error?: string }>(
+      `${this.getBridgeUrl(bridgePort)}/clipboard/paste`,
+      { text },
+      { headers: this.getAuthHeaders(bridgePort) }
+    );
+  }
+
+  /**
    * Open Zed's agent panel
    */
   openZedAgent(bridgePort: number): Observable<{ status: string; window_id?: string }> {

@@ -380,6 +380,18 @@
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.paste-host-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.65));
+  max-width: min(240px, 40vw);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app-icon {
@@ -711,6 +723,15 @@
   font-weight: 600;
   color: rgba(255, 255, 255, 0.7);
   letter-spacing: 0.02em;
+}
+
+.fullscreen-bar-hint {
+  font-size: 11px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fullscreen-bar-actions {
@@ -1491,6 +1512,12 @@
   border-top-color: white;
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
+}
+
+.send-spinner--tiny {
+  width: 12px;
+  height: 12px;
+  border-width: 2px;
 }
 
 @keyframes spin {

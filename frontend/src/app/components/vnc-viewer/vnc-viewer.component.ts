@@ -107,6 +107,10 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   pushPrError = signal<string | null>(null);
   pushPrSuccess = signal<{ url: string; title: string } | null>(null);
 
+  /** Clipboard: paste from host OS into sandbox (bridge /clipboard/paste) */
+  pasteFromHostBusy = signal<boolean>(false);
+  pasteFromHostMessage = signal<string | null>(null);
+
   /** Enable Push & Create PR only after the latest turn has an AI reply. */
   hasLatestAssistantMessage = computed(() => {
     const convs = this.conversations();
@@ -688,6 +692,51 @@ export class VncViewerComponent implements OnInit, OnDestroy {
 
   hasError(): boolean {
     return this.connectionState() === VncConnectionState.Error;
+  }
+
+  /**
+   * Reads the host clipboard in the browser and sends it into the sandbox via the bridge
+   * (xclip + Ctrl+V). Use when normal copy/paste through noVNC does not reach Zed.
+   */
+  pasteFromHostClipboard(): void {
+    const port = this.bridgePort();
+    if (!port) {
+      this.pasteFromHostMessage.set('Sandbox bridge is not available.');
+      setTimeout(() => this.pasteFromHostMessage.set(null), 4000);
+      return;
+    }
+    if (!navigator.clipboard?.readText) {
+      this.pasteFromHostMessage.set('Clipboard API not available. Use a secure context (HTTPS) or a supported browser.');
+      setTimeout(() => this.pasteFromHostMessage.set(null), 5000);
+      return;
+    }
+    this.pasteFromHostBusy.set(true);
+    this.pasteFromHostMessage.set(null);
+    navigator.clipboard.readText().then((text) => {
+      if (!text) {
+        this.pasteFromHostBusy.set(false);
+        this.pasteFromHostMessage.set('Clipboard is empty.');
+        setTimeout(() => this.pasteFromHostMessage.set(null), 3000);
+        return;
+      }
+      this.sandboxBridgeService.pasteHostClipboardIntoSandbox(port, text).subscribe({
+        next: () => {
+          this.pasteFromHostBusy.set(false);
+          this.pasteFromHostMessage.set('Pasted into sandbox.');
+          setTimeout(() => this.pasteFromHostMessage.set(null), 2500);
+        },
+        error: (err) => {
+          this.pasteFromHostBusy.set(false);
+          const msg = err?.error?.error || err?.message || 'Paste failed';
+          this.pasteFromHostMessage.set(String(msg));
+          setTimeout(() => this.pasteFromHostMessage.set(null), 5000);
+        }
+      });
+    }).catch(() => {
+      this.pasteFromHostBusy.set(false);
+      this.pasteFromHostMessage.set('Could not read clipboard. Click the button again after copying, or allow clipboard permission.');
+      setTimeout(() => this.pasteFromHostMessage.set(null), 5000);
+    });
   }
 
   // Dock methods

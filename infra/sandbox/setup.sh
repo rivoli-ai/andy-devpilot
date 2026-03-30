@@ -311,8 +311,11 @@ RUN printf '%s\n' \
   ' var last="",lastPush="";' \
   ' function ta(){return document.getElementById("noVNC_clipboard_text")}' \
   ' function pushToVnc(text){' \
-  '  var el=ta();if(!el||!text||text===lastPush)return;' \
-  '  lastPush=text;el.value=text;el.dispatchEvent(new Event("change"));' \
+  '  var el=ta();if(!el||text==null||text==="")return;' \
+  '  if(text===lastPush)return;' \
+  '  lastPush=text;el.value=text;' \
+  '  el.dispatchEvent(new Event("input",{bubbles:true}));' \
+  '  el.dispatchEvent(new Event("change",{bubbles:true}));' \
   ' }' \
   ' function readAndPush(){' \
   '  if(navigator.clipboard&&navigator.clipboard.readText)' \
@@ -324,9 +327,9 @@ RUN printf '%s\n' \
   ' document.addEventListener("paste",function(e){' \
   '  var t=(e.clipboardData||window.clipboardData).getData("text");' \
   '  if(t)pushToVnc(t);' \
-  ' });' \
+  ' },true);' \
   ' window.addEventListener("focus",function(){readAndPush();});' \
-  ' document.addEventListener("click",function(){readAndPush();});' \
+  ' document.addEventListener("click",function(){readAndPush();},true);' \
   ' setInterval(function(){' \
   '  var el=ta();if(!el)return;' \
   '  if(el.value!==last){last=el.value;' \
