@@ -2812,6 +2812,7 @@ if [ -n "$ARTIFACT_FEEDS_JSON" ] && [ -n "$AZURE_DEVOPS_PAT" ]; then
 
     NUGET_SOURCES=""
     NUGET_CREDS=""
+    NUGET_FEED_URLS=""
     NPM_LINES=""
     PIP_EXTRA_URLS=""
 
@@ -2834,8 +2835,14 @@ if [ -n "$ARTIFACT_FEEDS_JSON" ] && [ -n "$AZURE_DEVOPS_PAT" ]; then
 
         case "$FEED_TYPE" in
             nuget)
-                NUGET_SOURCES="${NUGET_SOURCES}    <add key=\"${FEED_NAME}\" value=\"https://pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/nuget/v3/index.json\" />\n"
+                FEED_URL="https://pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/nuget/v3/index.json"
+                NUGET_SOURCES="${NUGET_SOURCES}    <add key=\"${FEED_NAME}\" value=\"${FEED_URL}\" />\n"
                 NUGET_CREDS="${NUGET_CREDS}    <${FEED_NAME}>\n      <add key=\"Username\" value=\"az\" />\n      <add key=\"ClearTextPassword\" value=\"${AZURE_DEVOPS_PAT}\" />\n    </${FEED_NAME}>\n"
+                if [ -n "$NUGET_FEED_URLS" ]; then
+                    NUGET_FEED_URLS="${NUGET_FEED_URLS};${FEED_URL}"
+                else
+                    NUGET_FEED_URLS="${FEED_URL}"
+                fi
                 ;;
             npm)
                 NPM_LINES="${NPM_LINES}registry=https://pkgs.dev.azure.com/${URL_ORG_PART}/_packaging/${FEED_FEED}/npm/registry/\n"
@@ -2856,6 +2863,12 @@ if [ -n "$ARTIFACT_FEEDS_JSON" ] && [ -n "$AZURE_DEVOPS_PAT" ]; then
         printf "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<configuration>\n  <packageSources>\n%b  </packageSources>\n  <packageSourceCredentials>\n%b  </packageSourceCredentials>\n</configuration>\n" "$NUGET_SOURCES" "$NUGET_CREDS" > /home/sandbox/.nuget/NuGet/NuGet.Config
         chown -R sandbox:sandbox /home/sandbox/.nuget
         echo "NuGet.Config written" >> /tmp/sandbox-debug.log
+
+        # Persist RestoreAdditionalProjectSources so private feeds bypass <clear /> in project configs
+        if [ -n "$NUGET_FEED_URLS" ]; then
+            echo "export RestoreAdditionalProjectSources=\"${NUGET_FEED_URLS}\"" >> /home/sandbox/.bashrc
+            echo "RestoreAdditionalProjectSources persisted to .bashrc" >> /tmp/sandbox-debug.log
+        fi
     fi
 
     if [ -n "$NPM_LINES" ]; then
@@ -2948,6 +2961,17 @@ if [ -n "$REPO_ARCHIVE_URL" ] && [ ! -d "$WORK_DIR/$REPO_NAME" ] && [ ! -d "/hom
         echo "ERROR: Failed to download repository archive" >> /tmp/sandbox-debug.log
         echo "Warning: Failed to download repository archive"
     fi
+fi
+
+# ── Ensure private NuGet feeds survive project-level <clear /> ────────────────
+# A project nuget.config with <clear /> in <packageSources> wipes user-level
+# sources. RestoreAdditionalProjectSources is an MSBuild property that injects
+# extra sources AFTER config resolution, so it bypasses <clear />.
+# Credentials from the user-level NuGet.Config still apply (<clear /> only
+# affects <packageSources>, not <packageSourceCredentials>).
+if [ -n "$NUGET_FEED_URLS" ]; then
+    export RestoreAdditionalProjectSources="$NUGET_FEED_URLS"
+    echo "RestoreAdditionalProjectSources=$NUGET_FEED_URLS" >> /tmp/sandbox-debug.log
 fi
 
 # Launch Zed with software rendering and D-Bus
@@ -3064,6 +3088,12 @@ unset WAYLAND_DISPLAY
 
 # D-Bus setup
 source /tmp/dbus-env.sh 2>/dev/null || true
+
+# Suppress GLib/GIO "connection flags" criticals: prevent GIO from attempting
+# D-Bus-backed VFS or GSettings, which fail in a headless container.
+export GIO_USE_VFS=local
+export GSETTINGS_BACKEND=memory
+export G_MESSAGES_DEBUG=""
 
 # Disable keyring prompt
 export GNOME_KEYRING_CONTROL=
