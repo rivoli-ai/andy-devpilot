@@ -94,6 +94,9 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.DefaultBranch).HasColumnName("default_branch").HasMaxLength(128);
             entity.Property(e => e.LlmSettingId).HasColumnName("llm_setting_id");
             entity.Property(e => e.AgentRules).HasColumnName("agent_rules");
+            entity.Property(e => e.AzureIdentityClientId).HasColumnName("azure_identity_client_id").HasMaxLength(256);
+            entity.Property(e => e.AzureIdentityClientSecret).HasColumnName("azure_identity_client_secret");
+            entity.Property(e => e.AzureIdentityTenantId).HasColumnName("azure_identity_tenant_id").HasMaxLength(256);
             entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 

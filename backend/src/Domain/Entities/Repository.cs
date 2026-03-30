@@ -19,6 +19,13 @@ public class Repository : Entity
     /// <summary>Custom AI agent rules for this repo. Null = use default template.</summary>
     public string? AgentRules { get; private set; }
 
+    /// <summary>Azure Service Principal client ID for sandbox authentication (Key Vault, etc.).</summary>
+    public string? AzureIdentityClientId { get; private set; }
+    /// <summary>Azure Service Principal client secret. Never exposed via DTOs.</summary>
+    public string? AzureIdentityClientSecret { get; private set; }
+    /// <summary>Azure AD tenant ID for the Service Principal.</summary>
+    public string? AzureIdentityTenantId { get; private set; }
+
     // Navigation properties
     public List<Epic> Epics { get; private set; } = new();
 
@@ -67,6 +74,17 @@ public class Repository : Entity
     public void UpdateAgentRules(string? agentRules)
     {
         AgentRules = agentRules;
+        MarkAsUpdated();
+    }
+
+    /// <summary>
+    /// Set or clear Azure Service Principal identity. Pass all three to set, all null to clear.
+    /// </summary>
+    public void UpdateAzureIdentity(string? clientId, string? clientSecret, string? tenantId)
+    {
+        AzureIdentityClientId = clientId;
+        AzureIdentityClientSecret = clientSecret;
+        AzureIdentityTenantId = tenantId;
         MarkAsUpdated();
     }
 }

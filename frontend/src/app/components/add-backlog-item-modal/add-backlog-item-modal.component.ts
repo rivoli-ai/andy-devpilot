@@ -30,7 +30,7 @@ export interface EditItemData {
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-backdrop" (click)="cancel.emit()">
+    <div class="modal-backdrop">
       <div class="modal-box" [class]="'type-' + itemType()" (click)="$event.stopPropagation()">
         <div class="modal-header">
           <div class="modal-header-left">

@@ -44,6 +44,9 @@ public record SandboxCreateRequest
     public object? ZedSettings { get; init; }
     public List<SandboxArtifactFeed>? ArtifactFeeds { get; init; }
     public string? AgentRules { get; init; }
+    public string? AzureIdentityClientId { get; init; }
+    public string? AzureIdentityClientSecret { get; init; }
+    public string? AzureIdentityTenantId { get; init; }
 }
 
 public record SandboxArtifactFeed

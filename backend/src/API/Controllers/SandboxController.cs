@@ -19,12 +19,14 @@ public class SandboxController : ControllerBase
 {
     private readonly ISandboxService _sandboxService;
     private readonly IUserRepository _userRepository;
+    private readonly IRepositoryRepository _repositoryRepository;
     private readonly ILogger<SandboxController> _logger;
 
-    public SandboxController(ISandboxService sandboxService, IUserRepository userRepository, ILogger<SandboxController> logger)
+    public SandboxController(ISandboxService sandboxService, IUserRepository userRepository, IRepositoryRepository repositoryRepository, ILogger<SandboxController> logger)
     {
         _sandboxService = sandboxService;
         _userRepository = userRepository;
+        _repositoryRepository = repositoryRepository;
         _logger = logger;
     }
 
@@ -67,6 +69,20 @@ public class SandboxController : ControllerBase
                 azureDevOpsPat = user?.AzureDevOpsAccessToken;
             }
 
+            // Resolve Azure Service Principal identity from the repository entity (secret is never sent by frontend)
+            string? azureIdClientId = null, azureIdClientSecret = null, azureIdTenantId = null;
+            if (!string.IsNullOrEmpty(request.RepoName))
+            {
+                var userRepos = await _repositoryRepository.GetByUserIdAsync(userId, cancellationToken);
+                var repo = userRepos.FirstOrDefault(r => r.Name == request.RepoName);
+                if (repo != null && !string.IsNullOrEmpty(repo.AzureIdentityClientId) && !string.IsNullOrEmpty(repo.AzureIdentityClientSecret) && !string.IsNullOrEmpty(repo.AzureIdentityTenantId))
+                {
+                    azureIdClientId = repo.AzureIdentityClientId;
+                    azureIdClientSecret = repo.AzureIdentityClientSecret;
+                    azureIdTenantId = repo.AzureIdentityTenantId;
+                }
+            }
+
             var result = await _sandboxService.CreateSandboxAsync(
                 userId,
                 new SandboxCreateRequest
@@ -95,6 +111,9 @@ public class SandboxController : ControllerBase
                         FeedType = f.FeedType,
                     }).ToList(),
                     AgentRules = request.AgentRules,
+                    AzureIdentityClientId = azureIdClientId,
+                    AzureIdentityClientSecret = azureIdClientSecret,
+                    AzureIdentityTenantId = azureIdTenantId,
                 },
                 cancellationToken);
 

@@ -95,7 +95,10 @@ public class SyncRepositoriesFromGitHubCommandHandler : IRequestHandler<SyncRepo
             CreatedAt = repository.CreatedAt,
             UpdatedAt = repository.UpdatedAt,
             LlmSettingId = repository.LlmSettingId,
-            AgentRules = repository.AgentRules
+            AgentRules = repository.AgentRules,
+            AzureIdentityClientId = repository.AzureIdentityClientId,
+            AzureIdentityTenantId = repository.AzureIdentityTenantId,
+            HasAzureIdentity = !string.IsNullOrEmpty(repository.AzureIdentityClientId) && !string.IsNullOrEmpty(repository.AzureIdentityClientSecret) && !string.IsNullOrEmpty(repository.AzureIdentityTenantId)
         };
     }
 }

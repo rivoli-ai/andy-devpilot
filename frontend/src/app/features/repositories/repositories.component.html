@@ -341,7 +341,16 @@
               </div>
 
               <div class="repo-card__body">
-                <h3 class="repo-name">{{ repo.name }}</h3>
+                <h3 class="repo-name">
+                  {{ repo.name }}
+                  @if (repo.hasAzureIdentity) {
+                    <span class="azure-id-badge" title="Azure Service Principal configured">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                      </svg>
+                    </span>
+                  }
+                </h3>
                 @if (repo.description?.trim()) {
                   <p class="repo-description">{{ repo.description }}</p>
                 }
@@ -401,7 +410,7 @@
 
 <!-- Add GitHub Repo Modal -->
 @if (showAddRepoModal()) {
-  <div class="modal-overlay" (click)="closeAddRepoModal()">
+  <div class="modal-overlay">
     <div class="modal-content" (click)="$event.stopPropagation()">
       <div class="modal-header">
         <h3>Add GitHub repository</h3>
@@ -460,7 +469,7 @@
 
 <!-- Azure DevOps Organization Prompt Modal -->
 @if (showAzureDevOpsOrgPrompt()) {
-  <div class="modal-overlay" (click)="cancelAzureDevOpsOrgPrompt()">
+  <div class="modal-overlay">
     <div class="modal-content" (click)="$event.stopPropagation()">
       <div class="modal-header">
         <h3>Connect to Azure DevOps</h3>
@@ -515,7 +524,7 @@
 
 <!-- Sync selection modal: choose which repositories to add -->
 @if (showSyncSelectModal()) {
-  <div class="modal-overlay" (click)="closeSyncSelectModal()">
+  <div class="modal-overlay">
     <div class="modal-content sync-modal" (click)="$event.stopPropagation()" [class.sync-modal--github]="syncSelectProvider() === 'GitHub'" [class.sync-modal--azure]="syncSelectProvider() === 'AzureDevOps'">
       <div class="sync-modal__header">
         <div class="sync-modal__title-row">
@@ -637,7 +646,7 @@
 
 <!-- Share repository modal -->
 @if (showShareModal()) {
-  <div class="modal-overlay" (click)="closeShareModal()">
+  <div class="modal-overlay">
     <div class="modal-content share-modal" (click)="$event.stopPropagation()">
       <div class="share-modal__header">
         <h3 class="share-modal__title">Share repository</h3>
@@ -718,5 +727,4 @@
     </div>
   </div>
 }
-
 

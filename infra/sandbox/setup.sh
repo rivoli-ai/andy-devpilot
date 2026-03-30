@@ -2791,6 +2791,21 @@ chmod 644 /home/sandbox/.config/zed/settings.json
 echo "Zed settings written:" >> /tmp/sandbox-debug.log
 cat /home/sandbox/.config/zed/settings.json >> /tmp/sandbox-debug.log
 
+# ── Azure Service Principal login (for Key Vault, Azure SDK, etc.) ─────────────
+if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ] && [ -n "$AZURE_TENANT_ID" ]; then
+    echo "Logging in to Azure as Service Principal..." >> /tmp/sandbox-debug.log
+    if command -v az >/dev/null 2>&1; then
+        az login --service-principal \
+            -u "$AZURE_CLIENT_ID" \
+            -p "$AZURE_CLIENT_SECRET" \
+            --tenant "$AZURE_TENANT_ID" \
+            --output none 2>>/tmp/sandbox-debug.log || echo "az login failed (non-fatal)" >> /tmp/sandbox-debug.log
+        echo "Azure SP login complete" >> /tmp/sandbox-debug.log
+    else
+        echo "az CLI not found, skipping az login (SDK will use env vars directly)" >> /tmp/sandbox-debug.log
+    fi
+fi
+
 # ── Configure private artifact feeds ──────────────────────────────────────────
 if [ -n "$ARTIFACT_FEEDS_JSON" ] && [ -n "$AZURE_DEVOPS_PAT" ]; then
     echo "Configuring artifact feeds..." >> /tmp/sandbox-debug.log

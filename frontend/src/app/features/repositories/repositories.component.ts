@@ -86,7 +86,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   shareModalAdding = signal<boolean>(false);
   shareModalSuggestions = signal<{ userId: string; email: string; name?: string }[]>([]);
   private shareSuggestQuery$ = new Subject<string>();
-  
+
   // Provider filter
   activeProviderTab = signal<'all' | 'GitHub' | 'AzureDevOps'>('all');
   // Visibility filter: all repos, only mine, or only shared with me

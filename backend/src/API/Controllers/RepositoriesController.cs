@@ -68,6 +68,13 @@ public class UpdateRepositoryAgentRulesRequest
     public string? AgentRules { get; set; }
 }
 
+public class UpdateAzureIdentityRequest
+{
+    public string? ClientId { get; set; }
+    public string? ClientSecret { get; set; }
+    public string? TenantId { get; set; }
+}
+
 /// <summary>
 /// Controller for managing repositories
 /// Follows Clean Architecture - no business logic, only delegates to Application layer
@@ -252,6 +259,63 @@ public class RepositoriesController : ControllerBase
         if (repo == null) return NotFound(new { message = "Repository not found" });
 
         return Ok(new { agentRules = repo.AgentRules, isDefault = repo.AgentRules == null });
+    }
+
+    /// <summary>
+    /// Update Azure Service Principal identity for sandbox authentication (owner only).
+    /// Pass all three fields to set, or all null/empty to clear.
+    /// </summary>
+    [HttpPatch("{id}/azure-identity")]
+    [Authorize]
+    public async Task<IActionResult> UpdateAzureIdentity(Guid id, [FromBody] UpdateAzureIdentityRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        var hasAny = !string.IsNullOrWhiteSpace(request.ClientId) || !string.IsNullOrWhiteSpace(request.ClientSecret) || !string.IsNullOrWhiteSpace(request.TenantId);
+        var hasAll = !string.IsNullOrWhiteSpace(request.ClientId) && !string.IsNullOrWhiteSpace(request.ClientSecret) && !string.IsNullOrWhiteSpace(request.TenantId);
+
+        if (hasAny && !hasAll)
+            return BadRequest(new { message = "All three fields (clientId, clientSecret, tenantId) must be provided together, or all left empty to clear." });
+
+        repo.UpdateAzureIdentity(
+            hasAll ? request.ClientId!.Trim() : null,
+            hasAll ? request.ClientSecret!.Trim() : null,
+            hasAll ? request.TenantId!.Trim() : null);
+
+        await _repositoryRepository.UpdateAsync(repo, cancellationToken);
+
+        return Ok(new { message = "Azure identity updated", hasAzureIdentity = hasAll });
+    }
+
+    /// <summary>
+    /// Get Azure Service Principal identity config (never returns the secret).
+    /// </summary>
+    [HttpGet("{id}/azure-identity")]
+    [Authorize]
+    public async Task<IActionResult> GetAzureIdentity(Guid id, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+
+        return Ok(new
+        {
+            clientId = repo.AzureIdentityClientId,
+            tenantId = repo.AzureIdentityTenantId,
+            hasSecret = !string.IsNullOrEmpty(repo.AzureIdentityClientSecret),
+            hasAzureIdentity = !string.IsNullOrEmpty(repo.AzureIdentityClientId)
+                && !string.IsNullOrEmpty(repo.AzureIdentityClientSecret)
+                && !string.IsNullOrEmpty(repo.AzureIdentityTenantId)
+        });
     }
 
     /// <summary>

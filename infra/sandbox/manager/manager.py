@@ -257,7 +257,14 @@ def _build_environment(data: dict, sandbox_id: str, sandbox_token: str, vnc_pass
     if data.get("agent_rules"):
         environment["AGENT_RULES"] = data["agent_rules"]
 
-    safe_env = {k: ("***" if "KEY" in k or "TOKEN" in k or "PAT" in k else v) for k, v in environment.items()}
+    if data.get("azure_identity_client_id"):
+        environment["AZURE_CLIENT_ID"] = data["azure_identity_client_id"]
+    if data.get("azure_identity_client_secret"):
+        environment["AZURE_CLIENT_SECRET"] = data["azure_identity_client_secret"]
+    if data.get("azure_identity_tenant_id"):
+        environment["AZURE_TENANT_ID"] = data["azure_identity_tenant_id"]
+
+    safe_env = {k: ("***" if "KEY" in k or "TOKEN" in k or "PAT" in k or "SECRET" in k else v) for k, v in environment.items()}
     print(f"Environment (redacted): {safe_env}")
     return environment
 

@@ -4972,6 +4972,290 @@ a.source-badge.gh:hover {
   gap: 6px;
 }
 
+/* Azure identity: same vertical metrics as other .action-btn (0.5rem 1rem); icon-only, distinct colors for configured vs not */
+.action-btn.azure-identity-btn {
+  justify-content: center;
+  gap: 0;
+  padding: 0.5rem 0.75rem;
+  min-width: 2.5rem;
+  box-sizing: border-box;
+  border: 1px solid rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.14);
+  color: #d97706;
+}
+
+.action-btn.azure-identity-btn:hover {
+  background: rgba(245, 158, 11, 0.22);
+  border-color: rgba(245, 158, 11, 0.5);
+  color: #b45309;
+}
+
+.action-btn.azure-identity-btn.azure-identity-btn--active {
+  border-color: rgba(14, 165, 233, 0.45);
+  background: rgba(14, 165, 233, 0.14);
+  color: #0284c7;
+}
+
+.action-btn.azure-identity-btn.azure-identity-btn--active:hover {
+  background: rgba(14, 165, 233, 0.22);
+  border-color: rgba(14, 165, 233, 0.55);
+  color: #0369a1;
+}
+
+:host-context([data-theme="light"]) .action-btn.azure-identity-btn {
+  border-color: rgba(217, 119, 6, 0.35);
+  background: rgba(251, 191, 36, 0.18);
+  color: #b45309;
+}
+
+:host-context([data-theme="light"]) .action-btn.azure-identity-btn:hover {
+  background: rgba(251, 191, 36, 0.28);
+  color: #92400e;
+}
+
+:host-context([data-theme="light"]) .action-btn.azure-identity-btn.azure-identity-btn--active {
+  border-color: rgba(2, 132, 199, 0.45);
+  background: rgba(14, 165, 233, 0.14);
+  color: #0369a1;
+}
+
+:host-context([data-theme="light"]) .action-btn.azure-identity-btn.azure-identity-btn--active:hover {
+  background: rgba(14, 165, 233, 0.22);
+  color: #0c4a6e;
+}
+
+/* Azure Identity modal (backlog header) */
+.azure-identity-modal-panel {
+  background: var(--bg-primary, #1e1e2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 12px;
+  width: 460px;
+  max-width: 95vw;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.azure-identity-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  flex-shrink: 0;
+}
+
+.azure-identity-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary, #cdd6f4);
+}
+
+.azure-identity-modal__title svg {
+  color: #0ea5e9;
+}
+
+.azure-identity-modal__close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #a6adc8);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+
+.azure-identity-modal__close:hover {
+  color: var(--text-primary, #cdd6f4);
+  background: var(--bg-secondary, #2a2a3e);
+}
+
+.azure-identity-modal__body {
+  padding: 20px 24px;
+  overflow-y: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.azure-identity-modal__repo-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary, #a6adc8);
+  margin: 0 0 6px;
+}
+
+.azure-identity-modal__help {
+  font-size: 12px;
+  color: var(--text-muted, #7f849c);
+  margin: 0 0 16px;
+  line-height: 1.5;
+}
+
+.azure-identity-modal__help code {
+  font-size: 11px;
+  background: var(--bg-secondary, #2a2a3e);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: #0ea5e9;
+}
+
+.azure-identity-modal__error {
+  font-size: 13px;
+  color: #f38ba8;
+  margin: 0 0 12px;
+}
+
+.azure-identity-modal__loading {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted, #7f849c);
+}
+
+.azure-identity-modal__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.azure-identity-modal__label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #a6adc8);
+}
+
+.azure-identity-modal__input {
+  padding: 10px 14px;
+  background: var(--bg-secondary, #181825);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  color: var(--text-primary, #cdd6f4);
+  font-size: 13px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  transition: border-color 0.2s;
+  box-sizing: border-box;
+}
+
+.azure-identity-modal__input:focus {
+  outline: none;
+  border-color: #0ea5e9;
+}
+
+.azure-identity-modal__input::placeholder {
+  color: var(--text-muted, #7f849c);
+  font-family: inherit;
+}
+
+.azure-identity-modal__hint {
+  font-size: 11px;
+  color: var(--text-muted, #7f849c);
+  font-style: italic;
+}
+
+.azure-identity-modal__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color, rgba(255, 255, 255, 0.08));
+  justify-content: flex-end;
+  flex-shrink: 0;
+}
+
+.azure-identity-modal__cancel {
+  padding: 8px 18px;
+  background: transparent;
+  border: 1px solid var(--border-color, #45475a);
+  border-radius: 8px;
+  color: var(--text-secondary, #a6adc8);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.azure-identity-modal__cancel:hover {
+  background: var(--bg-secondary, #2a2a3e);
+}
+
+.azure-identity-modal__save {
+  padding: 8px 20px;
+  background: #0ea5e9;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.azure-identity-modal__save:hover:not(:disabled) {
+  background: #0284c7;
+}
+
+.azure-identity-modal__save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.azure-identity-modal__remove {
+  margin-right: auto;
+  padding: 8px 18px;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  border-radius: 8px;
+  color: #f38ba8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.azure-identity-modal__remove:hover:not(:disabled) {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.azure-identity-modal__remove:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal-panel {
+  background: #ffffff;
+  border-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal__title {
+  color: #111827;
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal__close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal__input {
+  background: #ffffff;
+  border-color: #d1d5db;
+  color: #111827;
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal__input:focus {
+  border-color: #0284c7;
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal__help code {
+  background: rgba(14, 165, 233, 0.08);
+  color: #0369a1;
+}
+
 /* Agent Rules Modal */
 .rules-modal {
   background: var(--bg-primary, #1e1e2e);
@@ -5028,6 +5312,77 @@ a.source-badge.gh:hover {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.rules-modal__view-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 4px;
+  border-radius: 8px;
+  background: var(--bg-secondary, #181825);
+  border: 1px solid var(--border-color, #333);
+}
+
+.rules-modal__tab {
+  flex: 1;
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  background: transparent;
+  color: var(--text-secondary, #a6adc8);
+  transition: background 0.15s, color 0.15s;
+}
+
+.rules-modal__tab:hover {
+  color: var(--text-primary, #cdd6f4);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.rules-modal__tab--active {
+  background: var(--bg-primary, #1e1e2e);
+  color: var(--text-primary, #cdd6f4);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.rules-modal__preview {
+  min-height: 320px;
+  max-height: min(55vh, 560px);
+  overflow: auto;
+  padding: 14px 16px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  background: var(--bg-secondary, #181825);
+  box-sizing: border-box;
+}
+
+.rules-modal__preview--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  color: var(--text-muted, #7f849c);
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 48px 24px;
+}
+
+.rules-modal__preview--empty strong {
+  color: var(--text-secondary, #a6adc8);
+}
+
+/* Rules preview: slightly larger prose than backlog detail panels */
+:host ::ng-deep .rules-modal__preview.markdown-content {
+  font-size: 0.9rem;
+}
+
+:host ::ng-deep .rules-modal__preview.markdown-content img {
+  max-width: 100% !important;
+  max-height: 320px !important;
 }
 
 .rules-modal__badge {
@@ -5132,6 +5487,131 @@ a.source-badge.gh:hover {
   cursor: not-allowed;
 }
 
+/* Agent Rules Modal — light theme (explicit; vars alone often stay on dark tokens in this view) */
+:host-context([data-theme="light"]) .modal-overlay {
+  background: rgba(15, 23, 42, 0.4);
+}
+
+:host-context([data-theme="light"]) .rules-modal {
+  background: #ffffff;
+  border-color: #e5e7eb;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.12);
+}
+
+:host-context([data-theme="light"]) .rules-modal__header {
+  border-bottom-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .rules-modal__title,
+:host-context([data-theme="light"]) .rules-modal__title h3 {
+  color: #111827;
+}
+
+:host-context([data-theme="light"]) .rules-modal__repo-name {
+  color: #4b5563;
+  background: #f3f4f6;
+}
+
+:host-context([data-theme="light"]) .rules-modal__hint {
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .rules-modal__view-tabs {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .rules-modal__tab {
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .rules-modal__tab:hover {
+  color: #111827;
+  background: rgba(0, 0, 0, 0.04);
+}
+
+:host-context([data-theme="light"]) .rules-modal__tab--active {
+  background: #ffffff;
+  color: #111827;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+:host-context([data-theme="light"]) .rules-modal__preview {
+  background: #f9fafb;
+  border-color: #d1d5db;
+}
+
+:host-context([data-theme="light"]) .rules-modal__preview--empty {
+  color: #9ca3af;
+}
+
+:host-context([data-theme="light"]) .rules-modal__preview--empty strong {
+  color: #4b5563;
+}
+
+:host-context([data-theme="light"]) .rules-modal__badge.default {
+  background: rgba(59, 130, 246, 0.12);
+  color: #2563eb;
+}
+
+:host-context([data-theme="light"]) .rules-modal__badge.custom {
+  background: rgba(22, 163, 74, 0.12);
+  color: #15803d;
+}
+
+:host-context([data-theme="light"]) .rules-modal__editor {
+  background: #f9fafb;
+  color: #111827;
+  border-color: #d1d5db;
+}
+
+:host-context([data-theme="light"]) .rules-modal__editor:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+}
+
+:host-context([data-theme="light"]) .rules-modal__editor::placeholder {
+  color: #9ca3af;
+}
+
+:host-context([data-theme="light"]) .rules-modal__loading {
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .rules-modal__footer {
+  border-top-color: #e5e7eb;
+  background: #ffffff;
+}
+
+:host-context([data-theme="light"]) .rules-modal__reset {
+  border-color: rgba(220, 38, 38, 0.35);
+  color: #dc2626;
+}
+
+:host-context([data-theme="light"]) .rules-modal__reset:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.06);
+}
+
+:host-context([data-theme="light"]) .rules-modal__cancel {
+  border-color: #d1d5db;
+  color: #374151;
+}
+
+:host-context([data-theme="light"]) .rules-modal__cancel:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+:host-context([data-theme="light"]) .rules-modal__save {
+  background: #6366f1;
+  color: #ffffff;
+}
+
+:host-context([data-theme="light"]) .rules-modal__save:hover:not(:disabled) {
+  background: #4f46e5;
+  filter: none;
+}
+
 .modal-close {
   background: none;
   border: none;
@@ -5145,4 +5625,13 @@ a.source-badge.gh:hover {
 .modal-close:hover {
   background: var(--bg-secondary, #2a2a3e);
   color: var(--text-primary, #cdd6f4);
+}
+
+:host-context([data-theme="light"]) .modal-close {
+  color: #6b7280;
+}
+
+:host-context([data-theme="light"]) .modal-close:hover {
+  background: #f3f4f6;
+  color: #111827;
 }

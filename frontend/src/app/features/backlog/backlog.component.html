@@ -34,6 +34,18 @@
           </svg>
           Rules
         </button>
+        <button
+          type="button"
+          class="action-btn azure-identity-btn"
+          [class.azure-identity-btn--active]="repository()?.hasAzureIdentity === true"
+          (click)="openAzureIdentityModal()"
+          [title]="repository()?.hasAzureIdentity ? 'Azure Identity configured' : 'Configure Azure Identity'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <circle cx="12" cy="16.5" r="1.5"/>
+            <path d="M7 11V7a5 5 0 0110 0v4"/>
+          </svg>
+        </button>
       }
       <!-- AI model selector (same UI as branch selector in code view) -->
       @if (repository() && getLlmSettings().length > 0) {
@@ -1472,27 +1484,31 @@
                       
                       @if (item.story.acceptanceCriteria) {
                         <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
-                        <div class="ac-rendered">
-                          @for (criterion of parseCriteria(item.story.acceptanceCriteria); track $index) {
-                            <div class="ac-card">
-                              <span class="ac-number">{{ $index + 1 }}</span>
-                              <div class="ac-content">
-                                @if (criterion.given) {
-                                  <div class="ac-part"><span class="ac-keyword given">Given</span> {{ criterion.given }}</div>
-                                }
-                                @if (criterion.when) {
-                                  <div class="ac-part"><span class="ac-keyword when">When</span> {{ criterion.when }}</div>
-                                }
-                                @if (criterion.then) {
-                                  <div class="ac-part"><span class="ac-keyword then">Then</span> {{ criterion.then }}</div>
-                                }
-                                @if (!criterion.given && !criterion.when && !criterion.then) {
-                                  <div class="ac-part ac-plain">{{ criterion.raw }}</div>
-                                }
+                        @if (isAdoRichText(item.story.acceptanceCriteria)) {
+                          <div class="detail-text markdown-content ado-rich-text ac-ado-html" [innerHTML]="richAcceptanceCriteriaHtml(item.story.acceptanceCriteria)"></div>
+                        } @else {
+                          <div class="ac-rendered">
+                            @for (criterion of parseCriteria(item.story.acceptanceCriteria); track $index) {
+                              <div class="ac-card">
+                                <span class="ac-number">{{ $index + 1 }}</span>
+                                <div class="ac-content">
+                                  @if (criterion.given) {
+                                    <div class="ac-part"><span class="ac-keyword given">Given</span> {{ criterion.given }}</div>
+                                  }
+                                  @if (criterion.when) {
+                                    <div class="ac-part"><span class="ac-keyword when">When</span> {{ criterion.when }}</div>
+                                  }
+                                  @if (criterion.then) {
+                                    <div class="ac-part"><span class="ac-keyword then">Then</span> {{ criterion.then }}</div>
+                                  }
+                                  @if (!criterion.given && !criterion.when && !criterion.then) {
+                                    <div class="ac-part ac-plain">{{ criterion.raw }}</div>
+                                  }
+                                </div>
                               </div>
-                            </div>
-                          }
-                        </div>
+                            }
+                          </div>
+                        }
                       }
                     </div>
                     <div class="detail-sidebar">
@@ -1615,7 +1631,7 @@
 
   <!-- Delete Confirmation Modal -->
   @if (deleteConfirmation(); as confirm) {
-    <div class="delete-modal-overlay" (click)="cancelDelete()">
+    <div class="delete-modal-overlay">
       <div class="delete-modal" (click)="$event.stopPropagation()">
         <div class="delete-modal-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1644,7 +1660,7 @@
 
   <!-- Bulk Delete Confirmation Modal -->
   @if (bulkDeleteConfirmation(); as bulk) {
-    <div class="delete-modal-overlay" (click)="cancelBulkDelete()">
+    <div class="delete-modal-overlay">
       <div class="delete-modal" (click)="$event.stopPropagation()">
         <div class="delete-modal-icon">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -1671,7 +1687,7 @@
 
   <!-- Generate with AI – Prompt options + Confirm modal -->
   @if (showGeneratePromptModal()) {
-    <div class="prompt-modal-overlay" (click)="showGeneratePromptModal.set(false)">
+    <div class="prompt-modal-overlay">
       <div class="prompt-modal" (click)="$event.stopPropagation()">
         <div class="prompt-modal-header">
           <h3 class="prompt-panel-title">Backlog generation prompt</h3>
@@ -1744,7 +1760,7 @@
 
   <!-- Azure DevOps Import Modal -->
   @if (showAzureDevOpsImport()) {
-    <div class="ado-modal-overlay" (click)="closeAzureDevOpsImport()">
+    <div class="ado-modal-overlay">
       <div class="ado-modal" (click)="$event.stopPropagation()">
         <div class="ado-modal-header">
           <div class="ado-modal-title">
@@ -2232,7 +2248,7 @@
 
   <!-- GitHub Import Modal -->
   @if (showGitHubImport()) {
-    <div class="ado-modal-overlay" (click)="closeGitHubImport()">
+    <div class="ado-modal-overlay">
       <div class="ado-modal" (click)="$event.stopPropagation()">
         <div class="ado-modal-header">
           <div class="ado-modal-title">
@@ -2485,7 +2501,7 @@
 </div>
 
 @if (lightboxImageSrc) {
-  <div class="lightbox-overlay" (click)="closeLightbox()">
+  <div class="lightbox-overlay">
     <button class="lightbox-close" (click)="closeLightbox()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="24" height="24">
         <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -2495,9 +2511,72 @@
   </div>
 }
 
+<!-- Azure Identity Modal -->
+@if (showAzureIdentityModal() && repository(); as azRepo) {
+  <div class="modal-overlay">
+    <div class="azure-identity-modal-panel" (click)="$event.stopPropagation()">
+      <div class="azure-identity-modal__header">
+        <h3 class="azure-identity-modal__title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+          </svg>
+          Azure Identity
+        </h3>
+        <button type="button" class="azure-identity-modal__close" (click)="closeAzureIdentityModal()" aria-label="Close">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="azure-identity-modal__body">
+        <p class="azure-identity-modal__repo-name">{{ azRepo.name }}</p>
+        <p class="azure-identity-modal__help">Service Principal credentials injected into sandbox containers as <code>AZURE_CLIENT_ID</code>, <code>AZURE_CLIENT_SECRET</code>, <code>AZURE_TENANT_ID</code> environment variables.</p>
+        @if (azureIdentityError()) {
+          <p class="azure-identity-modal__error">{{ azureIdentityError() }}</p>
+        }
+        @if (azureIdentityLoading()) {
+          <div class="azure-identity-modal__loading">Loading...</div>
+        } @else {
+          <div class="azure-identity-modal__fields">
+            <label class="azure-identity-modal__label">
+              <span>Tenant ID</span>
+              <input type="text" class="azure-identity-modal__input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" [ngModel]="azureIdentityTenantId()" (ngModelChange)="azureIdentityTenantId.set($event)" />
+            </label>
+            <label class="azure-identity-modal__label">
+              <span>Client ID</span>
+              <input type="text" class="azure-identity-modal__input" placeholder="xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx" [ngModel]="azureIdentityClientId()" (ngModelChange)="azureIdentityClientId.set($event)" />
+            </label>
+            <label class="azure-identity-modal__label">
+              <span>Client Secret</span>
+              <input type="password" class="azure-identity-modal__input" placeholder="Enter client secret" [ngModel]="azureIdentityClientSecret()" (ngModelChange)="azureIdentityClientSecret.set($event)" />
+              @if (azureIdentityHasSecret() && !azureIdentityClientSecret()) {
+                <span class="azure-identity-modal__hint">A secret is already stored. Leave blank to keep it unchanged.</span>
+              }
+            </label>
+          </div>
+        }
+      </div>
+      <div class="azure-identity-modal__footer">
+        @if (azRepo.hasAzureIdentity) {
+          <button type="button" class="azure-identity-modal__remove" (click)="removeAzureIdentity()" [disabled]="azureIdentitySaving()">Remove</button>
+        }
+        <button type="button" class="azure-identity-modal__cancel" (click)="closeAzureIdentityModal()">Cancel</button>
+        <button type="button" class="azure-identity-modal__save" (click)="saveAzureIdentity()" [disabled]="azureIdentitySaving()">
+          @if (azureIdentitySaving()) {
+            Saving...
+          } @else {
+            Save
+          }
+        </button>
+      </div>
+    </div>
+  </div>
+}
+
 <!-- Agent Rules Editor Modal -->
 @if (showRulesModal()) {
-  <div class="modal-overlay" (click)="closeRulesEditor()">
+  <div class="modal-overlay">
     <div class="rules-modal" (click)="$event.stopPropagation()">
       <div class="rules-modal__header">
         <div class="rules-modal__title">
@@ -2529,13 +2608,44 @@
               <span class="rules-modal__badge custom">Custom</span>
             }
           </p>
-          <textarea
-            class="rules-modal__editor"
-            [(ngModel)]="rulesEditText"
-            [disabled]="rulesSaving()"
-            spellcheck="false"
-            rows="20"
-            placeholder="Enter AI agent instructions..."></textarea>
+          <div class="rules-modal__view-tabs" role="tablist" aria-label="Rules view">
+            <button
+              type="button"
+              class="rules-modal__tab"
+              role="tab"
+              [attr.aria-selected]="rulesViewMode() === 'preview'"
+              [class.rules-modal__tab--active]="rulesViewMode() === 'preview'"
+              (click)="rulesViewMode.set('preview')">
+              Preview
+            </button>
+            <button
+              type="button"
+              class="rules-modal__tab"
+              role="tab"
+              [attr.aria-selected]="rulesViewMode() === 'edit'"
+              [class.rules-modal__tab--active]="rulesViewMode() === 'edit'"
+              (click)="rulesViewMode.set('edit')">
+              Edit
+            </button>
+          </div>
+          @if (rulesViewMode() === 'preview') {
+            @if (rulesEditText().trim()) {
+              <div
+                class="rules-modal__preview detail-text markdown-content"
+                [innerHTML]="rulesEditText() | markdown"></div>
+            } @else {
+              <div class="rules-modal__preview rules-modal__preview--empty">Nothing to preview — switch to <strong>Edit</strong> to add rules.</div>
+            }
+          } @else {
+            <textarea
+              class="rules-modal__editor"
+              [ngModel]="rulesEditText()"
+              (ngModelChange)="rulesEditText.set($event)"
+              [disabled]="rulesSaving()"
+              spellcheck="false"
+              rows="20"
+              placeholder="Enter AI agent instructions (Markdown supported)..."></textarea>
+          }
         }
       </div>
       <div class="rules-modal__footer">

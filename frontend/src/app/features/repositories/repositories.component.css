@@ -3114,3 +3114,18 @@
   background: rgba(99, 102, 241, 0.15);
   border-color: rgba(99, 102, 241, 0.4);
 }
+
+/* ── Azure Identity badge (in repo name) ────────────────────────────────── */
+.azure-id-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 6px;
+  vertical-align: middle;
+  color: #0ea5e9;
+  opacity: 0.85;
+}
+
+.azure-id-badge svg {
+  flex-shrink: 0;
+}
+

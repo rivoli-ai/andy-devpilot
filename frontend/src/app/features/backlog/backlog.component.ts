@@ -53,6 +53,18 @@ export class BacklogComponent implements OnInit, OnDestroy {
   rulesIsDefault = signal<boolean>(true);
   rulesSaving = signal<boolean>(false);
   rulesLoading = signal<boolean>(false);
+  /** Markdown preview vs raw edit */
+  rulesViewMode = signal<'preview' | 'edit'>('preview');
+
+  // Azure Identity (sandbox Service Principal)
+  showAzureIdentityModal = signal<boolean>(false);
+  azureIdentityClientId = signal<string>('');
+  azureIdentityClientSecret = signal<string>('');
+  azureIdentityTenantId = signal<string>('');
+  azureIdentityHasSecret = signal<boolean>(false);
+  azureIdentityLoading = signal<boolean>(false);
+  azureIdentitySaving = signal<boolean>(false);
+  azureIdentityError = signal<string | null>(null);
 
   // Lightbox
   lightboxImageSrc: string | null = null;
@@ -2717,11 +2729,6 @@ ${jsonFormatRequirement}`;
     }
   }
 
-  @HostListener('document:keydown.escape')
-  onEscapeKey() {
-    this.closeLightbox();
-  }
-
   closeLightbox() {
     this.lightboxImageSrc = null;
   }
@@ -2813,6 +2820,7 @@ ${jsonFormatRequirement}`;
     const repo = this.repository();
     if (!repo) return;
     this.rulesLoading.set(true);
+    this.rulesViewMode.set('preview');
     this.showRulesModal.set(true);
     this.repositoryService.getRepositoryAgentRules(repo.id).subscribe({
       next: (result) => {
@@ -2831,6 +2839,7 @@ ${jsonFormatRequirement}`;
   closeRulesEditor(): void {
     this.showRulesModal.set(false);
     this.rulesEditText.set('');
+    this.rulesViewMode.set('preview');
     this.rulesSaving.set(false);
     this.rulesLoading.set(false);
   }
@@ -2848,6 +2857,125 @@ ${jsonFormatRequirement}`;
       },
       error: () => {
         this.rulesSaving.set(false);
+      }
+    });
+  }
+
+  openAzureIdentityModal(): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.azureIdentityError.set(null);
+    this.showAzureIdentityModal.set(true);
+    this.azureIdentityClientId.set(repo.azureIdentityClientId || '');
+    this.azureIdentityTenantId.set(repo.azureIdentityTenantId || '');
+    this.azureIdentityClientSecret.set('');
+    this.azureIdentityHasSecret.set(false);
+    this.azureIdentityLoading.set(true);
+
+    this.repositoryService.getAzureIdentity(repo.id).subscribe({
+      next: (res) => {
+        this.azureIdentityClientId.set(res.clientId || '');
+        this.azureIdentityTenantId.set(res.tenantId || '');
+        this.azureIdentityHasSecret.set(res.hasSecret);
+        this.azureIdentityLoading.set(false);
+      },
+      error: () => {
+        this.azureIdentityLoading.set(false);
+      }
+    });
+  }
+
+  closeAzureIdentityModal(): void {
+    this.showAzureIdentityModal.set(false);
+    this.azureIdentityClientId.set('');
+    this.azureIdentityClientSecret.set('');
+    this.azureIdentityTenantId.set('');
+    this.azureIdentityHasSecret.set(false);
+    this.azureIdentitySaving.set(false);
+    this.azureIdentityError.set(null);
+  }
+
+  saveAzureIdentity(): void {
+    const repo = this.repository();
+    if (!repo) return;
+
+    const clientId = this.azureIdentityClientId().trim() || null;
+    const clientSecret = this.azureIdentityClientSecret().trim() || null;
+    const tenantId = this.azureIdentityTenantId().trim() || null;
+
+    if ((clientId || tenantId) && (!clientId || !tenantId)) {
+      this.azureIdentityError.set('All three fields must be provided together.');
+      return;
+    }
+
+    const hasExistingSecret = this.azureIdentityHasSecret();
+    if (clientId && tenantId && !clientSecret && !hasExistingSecret) {
+      this.azureIdentityError.set('Client Secret is required.');
+      return;
+    }
+
+    this.azureIdentitySaving.set(true);
+    this.azureIdentityError.set(null);
+
+    if (!clientId && !tenantId) {
+      this.repositoryService.updateAzureIdentity(repo.id, { clientId: null, clientSecret: null, tenantId: null }).subscribe({
+        next: () => {
+          this.azureIdentitySaving.set(false);
+          this.repository.update(r =>
+            r
+              ? { ...r, azureIdentityClientId: null, azureIdentityTenantId: null, hasAzureIdentity: false }
+              : r
+          );
+          this.closeAzureIdentityModal();
+        },
+        error: (err) => {
+          this.azureIdentityError.set(err.error?.message || 'Failed to update');
+          this.azureIdentitySaving.set(false);
+        }
+      });
+      return;
+    }
+
+    if (!clientSecret && hasExistingSecret) {
+      this.azureIdentitySaving.set(false);
+      this.closeAzureIdentityModal();
+      return;
+    }
+
+    this.repositoryService.updateAzureIdentity(repo.id, { clientId, clientSecret, tenantId }).subscribe({
+      next: (res: { hasAzureIdentity?: boolean }) => {
+        this.azureIdentitySaving.set(false);
+        const has = res?.hasAzureIdentity ?? true;
+        this.repository.update(r =>
+          r ? { ...r, azureIdentityClientId: clientId, azureIdentityTenantId: tenantId, hasAzureIdentity: has } : r
+        );
+        this.closeAzureIdentityModal();
+      },
+      error: (err) => {
+        this.azureIdentityError.set(err.error?.message || 'Failed to save Azure identity');
+        this.azureIdentitySaving.set(false);
+      }
+    });
+  }
+
+  removeAzureIdentity(): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.azureIdentitySaving.set(true);
+    this.azureIdentityError.set(null);
+    this.repositoryService.updateAzureIdentity(repo.id, { clientId: null, clientSecret: null, tenantId: null }).subscribe({
+      next: () => {
+        this.azureIdentitySaving.set(false);
+        this.repository.update(r =>
+          r
+            ? { ...r, azureIdentityClientId: null, azureIdentityTenantId: null, hasAzureIdentity: false }
+            : r
+        );
+        this.closeAzureIdentityModal();
+      },
+      error: (err) => {
+        this.azureIdentityError.set(err.error?.message || 'Failed to remove Azure identity');
+        this.azureIdentitySaving.set(false);
       }
     });
   }

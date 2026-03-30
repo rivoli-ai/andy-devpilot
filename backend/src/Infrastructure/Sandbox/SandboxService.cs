@@ -204,6 +204,9 @@ public class SandboxService : ISandboxService
                 feed_type = f.FeedType,
             }).ToList(),
             agent_rules = req.AgentRules,
+            azure_identity_client_id = req.AzureIdentityClientId,
+            azure_identity_client_secret = req.AzureIdentityClientSecret,
+            azure_identity_tenant_id = req.AzureIdentityTenantId,
         };
     }
 

@@ -27,4 +27,10 @@ export interface Repository {
   llmSettingName?: string | null;
   /** Custom AI agent rules for this repo. Null = use default template. */
   agentRules?: string | null;
+  /** Azure Service Principal client ID (non-sensitive). */
+  azureIdentityClientId?: string | null;
+  /** Azure AD tenant ID (non-sensitive). */
+  azureIdentityTenantId?: string | null;
+  /** True when a full Azure Service Principal identity is configured. */
+  hasAzureIdentity?: boolean;
 }

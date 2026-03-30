@@ -412,6 +412,22 @@ export class RepositoryService {
     return this.apiService.get<{ agentRules: string | null; isDefault: boolean }>(`/repositories/${repositoryId}/agent-rules`);
   }
 
+  getAzureIdentity(repositoryId: string): Observable<{ clientId: string | null; tenantId: string | null; hasSecret: boolean; hasAzureIdentity: boolean }> {
+    return this.apiService.get<{ clientId: string | null; tenantId: string | null; hasSecret: boolean; hasAzureIdentity: boolean }>(`/repositories/${repositoryId}/azure-identity`);
+  }
+
+  updateAzureIdentity(repositoryId: string, identity: { clientId: string | null; clientSecret: string | null; tenantId: string | null }): Observable<any> {
+    return this.apiService.patch<any>(`/repositories/${repositoryId}/azure-identity`, identity).pipe(
+      tap((res: any) => {
+        this.repositoriesSignal.update(repos =>
+          repos.map(r => (String(r.id) === String(repositoryId)
+            ? { ...r, azureIdentityClientId: identity.clientId, azureIdentityTenantId: identity.tenantId, hasAzureIdentity: res.hasAzureIdentity }
+            : r))
+        );
+      })
+    );
+  }
+
   /**
    * Get list of repositories available from GitHub (for selective sync).
    */

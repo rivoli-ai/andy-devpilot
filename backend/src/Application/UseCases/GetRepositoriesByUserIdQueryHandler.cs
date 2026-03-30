@@ -74,7 +74,10 @@ public class GetRepositoriesByUserIdQueryHandler : IRequestHandler<GetRepositori
                 OwnerName = ownerName,
                 OwnerEmail = ownerEmail,
                 LlmSettingId = r.LlmSettingId,
-                AgentRules = r.AgentRules
+                AgentRules = r.AgentRules,
+                AzureIdentityClientId = r.AzureIdentityClientId,
+                AzureIdentityTenantId = r.AzureIdentityTenantId,
+                HasAzureIdentity = !string.IsNullOrEmpty(r.AzureIdentityClientId) && !string.IsNullOrEmpty(r.AzureIdentityClientSecret) && !string.IsNullOrEmpty(r.AzureIdentityTenantId)
             };
         });
     }

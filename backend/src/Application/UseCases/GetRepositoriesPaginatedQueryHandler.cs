@@ -75,7 +75,10 @@ public class GetRepositoriesPaginatedQueryHandler : IRequestHandler<GetRepositor
                     OwnerName = ownerName,
                     LlmSettingId = r.LlmSettingId,
                     OwnerEmail = ownerEmail,
-                    AgentRules = r.AgentRules
+                    AgentRules = r.AgentRules,
+                    AzureIdentityClientId = r.AzureIdentityClientId,
+                    AzureIdentityTenantId = r.AzureIdentityTenantId,
+                    HasAzureIdentity = !string.IsNullOrEmpty(r.AzureIdentityClientId) && !string.IsNullOrEmpty(r.AzureIdentityClientSecret) && !string.IsNullOrEmpty(r.AzureIdentityTenantId)
                 };
             }),
             TotalCount = totalCount,

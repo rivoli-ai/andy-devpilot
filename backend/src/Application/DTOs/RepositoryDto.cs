@@ -30,4 +30,10 @@ public class RepositoryDto
     public string? LlmSettingName { get; set; }
     /// <summary>Custom AI agent rules for this repo. Null = use default template.</summary>
     public string? AgentRules { get; set; }
+    /// <summary>Azure Service Principal client ID (non-sensitive). Null when not configured.</summary>
+    public string? AzureIdentityClientId { get; set; }
+    /// <summary>Azure AD tenant ID (non-sensitive). Null when not configured.</summary>
+    public string? AzureIdentityTenantId { get; set; }
+    /// <summary>True when an Azure Service Principal identity is fully configured.</summary>
+    public bool HasAzureIdentity { get; set; }
 }
