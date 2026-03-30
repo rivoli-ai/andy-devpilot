@@ -65,6 +65,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
   azureIdentityLoading = signal<boolean>(false);
   azureIdentitySaving = signal<boolean>(false);
   azureIdentityError = signal<string | null>(null);
+  azureIdentityVerifying = signal<boolean>(false);
+  azureIdentityVerifySuccess = signal<string | null>(null);
+  azureIdentityVerifyError = signal<string | null>(null);
 
   // Lightbox
   lightboxImageSrc: string | null = null;
@@ -2865,6 +2868,9 @@ ${jsonFormatRequirement}`;
     const repo = this.repository();
     if (!repo) return;
     this.azureIdentityError.set(null);
+    this.azureIdentityVerifySuccess.set(null);
+    this.azureIdentityVerifyError.set(null);
+    this.azureIdentityVerifying.set(false);
     this.showAzureIdentityModal.set(true);
     this.azureIdentityClientId.set(repo.azureIdentityClientId || '');
     this.azureIdentityTenantId.set(repo.azureIdentityTenantId || '');
@@ -2893,6 +2899,54 @@ ${jsonFormatRequirement}`;
     this.azureIdentityHasSecret.set(false);
     this.azureIdentitySaving.set(false);
     this.azureIdentityError.set(null);
+    this.azureIdentityVerifying.set(false);
+    this.azureIdentityVerifySuccess.set(null);
+    this.azureIdentityVerifyError.set(null);
+  }
+
+  /** Calls API to obtain an Entra ID token with the current (or saved) credentials. */
+  verifyAzureIdentityConnection(): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.azureIdentityVerifySuccess.set(null);
+    this.azureIdentityVerifyError.set(null);
+    this.azureIdentityError.set(null);
+
+    const cid = this.azureIdentityClientId().trim();
+    const tid = this.azureIdentityTenantId().trim();
+    const secret = this.azureIdentityClientSecret().trim();
+
+    if (!cid || !tid) {
+      this.azureIdentityVerifyError.set('Enter Tenant ID and Client ID before testing.');
+      return;
+    }
+    if (!secret && !this.azureIdentityHasSecret()) {
+      this.azureIdentityVerifyError.set('Enter the Client Secret, or save credentials first so a stored secret can be used.');
+      return;
+    }
+
+    this.azureIdentityVerifying.set(true);
+    this.repositoryService
+      .verifyAzureIdentity(repo.id, {
+        clientId: cid || null,
+        tenantId: tid || null,
+        clientSecret: secret.length > 0 ? secret : null
+      })
+      .subscribe({
+        next: (res) => {
+          this.azureIdentityVerifying.set(false);
+          this.azureIdentityVerifySuccess.set(res.message || 'Connection OK.');
+        },
+        error: (err) => {
+          this.azureIdentityVerifying.set(false);
+          const body = err?.error;
+          const msg =
+            (typeof body?.message === 'string' ? body.message : null) ||
+            (typeof body?.detail === 'string' ? body.detail : null) ||
+            'Verification failed.';
+          this.azureIdentityVerifyError.set(msg);
+        }
+      });
   }
 
   saveAzureIdentity(): void {

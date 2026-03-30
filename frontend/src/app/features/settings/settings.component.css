@@ -235,6 +235,20 @@
   flex: 1;
 }
 
+/* Pairs where columns differ in height (extra label line, button-only col): align controls to bottom. */
+.field-row--align-end {
+  align-items: flex-end;
+}
+
+.field--browse-feed-action {
+  flex-shrink: 0;
+}
+
+.field--model-col {
+  flex-shrink: 0;
+  min-width: 140px;
+}
+
 .field label {
   font-size: 0.9375rem;
   font-weight: 500;
@@ -364,6 +378,96 @@
   background: rgba(99, 102, 241, 0.12);
   border-color: var(--brand-primary);
   color: var(--brand-primary);
+}
+
+/* ── Artifact manager (feed type) — segmented control ── */
+.artifact-type-toggle {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--border-default);
+  /* Dark: soft “rail” — avoids stacking extra black on dark surfaces */
+  background: rgba(255, 255, 255, 0.07);
+  margin-top: 2px;
+}
+
+.artifact-type-toggle__btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 72px;
+  padding: 12px 8px;
+  margin: 0;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    box-shadow 0.18s ease;
+}
+
+.artifact-type-toggle__btn:hover:not(.artifact-type-toggle__btn--active) {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+}
+
+.artifact-type-toggle__btn:focus {
+  outline: none;
+}
+
+.artifact-type-toggle__btn:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.artifact-type-toggle__btn--active {
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  font-weight: 600;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 2px 8px rgba(0, 0, 0, 0.28);
+}
+
+.artifact-type-toggle__icon {
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
+  opacity: 0.85;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.artifact-type-toggle__btn--active .artifact-type-toggle__icon {
+  opacity: 1;
+  transform: scale(1.05);
+}
+
+.artifact-type-toggle__name {
+  line-height: 1.2;
+  text-align: center;
+}
+
+:host-context([data-theme="dark"]) .artifact-type-toggle {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.11);
+}
+
+:host-context([data-theme="dark"]) .artifact-type-toggle__btn--active {
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 2px 14px rgba(0, 0, 0, 0.32),
+    0 0 24px rgba(99, 102, 241, 0.08);
 }
 
 /* ── Buttons ─────────────────────────────────────────── */
@@ -690,18 +794,6 @@
   flex-wrap: wrap;
 }
 
-.mcp-tools-btn--ok {
-  color: #10b981 !important;
-}
-
-.mcp-tools-btn--loading {
-  color: #f59e0b !important;
-}
-
-.mcp-tools-btn--error {
-  color: #ef4444 !important;
-}
-
 /* ── MCP tools panel ─────────────────────────────────── */
 .mcp-tools-panel {
   flex: 1 1 100%;
@@ -721,11 +813,18 @@
 
 .mcp-tools-error {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-2) 0;
   font-size: 0.8125rem;
   color: #ef4444;
+}
+
+.llm-connectivity-error__text {
+  flex: 1;
+  min-width: 0;
+  word-break: break-word;
+  line-height: 1.45;
 }
 
 .mcp-tools-empty {
@@ -815,12 +914,27 @@
     flex-direction: column;
   }
 
+  .field-row--align-end {
+    align-items: stretch;
+  }
+
   .provider-row {
     flex-wrap: wrap;
   }
 
   .ai-chips {
     gap: 4px;
+  }
+
+  .artifact-type-toggle__btn {
+    min-height: 64px;
+    padding: 10px 6px;
+    gap: 6px;
+  }
+
+  .artifact-type-toggle__icon {
+    width: 22px;
+    height: 22px;
   }
 
   .llm-row {
@@ -1053,6 +1167,25 @@
 :host-context([data-theme="light"]) .feed-badge--pip {
   background: rgba(53, 114, 165, 0.1);
   color: #3572a5;
+}
+
+:host-context([data-theme="light"]) .artifact-type-toggle {
+  background: var(--surface-ground);
+  border-color: var(--border-light);
+  box-shadow: var(--shadow-xs);
+}
+
+:host-context([data-theme="light"]) .artifact-type-toggle__btn--active {
+  background: var(--surface-card);
+  color: var(--text-primary);
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.22),
+    var(--shadow-sm);
+}
+
+:host-context([data-theme="light"]) .artifact-type-toggle__btn:hover:not(.artifact-type-toggle__btn--active) {
+  background: rgba(99, 102, 241, 0.06);
+  color: var(--text-primary);
 }
 
 :host-context([data-theme="light"]) .browse-feed-list {

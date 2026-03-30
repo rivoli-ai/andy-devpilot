@@ -185,6 +185,33 @@
     </div>
   </div>
 
+  @if (repository(); as repo) {
+    @if (repo.hasAzureIdentity !== true) {
+    <div class="backlog-identity-warning" role="status">
+      <svg class="backlog-identity-warning__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+        <line x1="12" y1="9" x2="12" y2="13"/>
+        <line x1="12" y1="17" x2="12.01" y2="17"/>
+      </svg>
+      <div class="backlog-identity-warning__body">
+        <p class="backlog-identity-warning__title">Azure Identity is not set for this repository</p>
+        <p class="backlog-identity-warning__detail">
+          If you need the sandbox to access <strong>private resources</strong> (for example Azure Key Vault, private APIs, databases, or other secured services), configure an Azure service principal.
+          DevPilot injects it into the sandbox as <code>AZURE_CLIENT_ID</code>, <code>AZURE_CLIENT_SECRET</code>, and <code>AZURE_TENANT_ID</code>.
+        </p>
+        @if (repo.isOwner === false) {
+          <p class="backlog-identity-warning__sub">Only the repository owner can configure Azure Identity here.</p>
+        }
+      </div>
+      @if (repo.isOwner !== false) {
+        <button type="button" class="action-btn secondary backlog-identity-warning__action" (click)="openAzureIdentityModal()">
+          Configure Azure Identity
+        </button>
+      }
+    </div>
+    }
+  }
+
   <!-- Selection bar (Select All, Deselect All, Delete selected) -->
   @if (!loading() && hasAnyBacklogItems()) {
     <div class="sync-to-azure-bar">
@@ -2531,7 +2558,7 @@
       </div>
       <div class="azure-identity-modal__body">
         <p class="azure-identity-modal__repo-name">{{ azRepo.name }}</p>
-        <p class="azure-identity-modal__help">Service Principal credentials injected into sandbox containers as <code>AZURE_CLIENT_ID</code>, <code>AZURE_CLIENT_SECRET</code>, <code>AZURE_TENANT_ID</code> environment variables.</p>
+        <p class="azure-identity-modal__help">Service Principal credentials injected into sandbox containers as <code>AZURE_CLIENT_ID</code>, <code>AZURE_CLIENT_SECRET</code>, <code>AZURE_TENANT_ID</code> environment variables. Use <strong>Test connection</strong> to confirm Microsoft Entra ID accepts this application (client credentials against Azure Resource Manager).</p>
         @if (azureIdentityError()) {
           <p class="azure-identity-modal__error">{{ azureIdentityError() }}</p>
         }
@@ -2551,16 +2578,33 @@
               <span>Client Secret</span>
               <input type="password" class="azure-identity-modal__input" placeholder="Enter client secret" [ngModel]="azureIdentityClientSecret()" (ngModelChange)="azureIdentityClientSecret.set($event)" />
               @if (azureIdentityHasSecret() && !azureIdentityClientSecret()) {
-                <span class="azure-identity-modal__hint">A secret is already stored. Leave blank to keep it unchanged.</span>
+                <span class="azure-identity-modal__hint">A secret is already stored. Leave blank to test or save with the existing secret.</span>
               }
             </label>
           </div>
+          @if (azureIdentityVerifySuccess()) {
+            <p class="azure-identity-modal__verify-success">{{ azureIdentityVerifySuccess() }}</p>
+          }
+          @if (azureIdentityVerifyError()) {
+            <p class="azure-identity-modal__verify-error">{{ azureIdentityVerifyError() }}</p>
+          }
         }
       </div>
       <div class="azure-identity-modal__footer">
         @if (azRepo.hasAzureIdentity) {
           <button type="button" class="azure-identity-modal__remove" (click)="removeAzureIdentity()" [disabled]="azureIdentitySaving()">Remove</button>
         }
+        <button
+          type="button"
+          class="azure-identity-modal__test"
+          (click)="verifyAzureIdentityConnection()"
+          [disabled]="azureIdentitySaving() || azureIdentityVerifying() || azureIdentityLoading()">
+          @if (azureIdentityVerifying()) {
+            Testing…
+          } @else {
+            Test connection
+          }
+        </button>
         <button type="button" class="azure-identity-modal__cancel" (click)="closeAzureIdentityModal()">Cancel</button>
         <button type="button" class="azure-identity-modal__save" (click)="saveAzureIdentity()" [disabled]="azureIdentitySaving()">
           @if (azureIdentitySaving()) {

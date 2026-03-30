@@ -2846,23 +2846,25 @@ a.source-badge.gh:hover {
 }
 
 .delete-modal-cancel {
-  background: var(--surface-elevated);
-  color: var(--text-primary);
-  border: 1px solid var(--border-default);
+  background: var(--ds-modal-btn-secondary-bg);
+  color: var(--ds-modal-btn-secondary-color);
+  border: 1px solid var(--ds-modal-btn-secondary-border);
 }
 
 .delete-modal-cancel:hover {
-  background: var(--surface-hover);
+  background: var(--ds-modal-btn-secondary-hover-bg);
+  border-color: var(--ds-modal-btn-secondary-hover-border);
+  color: var(--ds-modal-btn-secondary-hover-color);
 }
 
 .delete-modal-confirm {
-  background: #ef4444;
-  color: white;
+  background: var(--ds-modal-btn-danger-bg);
+  color: var(--ds-modal-btn-danger-color);
   border: none;
 }
 
 .delete-modal-confirm:hover {
-  background: #dc2626;
+  background: var(--ds-modal-btn-danger-hover-bg);
 }
 
 @keyframes fadeIn {
@@ -3205,13 +3207,14 @@ a.source-badge.gh:hover {
 }
 
 .ado-btn.primary {
-  background: #0078d4;
-  color: white;
+  background: var(--ds-modal-btn-primary-bg);
+  color: var(--ds-modal-btn-primary-color);
   border: none;
 }
 
 .ado-btn.primary:hover:not(:disabled) {
-  background: #106ebe;
+  filter: brightness(1.06);
+  box-shadow: var(--ds-modal-btn-primary-shadow-hover);
 }
 
 .ado-btn.primary:disabled {
@@ -3220,14 +3223,15 @@ a.source-badge.gh:hover {
 }
 
 .ado-btn.secondary {
-  background: transparent;
-  color: var(--text-secondary);
-  border: 1px solid var(--border-color, rgba(255, 255, 255, 0.2));
+  background: var(--ds-modal-btn-secondary-bg);
+  color: var(--ds-modal-btn-secondary-color);
+  border: 1px solid var(--ds-modal-btn-secondary-border);
 }
 
 .ado-btn.secondary:hover {
-  background: var(--surface-hover, rgba(255, 255, 255, 0.05));
-  color: var(--text-primary);
+  background: var(--ds-modal-btn-secondary-hover-bg);
+  border-color: var(--ds-modal-btn-secondary-hover-border);
+  color: var(--ds-modal-btn-secondary-hover-color);
 }
 
 /* Work Items Selection */
@@ -3540,6 +3544,76 @@ a.source-badge.gh:hover {
   background: white;
   border: none;
   transform: none;
+}
+
+/* Azure Identity not configured — sandbox / private resources */
+.backlog-identity-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+  background: rgba(245, 158, 11, 0.1);
+  border-bottom: 1px solid rgba(245, 158, 11, 0.35);
+  flex-shrink: 0;
+}
+
+.backlog-identity-warning__icon {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  color: #d97706;
+  margin-top: 2px;
+}
+
+.backlog-identity-warning__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.backlog-identity-warning__title {
+  margin: 0 0 0.35rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: var(--text-primary, #1e293b);
+}
+
+.backlog-identity-warning__detail {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.5;
+  color: var(--text-secondary, #475569);
+}
+
+.backlog-identity-warning__detail code {
+  font-size: 0.75rem;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-hover, rgba(255, 255, 255, 0.08));
+  font-family: 'JetBrains Mono', 'SF Mono', Consolas, monospace;
+}
+
+.backlog-identity-warning__sub {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+}
+
+/* Reuses .action-btn.secondary (same as Rules / header actions); only layout tweaks */
+.backlog-identity-warning__action {
+  flex-shrink: 0;
+  align-self: center;
+  white-space: nowrap;
+}
+
+:host-context([data-theme="light"]) .backlog-identity-warning {
+  background: rgba(251, 191, 36, 0.15);
+  border-bottom-color: rgba(217, 119, 6, 0.35);
+}
+
+:host-context([data-theme="light"]) .backlog-identity-warning__detail code {
+  background: rgba(0, 0, 0, 0.05);
+  color: #0c4a6e;
 }
 
 /* Sync to Azure selection bar and checkboxes */
@@ -5111,6 +5185,28 @@ a.source-badge.gh:hover {
   margin: 0 0 12px;
 }
 
+.azure-identity-modal__verify-success {
+  font-size: 13px;
+  color: #a6e3a1;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: rgba(166, 227, 161, 0.1);
+  border: 1px solid rgba(166, 227, 161, 0.35);
+  border-radius: 8px;
+  line-height: 1.45;
+}
+
+.azure-identity-modal__verify-error {
+  font-size: 13px;
+  color: #f38ba8;
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: rgba(243, 139, 168, 0.08);
+  border: 1px solid rgba(243, 139, 168, 0.3);
+  border-radius: 8px;
+  line-height: 1.45;
+}
+
 .azure-identity-modal__loading {
   text-align: center;
   padding: 20px;
@@ -5172,25 +5268,27 @@ a.source-badge.gh:hover {
 
 .azure-identity-modal__cancel {
   padding: 8px 18px;
-  background: transparent;
-  border: 1px solid var(--border-color, #45475a);
+  background: var(--ds-modal-btn-secondary-bg);
+  border: 1px solid var(--ds-modal-btn-secondary-border);
   border-radius: 8px;
-  color: var(--text-secondary, #a6adc8);
+  color: var(--ds-modal-btn-secondary-color);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .azure-identity-modal__cancel:hover {
-  background: var(--bg-secondary, #2a2a3e);
+  background: var(--ds-modal-btn-secondary-hover-bg);
+  border-color: var(--ds-modal-btn-secondary-hover-border);
+  color: var(--ds-modal-btn-secondary-hover-color);
 }
 
 .azure-identity-modal__save {
   padding: 8px 20px;
-  background: #0ea5e9;
+  background: var(--ds-modal-btn-primary-bg);
   border: none;
   border-radius: 8px;
-  color: #fff;
+  color: var(--ds-modal-btn-primary-color);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -5198,7 +5296,8 @@ a.source-badge.gh:hover {
 }
 
 .azure-identity-modal__save:hover:not(:disabled) {
-  background: #0284c7;
+  filter: brightness(1.06);
+  box-shadow: var(--ds-modal-btn-primary-shadow-hover);
 }
 
 .azure-identity-modal__save:disabled {
@@ -5206,20 +5305,42 @@ a.source-badge.gh:hover {
   cursor: default;
 }
 
+.azure-identity-modal__test {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--ds-modal-btn-accent-border);
+  border-radius: 8px;
+  color: var(--ds-modal-btn-accent-color);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.azure-identity-modal__test:hover:not(:disabled) {
+  background: var(--ds-modal-btn-accent-hover-bg);
+}
+
+.azure-identity-modal__test:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
 .azure-identity-modal__remove {
   margin-right: auto;
   padding: 8px 18px;
-  background: rgba(239, 68, 68, 0.12);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: transparent;
+  border: 1px solid var(--ds-modal-btn-danger-ghost-border);
   border-radius: 8px;
-  color: #f38ba8;
+  color: var(--ds-modal-btn-danger-ghost-color);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.15s;
 }
 
 .azure-identity-modal__remove:hover:not(:disabled) {
-  background: rgba(239, 68, 68, 0.2);
+  background: var(--ds-modal-btn-danger-ghost-hover-bg);
 }
 
 .azure-identity-modal__remove:disabled {
@@ -5254,6 +5375,18 @@ a.source-badge.gh:hover {
 :host-context([data-theme="light"]) .azure-identity-modal__help code {
   background: rgba(14, 165, 233, 0.08);
   color: #0369a1;
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal__verify-success {
+  color: #15803d;
+  background: rgba(22, 163, 74, 0.12);
+  border-color: rgba(22, 163, 74, 0.35);
+}
+
+:host-context([data-theme="light"]) .azure-identity-modal__verify-error {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(220, 38, 38, 0.25);
 }
 
 /* Agent Rules Modal */
@@ -5443,34 +5576,36 @@ a.source-badge.gh:hover {
 }
 
 .rules-modal__reset {
-  background: none;
-  border: 1px solid rgba(243, 139, 168, 0.3);
-  color: #f38ba8;
+  background: var(--ds-modal-btn-secondary-bg);
+  border: 1px solid var(--ds-modal-btn-danger-ghost-border);
+  color: var(--ds-modal-btn-danger-ghost-color);
   padding: 8px 14px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
 }
 .rules-modal__reset:hover:not(:disabled) {
-  background: rgba(243, 139, 168, 0.1);
+  background: var(--ds-modal-btn-danger-ghost-hover-bg);
 }
 
 .rules-modal__cancel {
-  background: none;
-  border: 1px solid var(--border-color, #333);
-  color: var(--text-secondary, #a6adc8);
+  background: var(--ds-modal-btn-secondary-bg);
+  border: 1px solid var(--ds-modal-btn-secondary-border);
+  color: var(--ds-modal-btn-secondary-color);
   padding: 8px 14px;
   border-radius: 6px;
   cursor: pointer;
   font-size: 13px;
 }
 .rules-modal__cancel:hover {
-  background: var(--bg-secondary, #2a2a3e);
+  background: var(--ds-modal-btn-secondary-hover-bg);
+  border-color: var(--ds-modal-btn-secondary-hover-border);
+  color: var(--ds-modal-btn-secondary-hover-color);
 }
 
 .rules-modal__save {
-  background: var(--accent-color, #89b4fa);
-  color: #1e1e2e;
+  background: var(--ds-modal-btn-primary-bg);
+  color: var(--ds-modal-btn-primary-color);
   border: none;
   padding: 8px 18px;
   border-radius: 6px;
@@ -5479,7 +5614,8 @@ a.source-badge.gh:hover {
   font-size: 13px;
 }
 .rules-modal__save:hover:not(:disabled) {
-  filter: brightness(1.1);
+  filter: brightness(1.06);
+  box-shadow: var(--ds-modal-btn-primary-shadow-hover);
 }
 .rules-modal__save:disabled,
 .rules-modal__reset:disabled {
@@ -5581,35 +5717,6 @@ a.source-badge.gh:hover {
 :host-context([data-theme="light"]) .rules-modal__footer {
   border-top-color: #e5e7eb;
   background: #ffffff;
-}
-
-:host-context([data-theme="light"]) .rules-modal__reset {
-  border-color: rgba(220, 38, 38, 0.35);
-  color: #dc2626;
-}
-
-:host-context([data-theme="light"]) .rules-modal__reset:hover:not(:disabled) {
-  background: rgba(220, 38, 38, 0.06);
-}
-
-:host-context([data-theme="light"]) .rules-modal__cancel {
-  border-color: #d1d5db;
-  color: #374151;
-}
-
-:host-context([data-theme="light"]) .rules-modal__cancel:hover {
-  background: #f3f4f6;
-  color: #111827;
-}
-
-:host-context([data-theme="light"]) .rules-modal__save {
-  background: #6366f1;
-  color: #ffffff;
-}
-
-:host-context([data-theme="light"]) .rules-modal__save:hover:not(:disabled) {
-  background: #4f46e5;
-  filter: none;
 }
 
 .modal-close {

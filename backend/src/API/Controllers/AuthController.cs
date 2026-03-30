@@ -30,6 +30,7 @@ public class AuthController : ControllerBase
     private readonly ILogger<AuthController> _logger;
     private readonly IMemoryCache _memoryCache;
     private readonly IConfiguration _configuration;
+    private readonly ILlmConnectivityService _llmConnectivityService;
 
     public AuthController(
         IUserRepository userRepository,
@@ -41,7 +42,8 @@ public class AuthController : ControllerBase
         IMediator mediator,
         ILogger<AuthController> logger,
         IMemoryCache memoryCache,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        ILlmConnectivityService llmConnectivityService)
     {
         _userRepository = userRepository ?? throw new ArgumentNullException(nameof(userRepository));
         _linkedProviderRepository = linkedProviderRepository ?? throw new ArgumentNullException(nameof(linkedProviderRepository));
@@ -53,6 +55,7 @@ public class AuthController : ControllerBase
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _memoryCache = memoryCache ?? throw new ArgumentNullException(nameof(memoryCache));
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _llmConnectivityService = llmConnectivityService ?? throw new ArgumentNullException(nameof(llmConnectivityService));
     }
 
     #region Provider Configuration (public)
@@ -777,6 +780,25 @@ public class AuthController : ControllerBase
 
         await _llmSettingRepository.DeleteAsync(id, cancellationToken);
         return Ok(new { message = "LLM setting deleted" });
+    }
+
+    /// <summary>
+    /// Verifies that the stored LLM configuration can reach the provider (models list or minimal completion).
+    /// </summary>
+    [HttpPost("settings/llm/{id:guid}/test")]
+    [Authorize]
+    public async Task<IActionResult> TestLlmSetting(Guid id, CancellationToken cancellationToken = default)
+    {
+        var userId = GetCurrentUserId();
+        if (userId == null) return Unauthorized();
+
+        var entity = await _llmSettingRepository.GetByIdAsync(id, cancellationToken);
+        if (entity == null) return NotFound();
+        if (!entity.IsShared && entity.UserId != userId.Value) return NotFound();
+
+        var result = await _llmConnectivityService.TestAsync(entity, cancellationToken);
+        if (result.Ok) return Ok(new { ok = true });
+        return BadRequest(new { message = result.ErrorMessage ?? "Connection test failed" });
     }
 
     [HttpPost("settings/llm/{id:guid}/set-default")]

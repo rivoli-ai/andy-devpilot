@@ -216,8 +216,20 @@
     @if (sharedLlmSettings().length > 0) {
       <ul class="llm-rows">
         @for (item of sharedLlmSettings(); track item.id) {
-          <li class="llm-row llm-row--shared" [class.llm-row--default]="item.isDefault">
-            <span class="llm-row__dot" [attr.data-provider]="item.provider"></span>
+          <li
+            class="llm-row llm-row--shared"
+            [class.llm-row--default]="item.isDefault"
+            [class.llm-row--mcp-expandable]="aiConfigService.isLlmSettingTestable(item) && !!(llmHealth(item)?.error)">
+            @if (aiConfigService.isLlmSettingTestable(item)) {
+              <span
+                class="mcp-status-dot"
+                [class.mcp-status-dot--ok]="llmHealth(item) && !llmHealth(item)!.loading && llmHealth(item)!.ok === true"
+                [class.mcp-status-dot--loading]="llmHealth(item)?.loading"
+                [class.mcp-status-dot--error]="llmHealth(item) && !llmHealth(item)!.loading && !!llmHealth(item)!.error"
+                [attr.title]="llmConnectivityTitle(item)"></span>
+            } @else {
+              <span class="llm-row__dot" [attr.data-provider]="item.provider" [attr.title]="llmConnectivityTitle(item)"></span>
+            }
             <div class="llm-row__main">
               <span class="llm-row__name">{{ item.name || item.model || 'Unnamed' }}</span>
               <span class="llm-row__detail">{{ item.provider }} · {{ item.model }}</span>
@@ -226,6 +238,15 @@
               <span class="llm-row__default-tag">My default</span>
             }
             <div class="llm-row__actions">
+              @if (aiConfigService.isLlmSettingTestable(item)) {
+                <button
+                  type="button"
+                  class="llm-row__btn"
+                  (click)="refreshLlmConnectivity(item.id)"
+                  title="Test connection">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>
+                </button>
+              }
               @if (!item.isDefault) {
                 <button type="button" class="llm-row__btn" (click)="setDefaultLlm(item.id)" [disabled]="actionLoading() === 'llm-default'" title="Use as my default">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
@@ -240,6 +261,14 @@
                 </button>
               }
             </div>
+            @if (aiConfigService.isLlmSettingTestable(item) && llmHealth(item) && !llmHealth(item)!.loading && llmHealth(item)!.error) {
+              <div class="mcp-tools-panel">
+                <div class="mcp-tools-error">
+                  <span class="llm-connectivity-error__text">{{ llmHealth(item)!.error }}</span>
+                  <button type="button" class="btn btn--ghost btn--sm" (click)="refreshLlmConnectivity(item.id)">Retry</button>
+                </div>
+              </div>
+            }
           </li>
         }
       </ul>
@@ -274,7 +303,7 @@
                 <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'custom'" (click)="setAdminLlmFormProvider('custom')">Custom</button>
               </div>
             </div>
-            <div class="field-row">
+            <div class="field-row field-row--align-end">
               <div class="field field--grow">
                 <label>API Key {{ adminLlmFormId() ? '(blank = keep)' : '' }}</label>
                 <div class="input-secret">
@@ -288,7 +317,7 @@
                   </button>
                 </div>
               </div>
-              <div class="field">
+              <div class="field field--model-col">
                 <label>Model</label>
                 <input type="text" placeholder="Model name" [ngModel]="adminLlmFormModel()" (ngModelChange)="adminLlmFormModel.set($event)" />
               </div>
@@ -344,7 +373,7 @@
             </div>
             <div class="llm-row__actions">
               @if (mcp.serverType === 'remote') {
-                <button type="button" class="llm-row__btn" (click)="toggleToolsPanel(mcp.id)" [title]="mcpExpandedTools() === mcp.id ? 'Hide tools' : 'Show tools'" [class.mcp-tools-btn--loading]="getToolsState(mcp.id)?.loading" [class.mcp-tools-btn--ok]="getToolsState(mcp.id) && !getToolsState(mcp.id)!.loading && !getToolsState(mcp.id)!.error && getToolsState(mcp.id)!.tools.length > 0" [class.mcp-tools-btn--error]="getToolsState(mcp.id)?.error">
+                <button type="button" class="llm-row__btn" (click)="toggleToolsPanel(mcp.id)" [title]="mcpExpandedTools() === mcp.id ? 'Hide tools' : 'Show tools'">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
                 </button>
               }
@@ -488,7 +517,32 @@
       <ul class="llm-rows">
         @for (feed of artifactFeeds(); track feed.id) {
           <li class="llm-row" [class.llm-row--disabled]="!feed.isEnabled">
-            <span class="feed-badge" [class]="getFeedTypeBadgeClass(feed.feedType)">{{ feed.feedType }}</span>
+            <span
+              class="feed-badge"
+              [class]="getFeedTypeBadgeClass(feed.feedType)"
+              [attr.aria-label]="feedTypeAriaLabel(feed.feedType) + ' feed'"
+              role="img">
+              @switch (feed.feedType) {
+                @case ('nuget') {
+                  <svg class="feed-badge__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                    <path [attr.d]="artifactFeedIconNuget.path" [attr.fill]="'#' + artifactFeedIconNuget.hex" />
+                  </svg>
+                }
+                @case ('npm') {
+                  <svg class="feed-badge__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                    <path [attr.d]="artifactFeedIconNpm.path" [attr.fill]="'#' + artifactFeedIconNpm.hex" />
+                  </svg>
+                }
+                @case ('pip') {
+                  <svg class="feed-badge__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                    <path [attr.d]="artifactFeedIconPypi.path" [attr.fill]="'#' + artifactFeedIconPypi.hex" />
+                  </svg>
+                }
+                @default {
+                  <span class="feed-badge__fallback">{{ feed.feedType }}</span>
+                }
+              }
+            </span>
             <div class="llm-row__main">
               <span class="llm-row__name">{{ feed.name }}</span>
               <span class="llm-row__detail">
@@ -533,13 +587,13 @@
               <label>Display Name</label>
               <input type="text" placeholder="e.g. My NuGet Feed" [ngModel]="artifactFormName()" (ngModelChange)="artifactFormName.set($event)" />
             </div>
-            <div class="field-row">
+            <div class="field-row field-row--align-end">
               <div class="field field--grow">
                 <label>Organization</label>
                 <input type="text" placeholder="e.g. mycompany" [ngModel]="artifactFormOrg()" (ngModelChange)="artifactFormOrg.set($event)" />
               </div>
-              <div class="field">
-                <button type="button" class="btn btn--ghost btn--sm" style="margin-top: 22px" (click)="browseArtifactFeeds()" [disabled]="artifactBrowseLoading() || !artifactFormOrg()">
+              <div class="field field--browse-feed-action">
+                <button type="button" class="btn btn--ghost btn--sm" (click)="browseArtifactFeeds()" [disabled]="artifactBrowseLoading() || !artifactFormOrg()">
                   @if (artifactBrowseLoading()) { <span class="btn-spin"></span> }
                   Browse Feeds
                 </button>
@@ -591,23 +645,53 @@
               </div>
             }
 
-            <div class="field-row">
-              <div class="field field--grow">
-                <label>Feed Name</label>
-                <input type="text" placeholder="Feed name from Azure DevOps" [ngModel]="artifactFormFeedName()" (ngModelChange)="artifactFormFeedName.set($event)" />
-              </div>
-              <div class="field">
-                <label>Project (optional)</label>
-                <input type="text" placeholder="Leave empty for org-scoped" [ngModel]="artifactFormProjectName()" (ngModelChange)="artifactFormProjectName.set($event)" />
-              </div>
+            <div class="field">
+              <label>Feed Name</label>
+              <input type="text" placeholder="Feed name from Azure DevOps" [ngModel]="artifactFormFeedName()" (ngModelChange)="artifactFormFeedName.set($event)" />
             </div>
 
             <div class="field">
-              <label>Technology</label>
-              <div class="ai-chips">
-                <button type="button" class="chip" [class.active]="artifactFormFeedType() === 'nuget'" (click)="artifactFormFeedType.set('nuget')">NuGet</button>
-                <button type="button" class="chip" [class.active]="artifactFormFeedType() === 'npm'" (click)="artifactFormFeedType.set('npm')">npm</button>
-                <button type="button" class="chip" [class.active]="artifactFormFeedType() === 'pip'" (click)="artifactFormFeedType.set('pip')">pip</button>
+              <label id="artifact-manager-label">Artifact Manager</label>
+              <div
+                class="artifact-type-toggle"
+                role="radiogroup"
+                aria-labelledby="artifact-manager-label">
+                <button
+                  type="button"
+                  class="artifact-type-toggle__btn"
+                  role="radio"
+                  [attr.aria-checked]="artifactFormFeedType() === 'nuget'"
+                  [class.artifact-type-toggle__btn--active]="artifactFormFeedType() === 'nuget'"
+                  (click)="artifactFormFeedType.set('nuget')">
+                  <svg class="artifact-type-toggle__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                    <path [attr.d]="artifactFeedIconNuget.path" [attr.fill]="'#' + artifactFeedIconNuget.hex" />
+                  </svg>
+                  <span class="artifact-type-toggle__name">NuGet</span>
+                </button>
+                <button
+                  type="button"
+                  class="artifact-type-toggle__btn"
+                  role="radio"
+                  [attr.aria-checked]="artifactFormFeedType() === 'npm'"
+                  [class.artifact-type-toggle__btn--active]="artifactFormFeedType() === 'npm'"
+                  (click)="artifactFormFeedType.set('npm')">
+                  <svg class="artifact-type-toggle__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                    <path [attr.d]="artifactFeedIconNpm.path" [attr.fill]="'#' + artifactFeedIconNpm.hex" />
+                  </svg>
+                  <span class="artifact-type-toggle__name">npm</span>
+                </button>
+                <button
+                  type="button"
+                  class="artifact-type-toggle__btn"
+                  role="radio"
+                  [attr.aria-checked]="artifactFormFeedType() === 'pip'"
+                  [class.artifact-type-toggle__btn--active]="artifactFormFeedType() === 'pip'"
+                  (click)="artifactFormFeedType.set('pip')">
+                  <svg class="artifact-type-toggle__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+                    <path [attr.d]="artifactFeedIconPypi.path" [attr.fill]="'#' + artifactFeedIconPypi.hex" />
+                  </svg>
+                  <span class="artifact-type-toggle__name">PyPI</span>
+                </button>
               </div>
             </div>
 

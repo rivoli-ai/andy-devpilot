@@ -587,8 +587,8 @@ export interface EditItemData {
     }
     .btn-primary {
       padding: 0.6rem 1.25rem;
-      background: linear-gradient(135deg, #6366f1, #8b5cf6);
-      color: white;
+      background: var(--ds-modal-btn-primary-bg);
+      color: var(--ds-modal-btn-primary-color);
       border: none;
       border-radius: 8px;
       font-weight: 500;
@@ -596,7 +596,8 @@ export interface EditItemData {
       cursor: pointer;
     }
     .btn-primary:hover:not(:disabled) {
-      opacity: 0.95;
+      filter: brightness(1.06);
+      box-shadow: var(--ds-modal-btn-primary-shadow-hover);
     }
     .btn-primary:disabled {
       opacity: 0.5;
@@ -604,15 +605,17 @@ export interface EditItemData {
     }
     .btn-secondary {
       padding: 0.6rem 1.25rem;
-      background: transparent;
-      color: var(--text-secondary);
-      border: 1px solid var(--border-default, rgba(255,255,255,0.12));
+      background: var(--ds-modal-btn-secondary-bg);
+      color: var(--ds-modal-btn-secondary-color);
+      border: 1px solid var(--ds-modal-btn-secondary-border);
       border-radius: 8px;
       font-size: 0.95rem;
       cursor: pointer;
     }
     .btn-secondary:hover {
-      background: var(--surface-hover, rgba(255,255,255,0.06));
+      background: var(--ds-modal-btn-secondary-hover-bg);
+      border-color: var(--ds-modal-btn-secondary-hover-border);
+      color: var(--ds-modal-btn-secondary-hover-color);
     }
 
     /* Light mode */
@@ -730,13 +733,6 @@ export interface EditItemData {
     :host-context([data-theme="light"]) .modal-actions {
       background: #ffffff;
       border-top-color: #e5e7eb;
-    }
-    :host-context([data-theme="light"]) .btn-secondary {
-      color: #4b5563;
-      border-color: #d1d5db;
-    }
-    :host-context([data-theme="light"]) .btn-secondary:hover {
-      background: #f3f4f6;
     }
   `]
 })

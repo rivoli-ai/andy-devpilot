@@ -75,6 +75,30 @@
   /* Header */
   --header-bg: rgba(255, 255, 255, 0.85);
   --header-border: rgba(0, 0, 0, 0.06);
+
+  /* Modal / dialog buttons — même indigo→violet que .action-btn.primary (backlog), pas le brand-gradient 3 tons */
+  --ds-modal-btn-primary-bg: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-secondary) 100%);
+  --ds-modal-btn-primary-color: #ffffff;
+  --ds-modal-btn-primary-shadow-hover: 0 4px 12px rgba(99, 102, 241, 0.4);
+  --ds-modal-btn-secondary-bg: transparent;
+  --ds-modal-btn-secondary-border: var(--border-default);
+  --ds-modal-btn-secondary-color: var(--text-secondary);
+  --ds-modal-btn-secondary-hover-bg: var(--surface-hover);
+  --ds-modal-btn-secondary-hover-border: var(--border-hover);
+  --ds-modal-btn-secondary-hover-color: var(--text-primary);
+  --ds-modal-btn-danger-bg: var(--error-600);
+  --ds-modal-btn-danger-color: #ffffff;
+  --ds-modal-btn-danger-hover-bg: #b91c1c;
+  --ds-modal-btn-danger-ghost-border: rgba(220, 38, 38, 0.4);
+  --ds-modal-btn-danger-ghost-color: var(--error-600);
+  --ds-modal-btn-danger-ghost-hover-bg: var(--error-50);
+  --ds-modal-btn-accent-border: rgba(99, 102, 241, 0.45);
+  --ds-modal-btn-accent-color: var(--brand-primary);
+  --ds-modal-btn-accent-hover-bg: rgba(99, 102, 241, 0.1);
+  --ds-modal-btn-neutral-bg: var(--surface-hover);
+  --ds-modal-btn-neutral-border: var(--border-default);
+  --ds-modal-btn-neutral-color: var(--text-primary);
+  --ds-modal-btn-neutral-hover-bg: var(--surface-card);
 }
 
 /* Dark Theme */
@@ -115,6 +139,20 @@
   --header-bg: rgba(18, 18, 26, 0.95);
   --header-border: rgba(255, 255, 255, 0.08);
   --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.2), 0 10px 40px -10px rgba(0, 0, 0, 0.3);
+
+  /* Modal buttons — dark */
+  --ds-modal-btn-primary-color: #ffffff;
+  --ds-modal-btn-primary-shadow-hover: 0 4px 12px rgba(99, 102, 241, 0.45);
+  --ds-modal-btn-danger-hover-bg: #f87171;
+  --ds-modal-btn-danger-ghost-border: rgba(248, 113, 113, 0.45);
+  --ds-modal-btn-danger-ghost-color: #f87171;
+  --ds-modal-btn-danger-ghost-hover-bg: rgba(239, 68, 68, 0.12);
+  --ds-modal-btn-accent-border: rgba(165, 180, 252, 0.5);
+  --ds-modal-btn-accent-color: #a5b4fc;
+  --ds-modal-btn-accent-hover-bg: rgba(99, 102, 241, 0.15);
+  --ds-modal-btn-neutral-bg: rgba(255, 255, 255, 0.06);
+  --ds-modal-btn-neutral-border: var(--border-default);
+  --ds-modal-btn-neutral-hover-bg: rgba(255, 255, 255, 0.1);
 }
 
 /* Typography Scale */

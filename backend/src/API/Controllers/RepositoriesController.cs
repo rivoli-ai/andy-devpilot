@@ -1,6 +1,8 @@
 namespace DevPilot.API.Controllers;
 
 using System.Security.Claims;
+using Azure.Core;
+using Azure.Identity;
 using DevPilot.Application.Commands;
 using DevPilot.Application.Queries;
 using DevPilot.Application.Services;
@@ -69,6 +71,16 @@ public class UpdateRepositoryAgentRulesRequest
 }
 
 public class UpdateAzureIdentityRequest
+{
+    public string? ClientId { get; set; }
+    public string? ClientSecret { get; set; }
+    public string? TenantId { get; set; }
+}
+
+/// <summary>
+/// Optional fields merge with stored values: empty client secret uses the secret saved for this repo (if any).
+/// </summary>
+public class VerifyAzureIdentityRequest
 {
     public string? ClientId { get; set; }
     public string? ClientSecret { get; set; }
@@ -316,6 +328,72 @@ public class RepositoriesController : ControllerBase
                 && !string.IsNullOrEmpty(repo.AzureIdentityClientSecret)
                 && !string.IsNullOrEmpty(repo.AzureIdentityTenantId)
         });
+    }
+
+    /// <summary>
+    /// Verify Azure Service Principal credentials by acquiring an access token (owner only).
+    /// Request body may omit fields that are already stored; empty clientSecret reuses the stored secret.
+    /// </summary>
+    [HttpPost("{id:guid}/azure-identity/verify")]
+    [Authorize]
+    public async Task<IActionResult> VerifyAzureIdentity(Guid id, [FromBody] VerifyAzureIdentityRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        var clientId = !string.IsNullOrWhiteSpace(request.ClientId) ? request.ClientId.Trim() : repo.AzureIdentityClientId;
+        var tenantId = !string.IsNullOrWhiteSpace(request.TenantId) ? request.TenantId.Trim() : repo.AzureIdentityTenantId;
+        var clientSecret = !string.IsNullOrWhiteSpace(request.ClientSecret)
+            ? request.ClientSecret.Trim()
+            : repo.AzureIdentityClientSecret;
+
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(clientSecret))
+        {
+            return BadRequest(new
+            {
+                message = "Tenant ID, Client ID, and Client Secret are required to test. Enter a new secret or save credentials first.",
+                ok = false
+            });
+        }
+
+        // Azure Resource Manager scope — validates client credentials for typical automation / Key Vault scenarios
+        const string scope = "https://management.azure.com/.default";
+        try
+        {
+            var credential = new ClientSecretCredential(tenantId, clientId, clientSecret);
+            var token = await credential.GetTokenAsync(new TokenRequestContext([scope]), cancellationToken);
+            return Ok(new
+            {
+                ok = true,
+                message = "Successfully authenticated with Microsoft Entra ID. Credentials are valid for the sandbox.",
+                expiresOn = token.ExpiresOn
+            });
+        }
+        catch (AuthenticationFailedException ex)
+        {
+            _logger.LogWarning(ex, "Azure identity verification failed for repository {RepoId}", id);
+            return BadRequest(new
+            {
+                ok = false,
+                message = "Azure AD rejected these credentials. Check the Client ID, secret, and Tenant ID, and that the app registration allows client-secret flow.",
+                detail = ex.Message
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Azure identity verification error for repository {RepoId}", id);
+            return BadRequest(new
+            {
+                ok = false,
+                message = "Could not verify credentials with Azure.",
+                detail = ex.Message
+            });
+        }
     }
 
     /// <summary>

@@ -325,6 +325,11 @@ export class AuthService {
     return this.apiService.post<{ message: string }>(`/auth/settings/llm/${id}/set-default`, {});
   }
 
+  /** Connectivity check (models / minimal request); same permissions as viewing the setting. */
+  testLlmSetting(id: string): Observable<{ ok: boolean }> {
+    return this.apiService.post<{ ok: boolean }>(`/auth/settings/llm/${id}/test`, {});
+  }
+
   // ============================================
   // Admin — shared LLM provider management
   // ============================================

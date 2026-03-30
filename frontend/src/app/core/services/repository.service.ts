@@ -416,6 +416,20 @@ export class RepositoryService {
     return this.apiService.get<{ clientId: string | null; tenantId: string | null; hasSecret: boolean; hasAzureIdentity: boolean }>(`/repositories/${repositoryId}/azure-identity`);
   }
 
+  /**
+   * Verify Service Principal credentials against Microsoft Entra ID (owner only).
+   * Omit clientSecret to use the secret already stored for this repository.
+   */
+  verifyAzureIdentity(
+    repositoryId: string,
+    body: { clientId: string | null; clientSecret: string | null; tenantId: string | null }
+  ): Observable<{ ok: boolean; message: string; expiresOn?: string }> {
+    return this.apiService.post<{ ok: boolean; message: string; expiresOn?: string }>(
+      `/repositories/${repositoryId}/azure-identity/verify`,
+      body
+    );
+  }
+
   updateAzureIdentity(repositoryId: string, identity: { clientId: string | null; clientSecret: string | null; tenantId: string | null }): Observable<any> {
     return this.apiService.patch<any>(`/repositories/${repositoryId}/azure-identity`, identity).pipe(
       tap((res: any) => {

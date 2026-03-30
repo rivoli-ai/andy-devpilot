@@ -88,6 +88,11 @@ public static class InfrastructureServiceCollectionExtensions
         // Register AI Analysis services
         services.AddScoped<IAnalysisService, AnalysisService>();
         services.AddScoped<ICodeAnalysisService, CodeAnalysisService>();
+        services.AddHttpClient("LlmConnectivity", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(20);
+        });
+        services.AddScoped<ILlmConnectivityService, LlmConnectivityService>();
 
         // Register VPS/Zed services (optional - can be enabled via configuration)
         services.AddHttpClient("VPSGateway");

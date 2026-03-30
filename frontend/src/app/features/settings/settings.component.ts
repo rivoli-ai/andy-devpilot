@@ -9,6 +9,7 @@ import { AIConfigService } from '../../core/services/ai-config.service';
 import { McpConfigService, McpServerDto, McpToolInfo } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService, ArtifactFeedDto, AzureDevOpsFeedDto } from '../../core/services/artifact-feed.service';
 import { firstValueFrom } from 'rxjs';
+import { siNuget, siNpm, siPypi } from 'simple-icons';
 
 /**
  * Settings page for managing linked providers and account settings.
@@ -107,7 +108,7 @@ export class SettingsComponent implements OnInit {
 
   constructor(
     private authService: AuthService,
-    private aiConfigService: AIConfigService,
+    public aiConfigService: AIConfigService,
     private mcpConfigService: McpConfigService,
     public artifactFeedService: ArtifactFeedService,
     private oidcSecurityService: OidcSecurityService,
@@ -128,7 +129,7 @@ export class SettingsComponent implements OnInit {
 
     this.loadLinkedProviders();
     this.loadProviderSettings();
-    await this.aiConfigService.loadLlmSettings();
+    await this.aiConfigService.loadLlmSettings({ testConnectivity: true });
     await this.mcpConfigService.loadServers();
     await this.artifactFeedService.loadFeeds();
     this.discoverAllRemoteTools();
@@ -377,6 +378,33 @@ export class SettingsComponent implements OnInit {
     return this.aiConfigService.llmSettings().filter(s => s.isShared);
   }
 
+  llmConnectivityTitle(item: LlmSettingDto): string {
+    if (!this.aiConfigService.isLlmSettingTestable(item)) {
+      const p = (item.provider || '').toLowerCase();
+      if ((p === 'openai' || p === 'anthropic') && !item.hasApiKey) {
+        return 'No API key — connectivity not tested';
+      }
+      if (p === 'custom' && !item.baseUrl?.trim()) {
+        return 'No base URL — connectivity not tested';
+      }
+      return '';
+    }
+    const h = this.aiConfigService.getLlmHealthState(item.id);
+    if (!h) return '';
+    if (h.loading) return 'Testing connection…';
+    if (h.error) return h.error;
+    if (h.ok) return 'Reachable';
+    return '';
+  }
+
+  refreshLlmConnectivity(id: string): void {
+    void this.aiConfigService.testLlmConnectivity(id);
+  }
+
+  llmHealth(item: LlmSettingDto) {
+    return this.aiConfigService.getLlmHealthState(item.id);
+  }
+
   // Admin: shared provider form
   readonly adminLlmFormOpen = signal(false);
   readonly adminLlmFormId = signal<string | null>(null);
@@ -442,7 +470,7 @@ export class SettingsComponent implements OnInit {
         await firstValueFrom(this.authService.adminCreateSharedLlmSetting({ name, provider, apiKey, model, baseUrl }));
         this.successMessage.set('Shared AI provider created');
       }
-      await this.aiConfigService.loadLlmSettings();
+      await this.aiConfigService.loadLlmSettings({ testConnectivity: true });
       this.cancelAdminLlmForm();
       setTimeout(() => this.successMessage.set(null), 3000);
     } catch (err: any) {
@@ -458,7 +486,7 @@ export class SettingsComponent implements OnInit {
     this.error.set(null);
     try {
       await firstValueFrom(this.authService.adminDeleteSharedLlmSetting(id));
-      await this.aiConfigService.loadLlmSettings();
+      await this.aiConfigService.loadLlmSettings({ testConnectivity: true });
       this.successMessage.set('Shared AI provider deleted');
       setTimeout(() => this.successMessage.set(null), 3000);
     } catch (err: any) {
@@ -525,7 +553,7 @@ export class SettingsComponent implements OnInit {
         await firstValueFrom(this.authService.createLlmSetting({ name, provider, apiKey, model, baseUrl }));
         this.successMessage.set('LLM configuration added');
       }
-      await this.aiConfigService.loadLlmSettings();
+      await this.aiConfigService.loadLlmSettings({ testConnectivity: true });
       this.cancelLlmForm();
       setTimeout(() => this.successMessage.set(null), 3000);
     } catch (err: any) {
@@ -540,7 +568,7 @@ export class SettingsComponent implements OnInit {
     this.error.set(null);
     try {
       await firstValueFrom(this.authService.setDefaultLlmSetting(id));
-      await this.aiConfigService.loadLlmSettings();
+      await this.aiConfigService.loadLlmSettings({ testConnectivity: true });
       this.successMessage.set('Default LLM updated');
       setTimeout(() => this.successMessage.set(null), 3000);
     } catch (err: any) {
@@ -556,7 +584,7 @@ export class SettingsComponent implements OnInit {
     this.error.set(null);
     try {
       await firstValueFrom(this.authService.deleteLlmSetting(id));
-      await this.aiConfigService.loadLlmSettings();
+      await this.aiConfigService.loadLlmSettings({ testConnectivity: true });
       if (this.llmFormId() === id) this.cancelLlmForm();
       this.successMessage.set('LLM configuration deleted');
       setTimeout(() => this.successMessage.set(null), 3000);
@@ -753,6 +781,10 @@ export class SettingsComponent implements OnInit {
 
   // ---- Artifact feeds ----
 
+  readonly artifactFeedIconNuget = siNuget;
+  readonly artifactFeedIconNpm = siNpm;
+  readonly artifactFeedIconPypi = siPypi;
+
   artifactFeeds(): ArtifactFeedDto[] {
     return this.artifactFeedService.feeds();
   }
@@ -876,6 +908,19 @@ export class SettingsComponent implements OnInit {
       case 'npm': return 'feed-badge--npm';
       case 'pip': return 'feed-badge--pip';
       default: return '';
+    }
+  }
+
+  feedTypeAriaLabel(feedType: string): string {
+    switch (feedType) {
+      case 'nuget':
+        return 'NuGet';
+      case 'npm':
+        return 'npm';
+      case 'pip':
+        return 'PyPI';
+      default:
+        return feedType;
     }
   }
 

@@ -1,7 +1,35 @@
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { AuthService, AiSettings, AiSettingsFull, LlmSettingDto } from './auth.service';
-import { McpConfigService, McpServerDto } from './mcp-config.service';
 import { firstValueFrom } from 'rxjs';
+import { McpConfigService, McpServerDto } from './mcp-config.service';
+
+export interface LlmHealthState {
+  loading: boolean;
+  ok?: boolean;
+  error?: string;
+}
+
+/** User-visible text from HttpClient / ASP.NET error bodies (aligned with MCP tool discovery errors). */
+function extractApiErrorMessage(err: unknown): string {
+  const e = err as Record<string, unknown> | null | undefined;
+  const body = e?.['error'];
+  if (typeof body === 'string' && body.trim()) return body.trim();
+  if (body && typeof body === 'object') {
+    const o = body as Record<string, unknown>;
+    if (typeof o['message'] === 'string' && o['message'].trim()) return o['message'].trim();
+    if (typeof o['detail'] === 'string' && o['detail'].trim()) return o['detail'].trim();
+    if (typeof o['title'] === 'string' && o['title'].trim() && o['title'] !== 'Bad Request') return o['title'].trim();
+    const nested = o['errors'];
+    if (nested && typeof nested === 'object') {
+      const parts = Object.values(nested as Record<string, unknown>).flat();
+      const flat = parts.filter((x): x is string => typeof x === 'string').join('; ');
+      if (flat) return flat;
+    }
+  }
+  const msg = e?.['message'];
+  if (typeof msg === 'string' && msg.trim() && !msg.startsWith('Http failure response')) return msg.trim();
+  return 'Connection failed';
+}
 
 export interface AIProviderConfig {
   provider: 'openai' | 'anthropic' | 'ollama' | 'custom';
@@ -31,12 +59,16 @@ export class AIConfigService {
   private loadedSignal = signal<boolean>(false);
   private githubTokenSignal = signal<string>('');
   private llmSettingsSignal = signal<LlmSettingDto[]>([]);
+  /** Settings page: connectivity check per LLM id (green / orange loading / red error), like MCP tool discovery. */
+  private llmHealthCacheSignal = signal<Record<string, LlmHealthState>>({});
 
   /** Current AI configuration (default effective config when no repo context) */
   config = this.configSignal.asReadonly();
 
   /** User's LLM configurations (for settings UI and repo override dropdown) */
   llmSettings = this.llmSettingsSignal.asReadonly();
+
+  llmHealthCache = this.llmHealthCacheSignal.asReadonly();
 
   /** Check if AI is configured */
   isConfigured = computed(() => {
@@ -95,13 +127,62 @@ export class AIConfigService {
   /**
    * Load the list of user LLM settings (for settings UI and repo override dropdown).
    */
-  async loadLlmSettings(): Promise<void> {
+  /**
+   * @param testConnectivity When true (e.g. Settings page), runs reachability checks like MCP tool discovery. Omit elsewhere to avoid extra API calls.
+   */
+  async loadLlmSettings(options?: { testConnectivity?: boolean }): Promise<void> {
     try {
       const list = await firstValueFrom(this.authService.getLlmSettings());
       this.llmSettingsSignal.set(list ?? []);
+      if (options?.testConnectivity) {
+        this.llmHealthCacheSignal.set({});
+        this.scheduleLlmConnectivityChecks();
+      }
     } catch (e) {
       console.error('Failed to load LLM settings:', e);
       this.llmSettingsSignal.set([]);
+    }
+  }
+
+  /** Whether we can run a server-side connectivity test for this row (credentials / URL present). */
+  isLlmSettingTestable(s: LlmSettingDto): boolean {
+    const p = (s.provider || '').toLowerCase();
+    if (p === 'openai' || p === 'anthropic') return s.hasApiKey === true;
+    if (p === 'ollama') return true;
+    if (p === 'custom') return !!s.baseUrl?.trim();
+    return false;
+  }
+
+  getLlmHealthState(id: string): LlmHealthState | undefined {
+    return this.llmHealthCacheSignal()[id];
+  }
+
+  private scheduleLlmConnectivityChecks(): void {
+    for (const s of this.llmSettingsSignal()) {
+      if (this.isLlmSettingTestable(s)) {
+        void this.testLlmConnectivity(s.id);
+      }
+    }
+  }
+
+  /** Re-run connectivity test for one provider (e.g. after editing credentials). */
+  async testLlmConnectivity(id: string): Promise<void> {
+    this.llmHealthCacheSignal.update(cache => ({
+      ...cache,
+      [id]: { loading: true },
+    }));
+    try {
+      await firstValueFrom(this.authService.testLlmSetting(id));
+      this.llmHealthCacheSignal.update(cache => ({
+        ...cache,
+        [id]: { loading: false, ok: true },
+      }));
+    } catch (e: any) {
+      const message = extractApiErrorMessage(e);
+      this.llmHealthCacheSignal.update(cache => ({
+        ...cache,
+        [id]: { loading: false, ok: false, error: message },
+      }));
     }
   }
 
