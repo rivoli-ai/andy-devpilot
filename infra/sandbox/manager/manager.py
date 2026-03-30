@@ -254,6 +254,8 @@ def _build_environment(data: dict, sandbox_id: str, sandbox_token: str, vnc_pass
         environment["ARTIFACT_FEEDS_JSON"] = json.dumps(data["artifact_feeds"])
     if data.get("azure_devops_pat"):
         environment["AZURE_DEVOPS_PAT"] = data["azure_devops_pat"]
+    if data.get("agent_rules"):
+        environment["AGENT_RULES"] = data["agent_rules"]
 
     safe_env = {k: ("***" if "KEY" in k or "TOKEN" in k or "PAT" in k else v) for k, v in environment.items()}
     print(f"Environment (redacted): {safe_env}")

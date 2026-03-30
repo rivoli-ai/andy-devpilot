@@ -16,6 +16,8 @@ public class Repository : Entity
     public string? DefaultBranch { get; private set; }
     /// <summary>When set, this repo uses this LLM instead of the user's default. Null = use default.</summary>
     public Guid? LlmSettingId { get; private set; }
+    /// <summary>Custom AI agent rules for this repo. Null = use default template.</summary>
+    public string? AgentRules { get; private set; }
 
     // Navigation properties
     public List<Epic> Epics { get; private set; } = new();
@@ -59,6 +61,12 @@ public class Repository : Entity
     public void SetLlmSetting(Guid? llmSettingId)
     {
         LlmSettingId = llmSettingId;
+        MarkAsUpdated();
+    }
+
+    public void UpdateAgentRules(string? agentRules)
+    {
+        AgentRules = agentRules;
         MarkAsUpdated();
     }
 }

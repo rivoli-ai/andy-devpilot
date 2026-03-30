@@ -93,6 +93,7 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.UserId).HasColumnName("user_id");
             entity.Property(e => e.DefaultBranch).HasColumnName("default_branch").HasMaxLength(128);
             entity.Property(e => e.LlmSettingId).HasColumnName("llm_setting_id");
+            entity.Property(e => e.AgentRules).HasColumnName("agent_rules");
             entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
         });
 

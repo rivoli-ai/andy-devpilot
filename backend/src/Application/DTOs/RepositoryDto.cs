@@ -28,4 +28,6 @@ public class RepositoryDto
     public Guid? LlmSettingId { get; set; }
     /// <summary>Display name of the selected LLM (e.g. "OpenAI GPT-4") when set.</summary>
     public string? LlmSettingName { get; set; }
+    /// <summary>Custom AI agent rules for this repo. Null = use default template.</summary>
+    public string? AgentRules { get; set; }
 }

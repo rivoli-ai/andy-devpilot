@@ -1,9 +1,10 @@
-import { Component, OnInit, OnDestroy, signal, computed, effect, HostListener, ElementRef } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, computed, effect, HostListener, ElementRef, SecurityContext } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE } from '../../core/services/backlog.service';
-import { RepositoryService } from '../../core/services/repository.service';
+import { RepositoryService, DEFAULT_AGENT_RULES } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
 import { SandboxService } from '../../core/services/sandbox.service';
 import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
@@ -45,6 +46,13 @@ export class BacklogComponent implements OnInit, OnDestroy {
   repositoryId = signal<string>('');
   repositoryName = signal<string>('');
   repository = signal<Repository | null>(null);
+
+  // Agent rules editor
+  showRulesModal = signal<boolean>(false);
+  rulesEditText = signal<string>('');
+  rulesIsDefault = signal<boolean>(true);
+  rulesSaving = signal<boolean>(false);
+  rulesLoading = signal<boolean>(false);
 
   // Lightbox
   lightboxImageSrc: string | null = null;
@@ -395,7 +403,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
     private aiConfigService: AIConfigService,
     private mcpConfigService: McpConfigService,
     private artifactFeedService: ArtifactFeedService,
-    private authService: AuthService
+    private authService: AuthService,
+    private sanitizer: DomSanitizer,
+    private markdownPipe: MarkdownPipe
   ) {
     // Sync with backlog service signal for real-time updates (e.g., when PR is created)
     effect(() => {
@@ -1067,6 +1077,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
       },
       zed_settings: zedSettings,
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
+      agent_rules: repo.agentRules || DEFAULT_AGENT_RULES,
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created for user story:', story.title);
@@ -1886,25 +1897,22 @@ ${jsonFormatRequirement}`;
     return `https://github.com/${repo.fullName}/issues/${issueNumber}`;
   }
 
-  /** Build Azure DevOps work item URL when org and project are available */
+  /** Build Azure DevOps work item URL using org-level path (IDs are org-scoped). */
   getAzureDevOpsWorkItemUrl(workItemId: number): string | null {
     const repo = this.repository();
     if (!repo?.provider) return null;
     let org: string | undefined;
-    let project: string | undefined;
     if (repo.provider === 'AzureDevOps' && repo.fullName) {
       const parts = repo.fullName.split('/').filter(Boolean);
-      if (parts.length >= 2) {
+      if (parts.length >= 1) {
         org = parts[0];
-        project = parts[1];
       }
     }
-    if (!org || !project) {
+    if (!org) {
       org = this.azureDevOpsOrg() || undefined;
-      project = this.azureDevOpsProject() || undefined;
     }
-    if (org && project) {
-      return `https://dev.azure.com/${org}/${project}/_workitems/edit/${workItemId}`;
+    if (org) {
+      return `https://dev.azure.com/${org}/_workitems/edit/${workItemId}`;
     }
     return null;
   }
@@ -2718,22 +2726,146 @@ ${jsonFormatRequirement}`;
     this.lightboxImageSrc = null;
   }
 
+  /**
+   * Azure DevOps rich-text fields use HTML. Detect so we can sanitize+render instead of markdown/plain parsing.
+   */
+  isAdoRichText(value: string | null | undefined): boolean {
+    if (!value || value.length < 3) return false;
+    const t = value.trim();
+    return /<[a-z][\s\S]*>/i.test(t);
+  }
+
+  /** Description / epic text: HTML from Azure DevOps or markdown/plain for others. */
+  richDescriptionHtml(text: string | null | undefined, fallback: string): SafeHtml {
+    const raw = (text?.trim() ? text : fallback) ?? '';
+    if (!raw.trim()) {
+      return this.sanitizer.bypassSecurityTrustHtml('');
+    }
+    if (this.isAdoRichText(raw)) {
+      const cleaned = this.sanitizer.sanitize(SecurityContext.HTML, raw) ?? '';
+      return this.sanitizer.bypassSecurityTrustHtml(cleaned);
+    }
+    return this.markdownPipe.transform(raw);
+  }
+
+  /** Acceptance criteria when stored as Azure HTML. */
+  richAcceptanceCriteriaHtml(ac: string | null | undefined): SafeHtml {
+    const raw = ac?.trim() ?? '';
+    const cleaned = this.sanitizer.sanitize(SecurityContext.HTML, raw) ?? '';
+    return this.sanitizer.bypassSecurityTrustHtml(cleaned);
+  }
+
+  /**
+   * Split acceptance criteria into individual lines. Azure DevOps often exports
+   * multiple criteria on one line: "- Given …, when …, then …. - Given …, when …"
+   */
+  private splitAcceptanceCriteriaLines(ac: string): string[] {
+    const lines: string[] = [];
+    for (const para of ac.trim().split(/\n+/)) {
+      const p = para.trim();
+      if (!p) continue;
+      const segments = p.split(/\s+-\s+Given\s+/i).map(s => s.trim()).filter(Boolean);
+      segments.forEach((seg, idx) => {
+        const normalized =
+          idx === 0 ? seg.replace(/^[-•*]\s*/, '').trim() : `Given ${seg}`;
+        if (normalized.length > 0) {
+          lines.push(normalized);
+        }
+      });
+    }
+    return lines;
+  }
+
+  /** Strip HTML tags and convert <br>, </p>, </div>, </li> to newlines for plain-text parsing. */
+  private stripHtmlToText(html: string): string {
+    return html
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/(?:p|div|li)>/gi, '\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&amp;/gi, '&')
+      .replace(/&lt;/gi, '<')
+      .replace(/&gt;/gi, '>')
+      .replace(/&quot;/gi, '"')
+      .replace(/&#39;/gi, "'")
+      .trim();
+  }
+
   parseCriteria(ac: string | undefined | null): { given: string; when: string; then: string; raw: string }[] {
     if (!ac?.trim()) return [];
-    return ac
-      .split('\n')
-      .map(line => line.replace(/^[-•*]\s*/, '').trim())
-      .filter(line => line.length > 0)
-      .map(line => {
-        const givenMatch = line.match(/^Given\s+(.+?)(?:,\s*When\s+|$)/i);
-        const whenMatch = line.match(/When\s+(.+?)(?:,\s*Then\s+|$)/i);
-        const thenMatch = line.match(/Then\s+(.+)$/i);
-        return {
-          given: givenMatch?.[1]?.trim() || '',
-          when: whenMatch?.[1]?.trim() || '',
-          then: thenMatch?.[1]?.trim() || '',
-          raw: line
-        };
-      });
+    const plain = this.isAdoRichText(ac) ? this.stripHtmlToText(ac) : ac;
+    if (!plain.trim()) return [];
+    const criterionLines = this.splitAcceptanceCriteriaLines(plain);
+    return criterionLines.map(line => {
+      const givenMatch = line.match(/^Given\s+(.+?)(?:,\s*When\s+|$)/is);
+      const whenMatch = line.match(/,\s*When\s+(.+?)(?:,\s*Then\s+|$)/is);
+      const thenMatch = line.match(/,\s*Then\s+(.+)$/is);
+      return {
+        given: givenMatch?.[1]?.trim() || '',
+        when: whenMatch?.[1]?.trim() || '',
+        then: thenMatch?.[1]?.trim().replace(/\.\s*$/, '') || '',
+        raw: line
+      };
+    });
+  }
+
+  openRulesEditor(): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.rulesLoading.set(true);
+    this.showRulesModal.set(true);
+    this.repositoryService.getRepositoryAgentRules(repo.id).subscribe({
+      next: (result) => {
+        this.rulesEditText.set(result.agentRules ?? DEFAULT_AGENT_RULES);
+        this.rulesIsDefault.set(result.isDefault);
+        this.rulesLoading.set(false);
+      },
+      error: () => {
+        this.rulesEditText.set(repo.agentRules ?? DEFAULT_AGENT_RULES);
+        this.rulesIsDefault.set(!repo.agentRules);
+        this.rulesLoading.set(false);
+      }
+    });
+  }
+
+  closeRulesEditor(): void {
+    this.showRulesModal.set(false);
+    this.rulesEditText.set('');
+    this.rulesSaving.set(false);
+    this.rulesLoading.set(false);
+  }
+
+  saveRules(): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.rulesSaving.set(true);
+    const text = this.rulesEditText();
+    this.repositoryService.updateRepositoryAgentRules(repo.id, text).subscribe({
+      next: () => {
+        this.rulesIsDefault.set(false);
+        this.rulesSaving.set(false);
+        this.repository.update(r => r ? { ...r, agentRules: text } : r);
+      },
+      error: () => {
+        this.rulesSaving.set(false);
+      }
+    });
+  }
+
+  resetRulesToDefault(): void {
+    const repo = this.repository();
+    if (!repo) return;
+    this.rulesSaving.set(true);
+    this.repositoryService.updateRepositoryAgentRules(repo.id, null).subscribe({
+      next: () => {
+        this.rulesEditText.set(DEFAULT_AGENT_RULES);
+        this.rulesIsDefault.set(true);
+        this.rulesSaving.set(false);
+        this.repository.update(r => r ? { ...r, agentRules: null } : r);
+      },
+      error: () => {
+        this.rulesSaving.set(false);
+      }
+    });
   }
 }

@@ -94,6 +94,7 @@ public class SandboxController : ControllerBase
                         ProjectName = f.ProjectName,
                         FeedType = f.FeedType,
                     }).ToList(),
+                    AgentRules = request.AgentRules,
                 },
                 cancellationToken);
 
@@ -186,6 +187,9 @@ public class CreateSandboxRequest
 
     [JsonPropertyName("artifact_feeds")]
     public List<ArtifactFeedPayload>? ArtifactFeeds { get; set; }
+
+    [JsonPropertyName("agent_rules")]
+    public string? AgentRules { get; set; }
 }
 
 public class ArtifactFeedPayload

@@ -195,7 +195,7 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
 
                 if (description != null)
                 {
-                    patches.Add(new AzureDevOpsWorkItemPatchOperation { Op = "add", Path = "/fields/System.Description", Value = description });
+                    patches.Add(new AzureDevOpsWorkItemPatchOperation { Op = "add", Path = "/fields/System.Description", Value = ConvertToHtml(description) });
                 }
 
                 // Sync status -> System.State using allowed values from ADO
@@ -225,7 +225,7 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
 
                 if (!string.IsNullOrEmpty(acceptanceCriteria))
                 {
-                    patches.Add(new AzureDevOpsWorkItemPatchOperation { Op = "add", Path = "/fields/Microsoft.VSTS.Common.AcceptanceCriteria", Value = acceptanceCriteria });
+                    patches.Add(new AzureDevOpsWorkItemPatchOperation { Op = "add", Path = "/fields/Microsoft.VSTS.Common.AcceptanceCriteria", Value = ConvertAcceptanceCriteriaToHtml(acceptanceCriteria) });
                 }
 
                 await _azureDevOpsService.UpdateWorkItemAsync(
@@ -244,6 +244,93 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
         result.Success = result.FailedCount == 0;
         _logger.LogInformation("Sync to Azure DevOps completed. Synced: {Synced}, Failed: {Failed}",
             result.SyncedCount, result.FailedCount);
+
+        return result;
+    }
+
+    private static bool IsAlreadyHtml(string text)
+    {
+        var trimmed = text.Trim();
+        return trimmed.StartsWith("<") && trimmed.Contains("</");
+    }
+
+    private static string ConvertToHtml(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        if (IsAlreadyHtml(text))
+            return text;
+
+        var escaped = System.Net.WebUtility.HtmlEncode(text);
+        var lines = escaped.Split('\n');
+        var sb = new System.Text.StringBuilder();
+
+        foreach (var line in lines)
+        {
+            var trimmedLine = line.TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(trimmedLine))
+                sb.Append("<br>");
+            else
+                sb.Append("<div>").Append(trimmedLine).Append("</div>");
+        }
+
+        return sb.ToString();
+    }
+
+    /// <summary>
+    /// Splits acceptance criteria (often a single line with " - Given " separators)
+    /// into an HTML list with bold Given / When / Then keywords.
+    /// </summary>
+    private static string ConvertAcceptanceCriteriaToHtml(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text))
+            return text;
+
+        if (IsAlreadyHtml(text))
+            return text;
+
+        var criteria = SplitAcceptanceCriteria(text);
+        if (criteria.Count == 0)
+            return ConvertToHtml(text);
+
+        var sb = new System.Text.StringBuilder();
+        sb.Append("<ul>");
+        foreach (var criterion in criteria)
+        {
+            var escaped = System.Net.WebUtility.HtmlEncode(criterion.Trim().TrimEnd('.'));
+            // Bold the Given / When / Then keywords
+            escaped = System.Text.RegularExpressions.Regex.Replace(
+                escaped,
+                @"\b(Given|When|Then)\b",
+                "<b>$1</b>",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            sb.Append("<li>").Append(escaped).Append("</li>");
+        }
+        sb.Append("</ul>");
+        return sb.ToString();
+    }
+
+    private static List<string> SplitAcceptanceCriteria(string text)
+    {
+        var result = new List<string>();
+
+        foreach (var paragraph in text.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var p = paragraph.Trim();
+            if (string.IsNullOrEmpty(p)) continue;
+
+            // Split on " - Given " which Azure DevOps uses to concatenate criteria on one line
+            var segments = System.Text.RegularExpressions.Regex.Split(
+                p, @"\s+-\s+(?=Given\s)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+            foreach (var seg in segments)
+            {
+                var cleaned = seg.Trim().TrimStart('-', '•', '*').Trim();
+                if (!string.IsNullOrEmpty(cleaned))
+                    result.Add(cleaned);
+            }
+        }
 
         return result;
     }

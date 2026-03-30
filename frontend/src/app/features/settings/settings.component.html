@@ -553,10 +553,27 @@
             }
 
             @if (artifactBrowseFeeds().length > 0) {
-              <div class="field">
-                <label>Select a feed</label>
-                <ul class="browse-feed-list">
-                  @for (bf of artifactBrowseFeeds(); track bf.id) {
+              <div class="field browse-feeds-panel">
+                <label>Search & select a feed</label>
+                <div class="browse-feeds-filter">
+                  <label class="sr-only" for="artifact-browse-feed-search">Search browsed feeds</label>
+                  <input
+                    id="artifact-browse-feed-search"
+                    type="search"
+                    class="browse-feeds-search-input"
+                    placeholder="Type to filter feeds by name or project…"
+                    autocomplete="off"
+                    [ngModel]="artifactBrowseSearchQuery()"
+                    (ngModelChange)="artifactBrowseSearchQuery.set($event)"
+                  />
+                  @if (artifactBrowseSearchQuery().trim()) {
+                    <span class="browse-feeds-search-meta">
+                      {{ filteredArtifactBrowseFeeds().length }} of {{ artifactBrowseFeeds().length }} shown
+                    </span>
+                  }
+                </div>
+                <ul class="browse-feed-list browse-feed-list--scroll">
+                  @for (bf of filteredArtifactBrowseFeeds(); track bf.id) {
                     <li class="browse-feed-item" [class.browse-feed-item--selected]="artifactFormFeedName() === bf.name" (click)="selectBrowsedFeed(bf)">
                       <span class="browse-feed-name">{{ bf.name }}</span>
                       @if (bf.project) {
@@ -565,6 +582,12 @@
                     </li>
                   }
                 </ul>
+                @if (filteredArtifactBrowseFeeds().length === 0 && artifactBrowseSearchQuery().trim()) {
+                  <div class="browse-feeds-empty">
+                    <p>No feeds match “{{ artifactBrowseSearchQuery().trim() }}”.</p>
+                    <button type="button" class="btn btn--ghost btn--sm" (click)="artifactBrowseSearchQuery.set('')">Clear search</button>
+                  </div>
+                }
               </div>
             }
 

@@ -63,6 +63,11 @@ public class UpdateRepositoryLlmSettingRequest
     public Guid? LlmSettingId { get; set; }
 }
 
+public class UpdateRepositoryAgentRulesRequest
+{
+    public string? AgentRules { get; set; }
+}
+
 /// <summary>
 /// Controller for managing repositories
 /// Follows Clean Architecture - no business logic, only delegates to Application layer
@@ -209,6 +214,44 @@ public class RepositoriesController : ControllerBase
             id, verify?.LlmSettingId?.ToString() ?? "(null)");
 
         return Ok(new { message = "Repository LLM setting updated", llmSettingId = request.LlmSettingId });
+    }
+
+    /// <summary>
+    /// Update repository's AI agent rules (owner only). Set to null to use the default template.
+    /// </summary>
+    [HttpPatch("{id}/agent-rules")]
+    [Authorize]
+    public async Task<IActionResult> UpdateRepositoryAgentRules(Guid id, [FromBody] UpdateRepositoryAgentRulesRequest request, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        repo.UpdateAgentRules(request.AgentRules);
+        await _repositoryRepository.UpdateAsync(repo, cancellationToken);
+
+        return Ok(new { message = "Repository agent rules updated", agentRules = repo.AgentRules });
+    }
+
+    /// <summary>
+    /// Get repository's AI agent rules. Returns the custom rules or the default template if none set.
+    /// </summary>
+    [HttpGet("{id}/agent-rules")]
+    [Authorize]
+    public async Task<IActionResult> GetRepositoryAgentRules(Guid id, CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+
+        return Ok(new { agentRules = repo.AgentRules, isDefault = repo.AgentRules == null });
     }
 
     /// <summary>

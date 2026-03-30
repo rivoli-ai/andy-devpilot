@@ -23,6 +23,18 @@
       </nav>
     </div>
     <div class="header-actions">
+      <!-- Agent rules editor -->
+      @if (repository()?.isOwner !== false) {
+        <button type="button" class="action-btn secondary rules-btn" (click)="openRulesEditor()" title="Edit AI agent rules for this repository">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          Rules
+        </button>
+      }
       <!-- AI model selector (same UI as branch selector in code view) -->
       @if (repository() && getLlmSettings().length > 0) {
         <div class="llm-selector">
@@ -596,7 +608,7 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <div class="detail-text markdown-content" [innerHTML]="(epic.description || 'No description provided') | markdown"></div>
+                      <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(epic.description, 'No description provided')"></div>
                     </div>
                     <div class="detail-sidebar">
                       <div class="detail-meta-item">
@@ -717,7 +729,7 @@
                         <div class="detail-grid">
                           <div class="detail-main">
                             <h4 class="detail-label">Description</h4>
-                            <div class="detail-text markdown-content" [innerHTML]="(feature.description || 'No description provided') | markdown"></div>
+                            <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(feature.description, 'No description provided')"></div>
                           </div>
                           <div class="detail-sidebar">
                             <div class="detail-meta-item">
@@ -877,7 +889,7 @@
                             <div class="detail-grid">
                               <div class="detail-main">
                                 <h4 class="detail-label">Description</h4>
-                                <div class="detail-text markdown-content" [innerHTML]="(story.description || 'No description provided') | markdown"></div>
+                                <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(story.description, 'No description provided')"></div>
                                 
                                 @if (story.acceptanceCriteria) {
                                   <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
@@ -1067,7 +1079,7 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <div class="detail-text markdown-content" [innerHTML]="(feature.description || 'No description provided') | markdown"></div>
+                      <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(feature.description, 'No description provided')"></div>
                     </div>
                     <div class="detail-sidebar">
                       <div class="detail-meta-item"><span class="meta-label">User Stories</span><span class="meta-value">{{ feature.userStories.length }}</span></div>
@@ -1155,7 +1167,7 @@
                         <div class="detail-grid">
                           <div class="detail-main">
                             <h4 class="detail-label">Description</h4>
-                            <div class="detail-text markdown-content" [innerHTML]="(story.description || 'No description provided') | markdown"></div>
+                            <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(story.description, 'No description provided')"></div>
                             @if (story.acceptanceCriteria) {
                               <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
                               <div class="ac-rendered">
@@ -1275,7 +1287,7 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <div class="detail-text markdown-content" [innerHTML]="(item.story.description || 'No description provided') | markdown"></div>
+                      <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(item.story.description, 'No description provided')"></div>
                       @if (item.story.acceptanceCriteria) {
                         <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
                         <div class="ac-rendered">
@@ -1456,7 +1468,7 @@
                   <div class="detail-grid">
                     <div class="detail-main">
                       <h4 class="detail-label">Description</h4>
-                      <div class="detail-text markdown-content" [innerHTML]="(item.story.description || 'No description provided') | markdown"></div>
+                      <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(item.story.description, 'No description provided')"></div>
                       
                       @if (item.story.acceptanceCriteria) {
                         <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
@@ -2480,5 +2492,69 @@
       </svg>
     </button>
     <img [src]="lightboxImageSrc" class="lightbox-image" (click)="$event.stopPropagation()" alt="Preview" />
+  </div>
+}
+
+<!-- Agent Rules Editor Modal -->
+@if (showRulesModal()) {
+  <div class="modal-overlay" (click)="closeRulesEditor()">
+    <div class="rules-modal" (click)="$event.stopPropagation()">
+      <div class="rules-modal__header">
+        <div class="rules-modal__title">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          <h3>AI Agent Rules</h3>
+          <span class="rules-modal__repo-name">{{ repositoryName() }}</span>
+        </div>
+        <button class="modal-close" (click)="closeRulesEditor()">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="18" y1="6" x2="6" y2="18"/>
+            <line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
+      </div>
+      <div class="rules-modal__body">
+        @if (rulesLoading()) {
+          <div class="rules-modal__loading">Loading rules...</div>
+        } @else {
+          <p class="rules-modal__hint">
+            These instructions guide the AI agent when implementing user stories in the sandbox.
+            @if (rulesIsDefault()) {
+              <span class="rules-modal__badge default">Using default</span>
+            } @else {
+              <span class="rules-modal__badge custom">Custom</span>
+            }
+          </p>
+          <textarea
+            class="rules-modal__editor"
+            [(ngModel)]="rulesEditText"
+            [disabled]="rulesSaving()"
+            spellcheck="false"
+            rows="20"
+            placeholder="Enter AI agent instructions..."></textarea>
+        }
+      </div>
+      <div class="rules-modal__footer">
+        @if (!rulesIsDefault()) {
+          <button type="button" class="rules-modal__reset" (click)="resetRulesToDefault()" [disabled]="rulesSaving()">
+            Reset to default
+          </button>
+        }
+        <div class="rules-modal__footer-right">
+          <button type="button" class="rules-modal__cancel" (click)="closeRulesEditor()">Cancel</button>
+          <button type="button" class="rules-modal__save" (click)="saveRules()" [disabled]="rulesSaving() || rulesLoading()">
+            @if (rulesSaving()) {
+              Saving...
+            } @else {
+              Save Rules
+            }
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 }

@@ -43,6 +43,7 @@ public record SandboxCreateRequest
     public SandboxAiConfig? AiConfig { get; init; }
     public object? ZedSettings { get; init; }
     public List<SandboxArtifactFeed>? ArtifactFeeds { get; init; }
+    public string? AgentRules { get; init; }
 }
 
 public record SandboxArtifactFeed

@@ -191,40 +191,9 @@
     <div class="popup-content" [class.with-conversations]="showConversations() && bridgePort()">
       <!-- AI Conversations Panel (Left Side) -->
       @if (bridgePort()) {
-        <div class="conversations-panel" [class.collapsed]="!showConversations()">
-          <!-- Push & Create PR Button (only for story implementation, not backlog/analysis sandboxes) -->
-          @if (implementationContext() && !isBacklogSandbox() && !isAnalysisSandbox()) {
-            <div class="push-pr-section">
-              @if (pushPrSuccess()) {
-                <div class="push-pr-success">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                    <polyline points="22 4 12 14.01 9 11.01"/>
-                  </svg>
-                  <span>PR created!</span>
-                  <a [href]="pushPrSuccess()!.url" target="_blank" rel="noopener" class="pr-link">Open PR</a>
-                </div>
-              } @else {
-                <button 
-                  class="push-pr-btn"
-                  (click)="pushAndCreatePr()"
-                  [disabled]="pushCreatingPr()">
-                  @if (pushCreatingPr()) {
-                    <span class="push-spinner"></span>
-                    <span>Pushing...</span>
-                  } @else {
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M22 2L11 13"/>
-                      <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
-                    </svg>
-                    <span>Push & Create PR</span>
-                  }
-                </button>
-                @if (pushPrError()) {
-                  <small class="push-pr-error">{{ pushPrError() }}</small>
-                }
-              }
-            </div>
+        <div class="conversations-panel" [class.collapsed]="!showConversations()" [style.width.px]="showConversations() ? chatPanelWidth() : null" [style.min-width.px]="showConversations() ? chatPanelWidth() : null">
+          @if (showConversations()) {
+            <div class="chat-resize-handle" (mousedown)="onChatResizeStart($event)"></div>
           }
           <div class="conversations-toggle" (click)="toggleConversations()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
@@ -234,6 +203,43 @@
           </div>
           
           @if (showConversations()) {
+            <!-- Push & Create PR Button (only for story implementation, not backlog/analysis sandboxes) -->
+            @if (implementationContext() && !isBacklogSandbox() && !isAnalysisSandbox()) {
+              <div class="push-pr-section">
+                @if (pushPrSuccess()) {
+                  <div class="push-pr-success">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                      <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                      <polyline points="22 4 12 14.01 9 11.01"/>
+                    </svg>
+                    <span>PR created!</span>
+                    <a [href]="pushPrSuccess()!.url" target="_blank" rel="noopener" class="pr-link">Open PR</a>
+                  </div>
+                } @else {
+                  <button 
+                    type="button"
+                    class="push-pr-btn"
+                    [class.push-pr-btn--working]="pushCreatingPr()"
+                    (click)="pushAndCreatePr()"
+                    [disabled]="pushCreatingPr() || !hasLatestAssistantMessage()"
+                    [title]="!hasLatestAssistantMessage() ? 'Wait for the AI to reply before pushing' : ''">
+                    @if (pushCreatingPr()) {
+                      <span class="push-spinner"></span>
+                      <span>Pushing...</span>
+                    } @else {
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M22 2L11 13"/>
+                        <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
+                      </svg>
+                      <span>Push & Create PR</span>
+                    }
+                  </button>
+                  @if (pushPrError()) {
+                    <small class="push-pr-error">{{ pushPrError() }}</small>
+                  }
+                }
+              </div>
+            }
             <div class="conversations-header">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
@@ -260,7 +266,7 @@
                     <div class="conversation-item">
                       <div class="conv-user">
                         <span class="role-badge user">You</span>
-                        <p class="user-msg">{{ conv.user_message }}</p>
+                        <p class="user-msg">{{ cleanUserMessage(conv.user_message) }}</p>
                       </div>
                       @if (conv.assistant_message) {
                         <div class="conv-assistant">

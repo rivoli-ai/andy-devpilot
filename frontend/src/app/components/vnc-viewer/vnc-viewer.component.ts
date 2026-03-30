@@ -93,6 +93,10 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   // Conversations state
   conversations = signal<ZedConversation[]>([]);
   showConversations = signal<boolean>(true); // Show by default
+  chatPanelWidth = signal<number>(350);
+  private chatResizing = false;
+  private chatResizeStartX = 0;
+  private chatResizeStartWidth = 0;
   isSending = signal<boolean>(false);
   newMessage = '';
   private destroy$ = new Subject<void>();
@@ -102,6 +106,14 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   pushCreatingPr = signal<boolean>(false);
   pushPrError = signal<string | null>(null);
   pushPrSuccess = signal<{ url: string; title: string } | null>(null);
+
+  /** Enable Push & Create PR only after the latest turn has an AI reply. */
+  hasLatestAssistantMessage = computed(() => {
+    const convs = this.conversations();
+    if (convs.length === 0) return false;
+    const last = convs[convs.length - 1];
+    return !!last.assistant_message?.trim();
+  });
 
   // Ready for PR state - shows alert on minimized widget
   readyForPr = signal<boolean>(false);
@@ -376,6 +388,51 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     this.showConversations.set(!this.showConversations());
   }
 
+  cleanUserMessage(msg: string): string {
+    if (!msg) return msg;
+    return msg
+      .replace(/(?:You\s*\n)?You\s+MUST\s+respond\s+with\s+a\s+series\s+of\s+edits[\s\S]*?must\s+exactly\s+match\s+existing[^\n]*/gi, '')
+      .replace(/You\s+MUST\s+respond\s+with\s+a\s+series\s+of\s+edits[\s\S]*?```/g, '')
+      .replace(/#+\s*File Editing Instructions[\s\S]*?(?=\n\n[A-Z]|\n\n#[^#]|$)/g, '')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  onChatResizeStart(event: MouseEvent): void {
+    event.preventDefault();
+    event.stopPropagation();
+    this.chatResizing = true;
+    this.chatResizeStartX = event.clientX;
+    this.chatResizeStartWidth = this.chatPanelWidth();
+
+    // Block iframe from stealing mouse events during drag
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:col-resize;';
+    document.body.appendChild(overlay);
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!this.chatResizing) return;
+      e.preventDefault();
+      const delta = e.clientX - this.chatResizeStartX;
+      const newWidth = Math.min(Math.max(this.chatResizeStartWidth + delta, 250), 800);
+      this.chatPanelWidth.set(newWidth);
+    };
+
+    const onMouseUp = () => {
+      this.chatResizing = false;
+      overlay.remove();
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+  }
+
   /**
    * Handle keydown events in the message textarea
    */
@@ -393,7 +450,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   pushAndCreatePr(): void {
     const ctx = this.implementationContext();
     const port = this.bridgePort();
-    if (!ctx || !port) return;
+    if (!ctx || !port || !this.hasLatestAssistantMessage()) return;
 
     this.pushCreatingPr.set(true);
     this.pushPrError.set(null);

@@ -203,6 +203,7 @@ public class SandboxService : ISandboxService
                 project_name = f.ProjectName,
                 feed_type = f.FeedType,
             }).ToList(),
+            agent_rules = req.AgentRules,
         };
     }
 

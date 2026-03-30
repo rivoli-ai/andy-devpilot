@@ -5,7 +5,7 @@ import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil, switchMap } from 'rxjs/operators';
 import { of } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
-import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem } from '../../core/services/repository.service';
+import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem, DEFAULT_AGENT_RULES } from '../../core/services/repository.service';
 import { AnalysisService } from '../../core/services/analysis.service';
 import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
@@ -34,6 +34,8 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   private readonly searchSubject = new Subject<string>();
   repositories = signal<Repository[]>([]);
   loading = signal<boolean>(false);
+  /** True during API refresh when the list is kept on screen (search debounce) — avoids killing focus on the search input */
+  refreshingList = signal<boolean>(false);
   loadingMore = signal<boolean>(false);
   searchQuery = signal<string>('');
   page = signal<number>(1);
@@ -45,6 +47,9 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   syncSources = signal<SyncSource[]>([]);
   analyzing = signal<Record<string, boolean>>({});
   creatingSandboxFor = signal<string | null>(null);
+  /** Increments on each full list reload so older HTTP responses are ignored (search / filter / sync racing). */
+  private listResetFetchId = 0;
+
   error = signal<string | null>(null);
   successMessage = signal<string | null>(null);
   showSyncMenu = signal<boolean>(false);
@@ -62,6 +67,15 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   selectedReposForSync = signal<Set<string>>(new Set());
   loadingAvailableRepos = signal<boolean>(false);
   syncSelectOrg = signal<string>('');
+  /** Filter text in the sync modal repository list */
+  syncModalRepoSearch = signal<string>('');
+
+  filteredReposForSync = computed(() => {
+    const q = this.syncModalRepoSearch().trim().toLowerCase();
+    const items = this.availableReposForSync();
+    if (!q) return items;
+    return items.filter((i) => i.fullName.toLowerCase().includes(q));
+  });
 
   // Share repository modal
   showShareModal = signal<boolean>(false);
@@ -261,10 +275,10 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     
     // Debounced search
     this.searchSubject.pipe(
-      debounceTime(300),
+      debounceTime(400),
       distinctUntilChanged(),
       takeUntil(this.destroy$)
-    ).subscribe(() => this.loadRepositories(true));
+    ).subscribe(() => this.loadRepositories(true, { preserveList: true }));
 
     // User suggestions for share modal
     this.shareSuggestQuery$.pipe(
@@ -332,12 +346,25 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
       .trim() || projectKey;
   }
 
-  loadRepositories(reset = true): void {
+  loadRepositories(reset = true, options?: { preserveList?: boolean }): void {
+    const preserve =
+      !!options?.preserveList &&
+      reset &&
+      this.repositories().length > 0 &&
+      !this.loading();
+
+    let resetFetchId = 0;
     if (reset) {
+      resetFetchId = ++this.listResetFetchId;
       this.page.set(1);
       this.hasMore.set(true);
-      this.repositories.set([]);
-      this.loading.set(true);
+      if (preserve) {
+        this.refreshingList.set(true);
+      } else {
+        this.refreshingList.set(false);
+        this.repositories.set([]);
+        this.loading.set(true);
+      }
     } else {
       this.loadingMore.set(true);
     }
@@ -354,6 +381,9 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
       pageSize: this.pageSize
     }).subscribe({
       next: (result: PagedRepositoriesResult) => {
+        if (reset && resetFetchId !== this.listResetFetchId) {
+          return;
+        }
         this.hasMore.set(result.hasMore);
         this.totalCount.set(result.totalCount);
         if (reset) {
@@ -363,11 +393,16 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
         }
         this.loading.set(false);
         this.loadingMore.set(false);
+        this.refreshingList.set(false);
       },
       error: (err) => {
+        if (reset && resetFetchId !== this.listResetFetchId) {
+          return;
+        }
         this.error.set(err.message || 'Failed to load repositories');
         this.loading.set(false);
         this.loadingMore.set(false);
+        this.refreshingList.set(false);
       }
     });
   }
@@ -378,7 +413,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   loadMore(): void {
-    if (!this.hasMore() || this.loadingMore() || this.loading()) return;
+    if (!this.hasMore() || this.loadingMore() || this.loading() || this.refreshingList()) return;
     this.page.update(p => p + 1);
     this.loadRepositories(false);
   }
@@ -423,6 +458,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     this.closeSyncMenu();
     this.syncSelectProvider.set('GitHub');
     this.syncSelectOrg.set('');
+    this.syncModalRepoSearch.set('');
     this.availableReposForSync.set([]);
     this.selectedReposForSync.set(new Set());
     this.showSyncSelectModal.set(true);
@@ -455,6 +491,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     this.closeSyncMenu();
     this.syncSelectProvider.set('AzureDevOps');
     this.syncSelectOrg.set(organizationName);
+    this.syncModalRepoSearch.set('');
     this.availableReposForSync.set([]);
     this.selectedReposForSync.set(new Set());
     this.showSyncSelectModal.set(true);
@@ -502,6 +539,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     this.availableReposForSync.set([]);
     this.selectedReposForSync.set(new Set());
     this.syncSelectOrg.set('');
+    this.syncModalRepoSearch.set('');
     this.error.set(null);
   }
 
@@ -521,7 +559,9 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   }
 
   selectAllRepos(): void {
-    const selectable = this.selectableRepos().map(r => r.fullName);
+    const selectable = this.filteredReposForSync()
+      .filter((r) => !r.alreadyInApp)
+      .map((r) => r.fullName);
     this.selectedReposForSync.set(new Set(selectable));
   }
 
@@ -809,6 +849,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
       },
       zed_settings: zedSettings,
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
+      agent_rules: repo.agentRules || DEFAULT_AGENT_RULES,
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created:', sandbox);

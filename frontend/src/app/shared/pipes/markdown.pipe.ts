@@ -1,4 +1,4 @@
-import { Pipe, PipeTransform } from '@angular/core';
+import { Injectable, Pipe, PipeTransform } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { marked, MarkedExtension } from 'marked';
 import { MermaidDiagramService } from '../../core/services/mermaid-diagram.service';
@@ -94,6 +94,7 @@ let mermaidIdCounter = 0;
 /**
  * Markdown to HTML pipe with Prism syntax highlighting and Mermaid diagrams
  */
+@Injectable({ providedIn: 'root' })
 @Pipe({
   name: 'markdown',
   standalone: true
@@ -141,8 +142,34 @@ export class MarkdownPipe implements PipeTransform {
     if (!value) return '';
     
     try {
+      // Strip Zed's internal system prompt / edit format instructions that leak into responses
+      let processedValue = this.stripZedSystemPrompt(value);
+
+      // Extract <edits> blocks as placeholders (will inject styled HTML after markdown parsing)
+      const diffBlocks: { id: string; html: string }[] = [];
+      let diffCounter = 0;
+      processedValue = processedValue.replace(
+        /<edits>([\s\S]*?)<\/edits>/g,
+        (_match, inner: string) => {
+          const id = `DIFFBLOCK${diffCounter++}DIFFBLOCK`;
+          diffBlocks.push({ id, html: this.buildDiffHtml(inner) });
+          return id;
+        }
+      );
+      // Also handle standalone old_text/new_text pairs not wrapped in <edits>
+      processedValue = processedValue.replace(
+        /<old_text[^>]*>([\s\S]*?)<\/old_text>\s*<new_text>([\s\S]*?)<\/new_text>/g,
+        (_match) => {
+          const id = `DIFFBLOCK${diffCounter++}DIFFBLOCK`;
+          diffBlocks.push({ id, html: this.buildDiffHtml(_match) });
+          return id;
+        }
+      );
+      // Clean up any remaining stray edit tags
+      processedValue = processedValue.replace(/<\/?(?:edits|old_text|new_text)[^>]*>/g, '');
+
       // Convert raw HTML img tags to markdown so they render (marked escapes raw HTML by default)
-      let processedValue = value.replace(
+      processedValue = processedValue.replace(
         /<img\s+[^>]*src\s*=\s*["']([^"']+)["'][^>]*(?:alt\s*=\s*["']([^"']*)["'])?[^>]*\/?>/gi,
         (_, src, alt = '') => `![${alt}](${src})`
       );
@@ -245,6 +272,13 @@ export class MarkdownPipe implements PipeTransform {
         }, 200);
       }
       
+      // Re-inject diff block HTML (was extracted before markdown parsing to avoid escaping)
+      for (const { id, html: diffHtml } of diffBlocks) {
+        html = html.replace(id, diffHtml);
+        // Also handle if marked wrapped the placeholder in a <p> tag
+        html = html.replace(`<p>${id}</p>`, diffHtml);
+      }
+
       return this.sanitizer.bypassSecurityTrustHtml(html);
     } catch (error) {
       console.error('Markdown parsing error:', error);
@@ -272,5 +306,75 @@ export class MarkdownPipe implements PipeTransform {
       'dockerfile': 'docker',
     };
     return map[lang.toLowerCase()] || lang.toLowerCase();
+  }
+
+  /**
+   * Build styled diff HTML from an <edits> block inner content.
+   */
+  private buildDiffHtml(inner: string): string {
+    const editRegex = /<old_text[^>]*?(?:\s+line=(\d+))?[^>]*>([\s\S]*?)<\/old_text>\s*<new_text>([\s\S]*?)<\/new_text>/g;
+    const diffs: string[] = [];
+    let m;
+
+    while ((m = editRegex.exec(inner)) !== null) {
+      const startLine = m[1] ? parseInt(m[1], 10) : null;
+      const oldLines = m[2].trim().split('\n');
+      const newLines = m[3].trim().split('\n');
+
+      let lineNum = startLine || 1;
+      let rows = '';
+
+      for (const line of oldLines) {
+        rows += `<tr class="diff-row diff-removed"><td class="diff-gutter diff-gutter-removed">${lineNum}</td><td class="diff-sign">−</td><td class="diff-code">${this.escapeHtml(line)}</td></tr>`;
+        lineNum++;
+      }
+      for (const line of newLines) {
+        rows += `<tr class="diff-row diff-added"><td class="diff-gutter diff-gutter-added">${startLine ? lineNum : '+'}</td><td class="diff-sign">+</td><td class="diff-code">${this.escapeHtml(line)}</td></tr>`;
+        lineNum++;
+      }
+
+      diffs.push(
+        `<div class="diff-block">` +
+        `<div class="diff-header"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18"/><path d="M3 12h18"/></svg><span>Change${startLine ? ` at line ${m[1]}` : ''}</span></div>` +
+        `<table class="diff-table"><tbody>${rows}</tbody></table>` +
+        `</div>`
+      );
+    }
+
+    return diffs.length > 0 ? diffs.join('') : '';
+  }
+
+  /**
+   * Strip Zed's internal system prompt boilerplate that sometimes leaks into assistant messages.
+   * This includes the edit format instructions, file editing instructions, etc.
+   */
+  private stripZedSystemPrompt(text: string): string {
+    let result = text;
+
+    // Match the entire Zed system prompt block:
+    // Starts with optional "You\n" then "You MUST respond with a series of edits..."
+    // Ends with "must exactly match existing" (and any trailing text on that line)
+    result = result.replace(
+      /(?:You\s*\n)?You\s+MUST\s+respond\s+with\s+a\s+series\s+of\s+edits[\s\S]*?must\s+exactly\s+match\s+existing[^\n]*/gi,
+      ''
+    );
+
+    // Fallback: if the block doesn't end with "must exactly match existing",
+    // catch "You MUST respond" through the closing ``` of the example code block
+    result = result.replace(
+      /You\s+MUST\s+respond\s+with\s+a\s+series\s+of\s+edits[\s\S]*?```/g,
+      ''
+    );
+
+    // Catch standalone "# File Editing Instructions" sections
+    result = result.replace(
+      /#+\s*File Editing Instructions[\s\S]*?(?=\n\n[A-Z]|\n\n#[^#]|$)/g,
+      ''
+    );
+
+    // Clean up excessive blank lines
+    result = result.replace(/\n{3,}/g, '\n\n');
+
+    return result.trim();
   }
 }

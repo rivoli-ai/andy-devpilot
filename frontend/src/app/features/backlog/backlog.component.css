@@ -3892,9 +3892,21 @@ a.source-badge.gh:hover {
   color: #9ca3af;
 }
 
+/* Use background-color (not shorthand background) so the chevron image is preserved.
+   color-scheme: light helps Windows / Chromium render the native dropdown in light UI. */
 :host-context([data-theme="light"]) .ado-form-group select {
-  background: #f9fafb;
+  background-color: #ffffff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
   border-color: #d1d5db;
+  color: #111827;
+  color-scheme: light;
+}
+
+:host-context([data-theme="light"]) .ado-form-group select option,
+:host-context([data-theme="light"]) .ado-form-group select optgroup {
+  background-color: #ffffff;
   color: #111827;
 }
 
@@ -4941,4 +4953,196 @@ a.source-badge.gh:hover {
 
 .lightbox-close:hover {
   background: rgba(255, 255, 255, 0.2);
+}
+
+/* Modal overlay (shared) */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  backdrop-filter: blur(4px);
+}
+
+/* Rules button */
+.rules-btn {
+  gap: 6px;
+}
+
+/* Agent Rules Modal */
+.rules-modal {
+  background: var(--bg-primary, #1e1e2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 12px;
+  width: 700px;
+  max-width: 90vw;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.rules-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color, #333);
+}
+
+.rules-modal__title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-primary, #cdd6f4);
+}
+
+.rules-modal__title h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.rules-modal__repo-name {
+  font-size: 13px;
+  color: var(--text-secondary, #a6adc8);
+  background: var(--bg-secondary, #2a2a3e);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.rules-modal__body {
+  padding: 16px 20px;
+  flex: 1;
+  overflow: auto;
+}
+
+.rules-modal__hint {
+  font-size: 13px;
+  color: var(--text-secondary, #a6adc8);
+  margin: 0 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rules-modal__badge {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+.rules-modal__badge.default {
+  background: rgba(137, 180, 250, 0.15);
+  color: #89b4fa;
+}
+.rules-modal__badge.custom {
+  background: rgba(166, 227, 161, 0.15);
+  color: #a6e3a1;
+}
+
+.rules-modal__editor {
+  width: 100%;
+  min-height: 350px;
+  background: var(--bg-secondary, #181825);
+  color: var(--text-primary, #cdd6f4);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 8px;
+  padding: 14px;
+  font-family: 'JetBrains Mono', 'Fira Code', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.rules-modal__editor:focus {
+  outline: none;
+  border-color: var(--accent-color, #89b4fa);
+}
+
+.rules-modal__loading {
+  text-align: center;
+  padding: 60px 0;
+  color: var(--text-secondary, #a6adc8);
+}
+
+.rules-modal__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border-color, #333);
+  gap: 8px;
+}
+
+.rules-modal__footer-right {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.rules-modal__reset {
+  background: none;
+  border: 1px solid rgba(243, 139, 168, 0.3);
+  color: #f38ba8;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.rules-modal__reset:hover:not(:disabled) {
+  background: rgba(243, 139, 168, 0.1);
+}
+
+.rules-modal__cancel {
+  background: none;
+  border: 1px solid var(--border-color, #333);
+  color: var(--text-secondary, #a6adc8);
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+.rules-modal__cancel:hover {
+  background: var(--bg-secondary, #2a2a3e);
+}
+
+.rules-modal__save {
+  background: var(--accent-color, #89b4fa);
+  color: #1e1e2e;
+  border: none;
+  padding: 8px 18px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+.rules-modal__save:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.rules-modal__save:disabled,
+.rules-modal__reset:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary, #a6adc8);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+}
+.modal-close:hover {
+  background: var(--bg-secondary, #2a2a3e);
+  color: var(--text-primary, #cdd6f4);
 }

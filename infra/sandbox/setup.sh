@@ -2985,37 +2985,12 @@ echo "OPENAI_API_BASE set: ${OPENAI_API_BASE:-not set}" >> /tmp/sandbox-debug.lo
 echo "ANTHROPIC_API_KEY set: ${ANTHROPIC_API_KEY:+yes}" >> /tmp/sandbox-debug.log
 echo "Opening Zed in: $WORK_DIR" >> /tmp/sandbox-debug.log
 
-# Create a .rules file in the project to guide the AI agent
-if [ -d "$WORK_DIR" ] && [ "$WORK_DIR" != "/home/sandbox/projects" ]; then
+# Create a .rules file only when custom agent rules are provided via AGENT_RULES env var
+if [ -d "$WORK_DIR" ] && [ "$WORK_DIR" != "/home/sandbox/projects" ] && [ -n "$AGENT_RULES" ]; then
     RULES_FILE="$WORK_DIR/.rules"
-    if [ ! -f "$RULES_FILE" ]; then
-        echo "Creating .rules file for AI agent..."
-        cat > "$RULES_FILE" << 'RULES_CONTENT'
-# DevPilot AI Agent Instructions
-
-You are an AI assistant helping to analyze and improve this codebase.
-
-## Your Role
-- Analyze the project structure and understand the codebase
-- Identify potential improvements, bugs, or security issues
-- Suggest best practices and optimizations
-- Help with code reviews and documentation
-
-## When Starting
-1. First, explore the project structure to understand the codebase
-2. Read README.md if it exists
-3. Identify the main technologies and frameworks used
-4. Look for configuration files (package.json, pom.xml, requirements.txt, etc.)
-
-## Guidelines
-- Be concise and actionable in your suggestions
-- Prioritize security and performance issues
-- Follow the existing code style and conventions
-- Explain your reasoning when making suggestions
-RULES_CONTENT
-        chown sandbox:sandbox "$RULES_FILE"
-        echo ".rules file created at: $RULES_FILE" >> /tmp/sandbox-debug.log
-    fi
+    echo "$AGENT_RULES" > "$RULES_FILE"
+    chown sandbox:sandbox "$RULES_FILE"
+    echo "Agent rules written to: $RULES_FILE" >> /tmp/sandbox-debug.log
 fi
 
 # Open Zed in the project directory

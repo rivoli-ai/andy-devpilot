@@ -119,6 +119,26 @@ export interface FileAnalysisResult {
   model?: string;
 }
 
+export const DEFAULT_AGENT_RULES = `# DevPilot AI Agent Instructions
+
+## Before Making Changes
+1. Explore the project structure and identify the tech stack
+2. Read README.md if it exists
+3. Find and run the existing build command (e.g. dotnet build, npm run build, mvn compile, go build)
+4. Find and run existing tests (e.g. dotnet test, npm test, pytest, go test)
+5. Note any failing tests or build errors before your changes
+
+## After Making Changes
+1. Build the project again and fix any compilation errors
+2. Run all tests and fix any regressions you introduced
+3. Explain what you changed and why
+
+## Guidelines
+- Follow the existing code style and conventions
+- Prioritize security and performance
+- Be concise and actionable in your suggestions
+- Explain your reasoning when making suggestions`;
+
 /**
  * Service for managing repositories
  * Uses signals for reactive state management
@@ -370,6 +390,26 @@ export class RepositoryService {
         );
       })
     );
+  }
+
+  /**
+   * Update the AI agent rules for a repository. Pass null to reset to default.
+   */
+  updateRepositoryAgentRules(repositoryId: string, agentRules: string | null): Observable<any> {
+    return this.apiService.patch<any>(`/repositories/${repositoryId}/agent-rules`, { agentRules }).pipe(
+      tap(() => {
+        this.repositoriesSignal.update(repos =>
+          repos.map(r => (String(r.id) === String(repositoryId) ? { ...r, agentRules } : r))
+        );
+      })
+    );
+  }
+
+  /**
+   * Get the AI agent rules for a repository.
+   */
+  getRepositoryAgentRules(repositoryId: string): Observable<{ agentRules: string | null; isDefault: boolean }> {
+    return this.apiService.get<{ agentRules: string | null; isDefault: boolean }>(`/repositories/${repositoryId}/agent-rules`);
   }
 
   /**

@@ -25,4 +25,6 @@ export interface Repository {
   llmSettingId?: string | null;
   /** Display name of the selected LLM when set. */
   llmSettingName?: string | null;
+  /** Custom AI agent rules for this repo. Null = use default template. */
+  agentRules?: string | null;
 }

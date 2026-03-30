@@ -669,6 +669,96 @@
   border-radius: 0 0 var(--radius-lg) 0;
 }
 
+/* Markdown preview in file browser */
+.file-content.markdown-file-view {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: #0d1117;
+  border-radius: 0 0 var(--radius-lg) 0;
+}
+
+.markdown-preview-scroll {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  /* Extra horizontal room so list markers and prose don’t sit flush on the panel edge */
+  padding: var(--space-5) clamp(var(--space-5), 5vw, 2.5rem);
+}
+
+.file-markdown-body.markdown-content {
+  font-size: 15px;
+  line-height: 1.7;
+  max-width: 52rem;
+  margin-inline: var(--space-2);
+  color: #c9d1d9;
+}
+
+.file-markdown-body.markdown-content h1,
+.file-markdown-body.markdown-content h2,
+.file-markdown-body.markdown-content h3,
+.file-markdown-body.markdown-content h4 {
+  margin-top: var(--space-4);
+  margin-bottom: var(--space-2);
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.file-markdown-body.markdown-content h1:first-child,
+.file-markdown-body.markdown-content h2:first-child,
+.file-markdown-body.markdown-content h3:first-child,
+.file-markdown-body.markdown-content h4:first-child {
+  margin-top: 0;
+}
+
+.file-markdown-body.markdown-content p {
+  margin-bottom: var(--space-3);
+}
+
+.file-markdown-body.markdown-content ul,
+.file-markdown-body.markdown-content ol {
+  margin-bottom: var(--space-3);
+  margin-top: var(--space-1);
+  margin-inline: var(--space-2) 0;
+  padding-left: 0;
+  padding-inline-start: 1.75rem;
+  list-style-position: outside;
+}
+
+.file-markdown-body.markdown-content li {
+  margin-bottom: var(--space-2);
+  padding-inline-start: 0.35rem;
+}
+
+.file-markdown-body.markdown-content ul ul,
+.file-markdown-body.markdown-content ol ol,
+.file-markdown-body.markdown-content ul ol,
+.file-markdown-body.markdown-content ol ul {
+  margin-top: var(--space-2);
+  margin-bottom: var(--space-2);
+  margin-inline-start: var(--space-3);
+  padding-inline-start: 1.5rem;
+}
+
+.file-markdown-body.markdown-content strong {
+  color: #e6edf3;
+  font-weight: 600;
+}
+
+.file-markdown-body.markdown-content blockquote {
+  margin: var(--space-3) 0;
+  padding-left: var(--space-4);
+  border-left: 3px solid rgba(139, 92, 246, 0.45);
+  color: #8b949e;
+}
+
+.file-markdown-body.markdown-content hr {
+  margin: var(--space-4) 0;
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
 .code-toolbar {
   display: flex;
   align-items: center;
@@ -855,6 +945,34 @@
 /* Light mode - Code file reader */
 :host-context([data-theme="light"]) .file-content.code-viewer {
   background: #f6f8fa;
+}
+
+:host-context([data-theme="light"]) .file-content.markdown-file-view {
+  background: #f6f8fa;
+}
+
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content {
+  color: #24292f;
+}
+
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content h1,
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content h2,
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content h3,
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content h4 {
+  color: #1f2328;
+}
+
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content strong {
+  color: #1f2328;
+}
+
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content blockquote {
+  color: #57606a;
+  border-left-color: rgba(99, 102, 241, 0.5);
+}
+
+:host-context([data-theme="light"]) .file-markdown-body.markdown-content hr {
+  border-top-color: rgba(0, 0, 0, 0.12);
 }
 
 :host-context([data-theme="light"]) .code-toolbar {

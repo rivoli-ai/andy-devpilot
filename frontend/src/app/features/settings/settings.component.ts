@@ -90,6 +90,20 @@ export class SettingsComponent implements OnInit {
   artifactBrowseLoading = signal(false);
   artifactBrowseFeeds = signal<AzureDevOpsFeedDto[]>([]);
   artifactBrowseError = signal<string | null>(null);
+  /** Filter list after “Browse Feeds” loads Azure DevOps feeds */
+  artifactBrowseSearchQuery = signal('');
+
+  filteredArtifactBrowseFeeds = computed(() => {
+    const q = this.artifactBrowseSearchQuery().trim().toLowerCase();
+    const list = this.artifactBrowseFeeds();
+    if (!q) return list;
+    return list.filter((bf) => {
+      const hay = [bf.name, bf.project ?? '', bf.fullyQualifiedName ?? '', bf.id]
+        .join(' ')
+        .toLowerCase();
+      return hay.includes(q);
+    });
+  });
 
   constructor(
     private authService: AuthService,
@@ -752,6 +766,7 @@ export class SettingsComponent implements OnInit {
     this.artifactFormFeedType.set('nuget');
     this.artifactBrowseFeeds.set([]);
     this.artifactBrowseError.set(null);
+    this.artifactBrowseSearchQuery.set('');
     this.artifactFormOpen.set(true);
   }
 
@@ -764,12 +779,14 @@ export class SettingsComponent implements OnInit {
     this.artifactFormFeedType.set(feed.feedType);
     this.artifactBrowseFeeds.set([]);
     this.artifactBrowseError.set(null);
+    this.artifactBrowseSearchQuery.set('');
     this.artifactFormOpen.set(true);
   }
 
   cancelArtifactForm(): void {
     this.artifactFormOpen.set(false);
     this.artifactFormId.set(null);
+    this.artifactBrowseSearchQuery.set('');
   }
 
   async browseArtifactFeeds(): Promise<void> {
@@ -778,6 +795,7 @@ export class SettingsComponent implements OnInit {
 
     this.artifactBrowseLoading.set(true);
     this.artifactBrowseError.set(null);
+    this.artifactBrowseSearchQuery.set('');
     try {
       const feeds = await this.artifactFeedService.browseAzureFeeds(org);
       this.artifactBrowseFeeds.set(feeds);

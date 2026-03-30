@@ -125,6 +125,19 @@ export class CodeComponent implements OnInit, OnDestroy {
     return null;
   });
 
+  /** Render Markdown files as HTML instead of a raw highlighted buffer */
+  isMarkdownPreviewFile = computed(() => {
+    const file = this.selectedFile();
+    if (!file || file.isBinary) return false;
+    const lang = (file.language || '').toLowerCase();
+    if (lang === 'markdown' || lang === 'md') return true;
+    const isMdPath = (s: string) => {
+      const l = s.toLowerCase();
+      return l.endsWith('.md') || l.endsWith('.mdx');
+    };
+    return isMdPath(file.name || '') || isMdPath(file.path || '');
+  });
+
   // PR computed values
   filteredPullRequests = computed(() => {
     const prs = this.pullRequests();
@@ -657,7 +670,7 @@ export class CodeComponent implements OnInit, OnDestroy {
       repo_name: repo.name,
       repo_branch: branch,
       repo_archive_url: repoArchiveUrl,
-      ai_config: aiConfig
+      ai_config: aiConfig,
     }).subscribe({
       next: (sandbox) => {
         this.analysisSandboxId.set(sandbox.id);
