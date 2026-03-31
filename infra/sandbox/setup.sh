@@ -459,6 +459,20 @@ RUN python3 -m venv /opt/devpilot-venv && \
 # Add venv to PATH
 ENV PATH="/opt/devpilot-venv/bin:$PATH"
 
+# Install Azure CLI
+# Uses -k to tolerate corporate-proxy SSL interception during the key/repo setup
+RUN apt-get update && apt-get install -y --no-install-recommends gnupg && \
+    rm -rf /var/lib/apt/lists/* && \
+    ARCH=$(uname -m) && \
+    if [ "$ARCH" = "aarch64" ]; then AZ_ARCH="arm64"; else AZ_ARCH="amd64"; fi && \
+    CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME") && \
+    (curl -fsSL --retry 3 --retry-delay 5 -k https://packages.microsoft.com/keys/microsoft.asc \
+        | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg) && \
+    echo "deb [arch=${AZ_ARCH}] https://packages.microsoft.com/repos/azure-cli/ ${CODENAME} main" \
+        > /etc/apt/sources.list.d/azure-cli.list && \
+    apt-get update && apt-get install -y --no-install-recommends azure-cli \
+    && rm -rf /var/lib/apt/lists/*
+
 # Remove screen locker
 RUN apt-get update && apt-get remove -y xfce4-screensaver light-locker 2>/dev/null || true \
     && rm -rf /var/lib/apt/lists/*
@@ -2794,19 +2808,53 @@ chmod 644 /home/sandbox/.config/zed/settings.json
 echo "Zed settings written:" >> /tmp/sandbox-debug.log
 cat /home/sandbox/.config/zed/settings.json >> /tmp/sandbox-debug.log
 
-# ── Azure Service Principal login (for Key Vault, Azure SDK, etc.) ─────────────
-if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ] && [ -n "$AZURE_TENANT_ID" ]; then
-    echo "Logging in to Azure as Service Principal..." >> /tmp/sandbox-debug.log
-    if command -v az >/dev/null 2>&1; then
+# ── Azure login (Service Principal → Managed Identity fallback) ───────────────
+if command -v az >/dev/null 2>&1; then
+    if [ -n "$AZURE_CLIENT_ID" ] && [ -n "$AZURE_CLIENT_SECRET" ] && [ -n "$AZURE_TENANT_ID" ]; then
+        # Explicit service-principal credentials supplied via env vars
+        echo "[Azure] Logging in as Service Principal (AZURE_CLIENT_ID=$AZURE_CLIENT_ID)..." >> /tmp/sandbox-debug.log
         az login --service-principal \
             -u "$AZURE_CLIENT_ID" \
             -p "$AZURE_CLIENT_SECRET" \
             --tenant "$AZURE_TENANT_ID" \
-            --output none 2>>/tmp/sandbox-debug.log || echo "az login failed (non-fatal)" >> /tmp/sandbox-debug.log
-        echo "Azure SP login complete" >> /tmp/sandbox-debug.log
+            --output none 2>>/tmp/sandbox-debug.log \
+            && echo "[Azure] Service Principal login OK" >> /tmp/sandbox-debug.log \
+            || echo "[Azure] Service Principal login failed (non-fatal)" >> /tmp/sandbox-debug.log
     else
-        echo "az CLI not found, skipping az login (SDK will use env vars directly)" >> /tmp/sandbox-debug.log
+        # No SP creds – try managed identity via IMDS (only available on Azure VMs / ACI)
+        IMDS_REACHABLE=false
+        if curl -s --max-time 2 -H "Metadata: true" \
+               "http://169.254.169.254/metadata/instance?api-version=2021-02-01" \
+               >/dev/null 2>&1; then
+            IMDS_REACHABLE=true
+        fi
+        if [ "$IMDS_REACHABLE" = "true" ]; then
+            echo "[Azure] IMDS reachable – attempting managed identity login..." >> /tmp/sandbox-debug.log
+            # If AZURE_CLIENT_ID is set but no secret, treat it as a user-assigned identity client ID
+            if [ -n "$AZURE_CLIENT_ID" ]; then
+                az login --identity --username "$AZURE_CLIENT_ID" \
+                    --output none 2>>/tmp/sandbox-debug.log \
+                    && echo "[Azure] Managed identity (user-assigned) login OK" >> /tmp/sandbox-debug.log \
+                    || echo "[Azure] Managed identity login failed (non-fatal)" >> /tmp/sandbox-debug.log
+            else
+                az login --identity \
+                    --output none 2>>/tmp/sandbox-debug.log \
+                    && echo "[Azure] Managed identity (system-assigned) login OK" >> /tmp/sandbox-debug.log \
+                    || echo "[Azure] Managed identity login failed (non-fatal)" >> /tmp/sandbox-debug.log
+            fi
+        else
+            echo "[Azure] No SP credentials and IMDS not reachable – skipping az login" >> /tmp/sandbox-debug.log
+        fi
     fi
+    # Set default subscription if provided
+    if [ -n "$AZURE_SUBSCRIPTION_ID" ]; then
+        az account set --subscription "$AZURE_SUBSCRIPTION_ID" \
+            --output none 2>>/tmp/sandbox-debug.log \
+            && echo "[Azure] Default subscription set to $AZURE_SUBSCRIPTION_ID" >> /tmp/sandbox-debug.log \
+            || echo "[Azure] Failed to set subscription (non-fatal)" >> /tmp/sandbox-debug.log
+    fi
+else
+    echo "[Azure] az CLI not found in PATH – skipping login" >> /tmp/sandbox-debug.log
 fi
 
 # ── Configure private artifact feeds ──────────────────────────────────────────
