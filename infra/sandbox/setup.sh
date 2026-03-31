@@ -2518,7 +2518,8 @@ xhost +local: 2>/dev/null || true
 dbus-launch --sh-syntax > /tmp/dbus-env.sh
 source /tmp/dbus-env.sh
 export DBUS_SESSION_BUS_ADDRESS
-echo "D-Bus address: $DBUS_SESSION_BUS_ADDRESS"
+export DBUS_SESSION_BUS_PID
+echo "D-Bus address: $DBUS_SESSION_BUS_ADDRESS  PID: $DBUS_SESSION_BUS_PID"
 
 # Initialize gnome-keyring with empty password (avoids password prompt)
 echo "" | gnome-keyring-daemon --unlock --components=secrets 2>/dev/null || true
@@ -3049,7 +3050,8 @@ echo "Starting Zed with software rendering..."
 if [ -f /tmp/dbus-env.sh ]; then
     source /tmp/dbus-env.sh
     export DBUS_SESSION_BUS_ADDRESS
-    echo "D-Bus sourced: $DBUS_SESSION_BUS_ADDRESS" >> /tmp/sandbox-debug.log
+    export DBUS_SESSION_BUS_PID
+    echo "D-Bus sourced: $DBUS_SESSION_BUS_ADDRESS  PID: $DBUS_SESSION_BUS_PID" >> /tmp/sandbox-debug.log
 else
     echo "WARNING: D-Bus env file not found!" >> /tmp/sandbox-debug.log
 fi
@@ -3153,11 +3155,12 @@ export QT_QPA_PLATFORM=xcb
 unset WAYLAND_DISPLAY
 
 
-# D-Bus setup
-source /tmp/dbus-env.sh 2>/dev/null || true
+# D-Bus: disable session bus and suppress fatal warnings to avoid
+# GLib/GIO "connection flags" / "message bus connection" criticals
+export DBUS_SESSION_BUS_ADDRESS=/dev/null
+export DBUS_FATAL_WARNINGS=0
 
-# Suppress GLib/GIO "connection flags" criticals: prevent GIO from attempting
-# D-Bus-backed VFS or GSettings, which fail in a headless container.
+# Suppress GLib/GIO from attempting D-Bus-backed VFS or GSettings
 export GIO_USE_VFS=local
 export GSETTINGS_BACKEND=memory
 export G_MESSAGES_DEBUG=""
