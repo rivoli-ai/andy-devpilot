@@ -460,9 +460,19 @@ RUN python3 -m venv /opt/devpilot-venv && \
 ENV PATH="/opt/devpilot-venv/bin:$PATH"
 
 # Install Azure CLI
-# Uses -k to tolerate corporate-proxy SSL interception during the key/repo setup
+# Corporate proxies (Zscaler, etc.) re-sign TLS traffic; apt doesn't trust the
+# proxy CA.  We extract the live cert chain, add it to the trust store, AND tell
+# apt to skip HTTPS verification for this repo as a fallback.
 RUN apt-get update && apt-get install -y --no-install-recommends gnupg && \
     rm -rf /var/lib/apt/lists/* && \
+    for HOST in packages.microsoft.com; do \
+        echo | openssl s_client -showcerts -connect ${HOST}:443 -servername ${HOST} 2>/dev/null | \
+            awk -v host=${HOST} \
+                'BEGIN{n=0} /BEGIN CERTIFICATE/{n++; fname="/usr/local/share/ca-certificates/azure-cli-"host"-"n".crt"} \
+                 /BEGIN CERTIFICATE/,/END CERTIFICATE/{print > fname}' 2>/dev/null; \
+    done && \
+    update-ca-certificates 2>/dev/null || true && \
+    c_rehash /etc/ssl/certs 2>/dev/null || true && \
     ARCH=$(uname -m) && \
     if [ "$ARCH" = "aarch64" ]; then AZ_ARCH="arm64"; else AZ_ARCH="amd64"; fi && \
     CODENAME=$(. /etc/os-release && echo "$VERSION_CODENAME") && \
@@ -470,7 +480,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends gnupg && \
         | gpg --dearmor > /etc/apt/trusted.gpg.d/microsoft.gpg) && \
     echo "deb [arch=${AZ_ARCH}] https://packages.microsoft.com/repos/azure-cli/ ${CODENAME} main" \
         > /etc/apt/sources.list.d/azure-cli.list && \
+    echo 'Acquire::https::packages.microsoft.com::Verify-Peer "false";' \
+        > /etc/apt/apt.conf.d/99azure-cli-no-verify && \
     apt-get update && apt-get install -y --no-install-recommends azure-cli \
+    && rm -f /etc/apt/apt.conf.d/99azure-cli-no-verify \
     && rm -rf /var/lib/apt/lists/*
 
 # Remove screen locker
@@ -2817,6 +2830,7 @@ if command -v az >/dev/null 2>&1; then
             -u "$AZURE_CLIENT_ID" \
             -p "$AZURE_CLIENT_SECRET" \
             --tenant "$AZURE_TENANT_ID" \
+            --allow-no-subscriptions \
             --output none 2>>/tmp/sandbox-debug.log \
             && echo "[Azure] Service Principal login OK" >> /tmp/sandbox-debug.log \
             || echo "[Azure] Service Principal login failed (non-fatal)" >> /tmp/sandbox-debug.log
@@ -2833,11 +2847,13 @@ if command -v az >/dev/null 2>&1; then
             # If AZURE_CLIENT_ID is set but no secret, treat it as a user-assigned identity client ID
             if [ -n "$AZURE_CLIENT_ID" ]; then
                 az login --identity --username "$AZURE_CLIENT_ID" \
+                    --allow-no-subscriptions \
                     --output none 2>>/tmp/sandbox-debug.log \
                     && echo "[Azure] Managed identity (user-assigned) login OK" >> /tmp/sandbox-debug.log \
                     || echo "[Azure] Managed identity login failed (non-fatal)" >> /tmp/sandbox-debug.log
             else
                 az login --identity \
+                    --allow-no-subscriptions \
                     --output none 2>>/tmp/sandbox-debug.log \
                     && echo "[Azure] Managed identity (system-assigned) login OK" >> /tmp/sandbox-debug.log \
                     || echo "[Azure] Managed identity login failed (non-fatal)" >> /tmp/sandbox-debug.log
