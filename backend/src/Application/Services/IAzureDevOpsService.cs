@@ -171,6 +171,16 @@ public interface IAzureDevOpsService
         bool useBasicAuth = false);
 
     /// <summary>
+    /// Gets the source branch name of a pull request from its web URL.
+    /// URL format: https://dev.azure.com/{organization}/{project}/_git/{repo}/pullrequest/{prId}
+    /// </summary>
+    System.Threading.Tasks.Task<string?> GetPullRequestHeadBranchAsync(
+        string accessToken,
+        string prUrl,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
+    /// <summary>
     /// Lists artifact feeds in an Azure DevOps organization.
     /// </summary>
     System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsFeedDto>> GetFeedsAsync(

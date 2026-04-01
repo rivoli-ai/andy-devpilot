@@ -1387,6 +1387,71 @@ public class AzureDevOpsService : IAzureDevOpsService
         }
     }
 
+    /// <inheritdoc />
+    public async System.Threading.Tasks.Task<string?> GetPullRequestHeadBranchAsync(
+        string accessToken,
+        string prUrl,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+
+        try
+        {
+            var (organization, project, _, prId) = ParseAzureDevOpsPrUrl(prUrl);
+
+            var url = $"https://dev.azure.com/{organization}/{project}/_apis/git/pullrequests/{prId}?api-version={AzureDevOpsApiVersion}";
+
+            var response = await httpClient.GetAsync(url, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+
+            if (content.TrimStart().StartsWith("<"))
+            {
+                throw new InvalidOperationException("Azure DevOps authentication failed. Please use a valid token.");
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _logger.LogError("Azure DevOps PR API failed: {StatusCode} - {Content}", response.StatusCode, content);
+                throw new HttpRequestException($"Azure DevOps API returned {response.StatusCode}");
+            }
+
+            var pr = JsonDocument.Parse(content);
+            if (!pr.RootElement.TryGetProperty("sourceRefName", out var sourceRef) ||
+                sourceRef.ValueKind != JsonValueKind.String)
+            {
+                return null;
+            }
+
+            return SourceRefToBranchName(sourceRef.GetString());
+        }
+        catch (InvalidOperationException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error getting PR head branch for Azure DevOps PR {PrUrl}", prUrl);
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// Converts refs/heads/my-branch to my-branch.
+    /// </summary>
+    private static string? SourceRefToBranchName(string? sourceRefName)
+    {
+        if (string.IsNullOrWhiteSpace(sourceRefName))
+        {
+            return null;
+        }
+
+        const string headsPrefix = "refs/heads/";
+        return sourceRefName.StartsWith(headsPrefix, StringComparison.Ordinal)
+            ? sourceRefName[headsPrefix.Length..]
+            : sourceRefName;
+    }
+
     public async System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsFeedDto>> GetFeedsAsync(
         string organization,
         string accessToken,

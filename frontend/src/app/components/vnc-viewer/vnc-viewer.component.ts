@@ -1,11 +1,30 @@
-import { Component, OnInit, OnDestroy, ViewChild, ElementRef, signal, effect, input, output, computed, HostListener, untracked } from '@angular/core';
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  AfterViewInit,
+  ViewChild,
+  ElementRef,
+  signal,
+  effect,
+  input,
+  output,
+  computed,
+  HostListener,
+  untracked
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Subject, interval, takeUntil, switchMap, filter, startWith, EMPTY, catchError } from 'rxjs';
 import { VncService } from '../../core/services/vnc.service';
 import { VncViewerService, DockPosition } from '../../core/services/vnc-viewer.service';
-import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
+import {
+  SandboxBridgeService,
+  ZedConversation,
+  ZedConversationsResponse,
+  SANDBOX_AGENT_QUIET_POLL_COUNT
+} from '../../core/services/sandbox-bridge.service';
 import { RepositoryService } from '../../core/services/repository.service';
 import { BacklogService } from '../../core/services/backlog.service';
 import { VncConfig, VncConnectionState, DEFAULT_VNC_CONFIG } from '../../shared/models/vnc-config.model';
@@ -22,7 +41,7 @@ import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
   templateUrl: './vnc-viewer.component.html',
   styleUrl: './vnc-viewer.component.css'
 })
-export class VncViewerComponent implements OnInit, OnDestroy {
+export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('vncIframe', { static: false }) vncIframeRef!: ElementRef<HTMLIFrameElement>;
   @ViewChild('popupContainer', { static: false }) popupContainerRef!: ElementRef<HTMLDivElement>;
 
@@ -32,7 +51,6 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   initialDockPosition = input<DockPosition>('floating');
   initialConnectionState = input<string | undefined>(undefined); // From service when viewer moves floating↔minimized
   viewerTitle = input<string>('Sandbox');
-  viewerIndex = input<number>(0); // Index for positioning multiple minimized widgets
   embedded = input<boolean>(false); // When true, renders without container/header (for dock panel)
   bridgePort = input<number | undefined>(undefined); // Bridge API port for this sandbox
   implementationContext = input<{ repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string; azureDevOpsWorkItemId?: number } | undefined>(undefined); // Enables Push & Create PR
@@ -77,6 +95,9 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   private resizeStartX = 0;
   private resizeStartY = 0;
 
+  /** Sync `isFullscreen` with the browser Fullscreen API (dock tiles need this — CSS fixed is clipped by parent backdrop-filter). */
+  private readonly onFullscreenChangeBound = (): void => this.onFullscreenChange();
+
   // Connection timeout and retry (sandbox may take a few seconds to be ready)
   private connectionTimeout: any = null;
   private connectionRetryTimeout: any = null;
@@ -92,7 +113,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
 
   // Conversations state
   conversations = signal<ZedConversation[]>([]);
-  showConversations = signal<boolean>(true); // Show by default
+  showConversations = signal<boolean>(false); // Collapsed until user opens chat
   chatPanelWidth = signal<number>(350);
   private chatResizing = false;
   private chatResizeStartX = 0;
@@ -101,6 +122,12 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   newMessage = '';
   private destroy$ = new Subject<void>();
   private lastConversationId = '';
+
+  /** Same quiet-period logic as {@link SandboxBridgeService.waitForImplementationComplete} */
+  private pushPrQuietAccum: { stableLatestId: string | null; consecutiveStableIdle: number } = {
+    stableLatestId: null,
+    consecutiveStableIdle: 0
+  };
 
   // Push & Create PR state
   pushCreatingPr = signal<boolean>(false);
@@ -111,13 +138,11 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   pasteFromHostBusy = signal<boolean>(false);
   pasteFromHostMessage = signal<string | null>(null);
 
-  /** Enable Push & Create PR only after the latest turn has an AI reply. */
-  hasLatestAssistantMessage = computed(() => {
-    const convs = this.conversations();
-    if (convs.length === 0) return false;
-    const last = convs[convs.length - 1];
-    return !!last.assistant_message?.trim();
-  });
+  /**
+   * Enable Push PR after latest turn has assistant text and the bridge has been idle with a
+   * stable latest conversation id for {@link SANDBOX_AGENT_QUIET_POLL_COUNT} polls (not only “any reply”).
+   */
+  canPushPrAfterQuiet = signal<boolean>(false);
 
   // Ready for PR state - shows alert on minimized widget
   readyForPr = signal<boolean>(false);
@@ -178,6 +203,17 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       };
     }
 
+    if (pos === 'tiled') {
+      return {
+        width: '100%',
+        height: '100%',
+        left: '0',
+        top: '0',
+        right: 'auto',
+        bottom: 'auto'
+      };
+    }
+
     // Floating (default)
     return {
       width: `${this.popupWidth()}px`,
@@ -186,17 +222,6 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       top: `${this.popupY()}px`,
       right: 'auto',
       bottom: 'auto'
-    };
-  });
-
-  // Computed style for minimized widget position (stacks horizontally from right)
-  minimizedStyle = computed(() => {
-    const index = this.viewerIndex();
-    const widgetWidth = 320; // Approximate width of minimized widget (increased for safety)
-    const gap = 20; // Gap between widgets
-    const rightOffset = 20 + (index * (widgetWidth + gap));
-    return {
-      right: `${rightOffset}px`
     };
   });
 
@@ -260,6 +285,14 @@ export class VncViewerComponent implements OnInit, OnDestroy {
         untracked(() => this.vncViewerService.setConnectionState(id, state));
       }
     });
+
+    // When the dock mounts a new tile, viewerId can lag behind the first viewers$ emission;
+    // re-pull readyForPr from the service whenever id is set.
+    effect(() => {
+      const id = this.viewerId();
+      if (!id) return;
+      untracked(() => this.syncReadyForPrFromService());
+    }, { allowSignalWrites: true });
   }
 
   /**
@@ -267,14 +300,14 @@ export class VncViewerComponent implements OnInit, OnDestroy {
    */
   private syncReadyForPrFromService(): void {
     const id = this.viewerId();
-    if (id) {
-      const viewer = this.vncViewerService.getViewer(id);
-      if (viewer?.readyForPr !== undefined && viewer.readyForPr !== this.readyForPr()) {
-        this.readyForPr.set(viewer.readyForPr);
-        if (viewer.readyForPr && this.dockPosition() === 'minimized') {
-          this.playAlertSound();
-        }
-      }
+    if (!id) return;
+    const viewer = this.vncViewerService.getViewer(id);
+    if (!viewer) return;
+    const fromService = viewer.readyForPr === true;
+    if (fromService === this.readyForPr()) return;
+    this.readyForPr.set(fromService);
+    if (fromService && (this.dockPosition() === 'minimized' || this.dockPosition() === 'tiled')) {
+      this.playAlertSound();
     }
   }
 
@@ -317,6 +350,12 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     this.bridgeWaitIntervalId = setInterval(tryHealth, pollMs);
   }
 
+  ngAfterViewInit(): void {
+    this.syncReadyForPrFromService();
+    document.addEventListener('fullscreenchange', this.onFullscreenChangeBound);
+    document.addEventListener('webkitfullscreenchange', this.onFullscreenChangeBound as EventListener);
+  }
+
   ngOnInit(): void {
     // Set initial dock position from input
     const initialPos = this.initialDockPosition();
@@ -324,7 +363,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
       this.dockPosition.set(initialPos);
     }
 
-    // Center the popup initially (only if floating and not embedded)
+    // Center the popup initially (only if floating and not embedded / grid-tiled)
     if (this.dockPosition() === 'floating' && !this.embedded()) {
       this.centerPopup();
     }
@@ -381,8 +420,59 @@ export class VncViewerComponent implements OnInit, OnDestroy {
             console.log('New conversation in sandbox:', this.viewerId());
           }
         }
+        this.updatePushPrEligibility(response);
       }
     });
+  }
+
+  /**
+   * Gate "Push & Create PR" on the same heuristic as implementation-complete: avoid enabling
+   * right after the first assistant chunk while tool/LLM rounds are still in flight.
+   */
+  private updatePushPrEligibility(response: ZedConversationsResponse): void {
+    const prevEligible = this.canPushPrAfterQuiet();
+    const inProgress = response.request_in_progress === true;
+    const list = response.conversations;
+
+    let nextEligible = false;
+
+    if (list.length === 0) {
+      this.pushPrQuietAccum = { stableLatestId: null, consecutiveStableIdle: 0 };
+    } else {
+      const latest = list[list.length - 1];
+      const hasAssistant = !!latest.assistant_message?.trim();
+
+      if (!hasAssistant) {
+        this.pushPrQuietAccum.consecutiveStableIdle = 0;
+      } else if (inProgress) {
+        this.pushPrQuietAccum.consecutiveStableIdle = 0;
+      } else if (this.pushPrQuietAccum.stableLatestId !== latest.id) {
+        this.pushPrQuietAccum = { stableLatestId: latest.id, consecutiveStableIdle: 0 };
+      } else {
+        const next = this.pushPrQuietAccum.consecutiveStableIdle + 1;
+        this.pushPrQuietAccum = { stableLatestId: latest.id, consecutiveStableIdle: next };
+        nextEligible = next >= SANDBOX_AGENT_QUIET_POLL_COUNT;
+      }
+    }
+
+    this.canPushPrAfterQuiet.set(nextEligible);
+    this.syncReadyForPrWithPushEligibility(prevEligible, nextEligible);
+  }
+
+  /**
+   * Minimized UI/sound use `readyForPr`; the expanded button uses `canPushPrAfterQuiet`.
+   * For user-story sandboxes, drive `readyForPr` from push eligibility so the tray matches the button.
+   */
+  private syncReadyForPrWithPushEligibility(prevEligible: boolean, nextEligible: boolean): void {
+    if (prevEligible === nextEligible) return;
+    if (!this.implementationContext()) return;
+    if (this.isBacklogSandbox() || this.isAnalysisSandbox()) return;
+
+    if (nextEligible && !prevEligible) {
+      this.setReadyForPr(true);
+    } else if (!nextEligible && prevEligible) {
+      this.setReadyForPr(false);
+    }
   }
 
   /**
@@ -454,7 +544,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   pushAndCreatePr(): void {
     const ctx = this.implementationContext();
     const port = this.bridgePort();
-    if (!ctx || !port || !this.hasLatestAssistantMessage()) return;
+    if (!ctx || !port || !this.canPushPrAfterQuiet()) return;
 
     this.pushCreatingPr.set(true);
     this.pushPrError.set(null);
@@ -577,6 +667,12 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    const el = this.popupContainerRef?.nativeElement;
+    if (el && this.getFullscreenElement() === el) {
+      void this.exitDocumentFullscreen();
+    }
+    document.removeEventListener('fullscreenchange', this.onFullscreenChangeBound);
+    document.removeEventListener('webkitfullscreenchange', this.onFullscreenChangeBound as EventListener);
     this.disconnect();
     if (this.connectionTimeout) {
       clearTimeout(this.connectionTimeout);
@@ -584,6 +680,43 @@ export class VncViewerComponent implements OnInit, OnDestroy {
     // Stop polling
     this.destroy$.next();
     this.destroy$.complete();
+  }
+
+  private onFullscreenChange(): void {
+    const el = this.popupContainerRef?.nativeElement;
+    this.isFullscreen.set(!!el && this.getFullscreenElement() === el);
+  }
+
+  private getFullscreenElement(): Element | null {
+    const doc = document as Document & { webkitFullscreenElement?: Element | null };
+    return document.fullscreenElement ?? doc.webkitFullscreenElement ?? null;
+  }
+
+  private requestElementFullscreen(el: HTMLElement): Promise<void> {
+    const anyEl = el as HTMLElement & {
+      requestFullscreen?: (options?: FullscreenOptions) => Promise<void>;
+      webkitRequestFullscreen?: () => void;
+    };
+    if (typeof anyEl.requestFullscreen === 'function') {
+      return anyEl.requestFullscreen();
+    }
+    if (typeof anyEl.webkitRequestFullscreen === 'function') {
+      anyEl.webkitRequestFullscreen();
+      return Promise.resolve();
+    }
+    return Promise.reject(new Error('Fullscreen API not available'));
+  }
+
+  private exitDocumentFullscreen(): Promise<void> {
+    const doc = document as Document & { webkitExitFullscreen?: () => void };
+    if (typeof document.exitFullscreen === 'function') {
+      return document.exitFullscreen();
+    }
+    if (typeof doc.webkitExitFullscreen === 'function') {
+      doc.webkitExitFullscreen();
+      return Promise.resolve();
+    }
+    return Promise.resolve();
   }
 
   private centerPopup(): void {
@@ -749,7 +882,7 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   }
 
   toggleMinimize(): void {
-    const newPosition = this.dockPosition() === 'minimized' ? 'floating' : 'minimized';
+    const newPosition = this.dockPosition() === 'minimized' ? 'tiled' : 'minimized';
     this.dockPosition.set(newPosition);
     const id = this.viewerId();
     if (id) {
@@ -762,9 +895,13 @@ export class VncViewerComponent implements OnInit, OnDestroy {
    * Shows a visual indicator on the minimized widget
    */
   setReadyForPr(ready: boolean): void {
+    const wasReady = this.readyForPr();
     this.readyForPr.set(ready);
-    // If ready and minimized, play a sound to alert user
-    if (ready && this.dockPosition() === 'minimized') {
+    const id = this.viewerId();
+    if (id) {
+      untracked(() => this.vncViewerService.setReadyForPr(id, ready));
+    }
+    if (ready && !wasReady && (this.dockPosition() === 'minimized' || this.dockPosition() === 'tiled')) {
       this.playAlertSound();
     }
   }
@@ -795,7 +932,19 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   }
 
   toggleFullscreen(): void {
-    this.isFullscreen.set(!this.isFullscreen());
+    const el = this.popupContainerRef?.nativeElement;
+    if (!el) {
+      this.isFullscreen.update(v => !v);
+      return;
+    }
+    if (this.getFullscreenElement() === el) {
+      void this.exitDocumentFullscreen();
+      return;
+    }
+    void this.requestElementFullscreen(el).catch(() => {
+      // Safari-blocked, or unsupported — fall back to CSS “fullscreen” (works for floating; may clip in dock)
+      this.isFullscreen.update(v => !v);
+    });
   }
 
   openInNewTab(): void {
@@ -992,6 +1141,10 @@ export class VncViewerComponent implements OnInit, OnDestroy {
   }
 
   exitFullscreen(): void {
+    const el = this.popupContainerRef?.nativeElement;
+    if (el && this.getFullscreenElement() === el) {
+      void this.exitDocumentFullscreen();
+    }
     this.isFullscreen.set(false);
   }
 }

@@ -580,6 +580,7 @@
           <div class="col-progress">Progress</div>
         </div>
 
+        <div class="tree-scroll">
         <!-- Epics (Standalone items render below without epic row) -->
         @for (epic of filteredEpicsForTree(); track epic.id) {
           <div class="tree-group">
@@ -1377,6 +1378,7 @@
             </div>
           }
         </div>
+        </div>
       </div>
     } @else {
       <!-- Flat View - All User Stories -->
@@ -1390,6 +1392,7 @@
           <div class="col-points">Points</div>
         </div>
 
+        <div class="flat-scroll">
         @if (flatStories().length === 0) {
           <div class="flat-empty">
             <p>No user stories match your filters</p>
@@ -1638,6 +1641,7 @@
             }
           }
         }
+        </div>
       </div>
     }
   </div>

@@ -63,7 +63,6 @@ import { VncViewerComponent } from '../vnc-viewer/vnc-viewer.component';
           <app-vnc-viewer
             [config]="viewer.config"
             [viewerId]="viewer.id"
-            [viewerIndex]="0"
             [initialDockPosition]="'floating'"
             [initialConnectionState]="viewer.connectionState"
             [viewerTitle]="viewer.title || 'Sandbox'"

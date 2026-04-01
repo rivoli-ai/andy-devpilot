@@ -2,7 +2,8 @@ import { Injectable } from '@angular/core';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import { VncConfig } from '../../shared/models/vnc-config.model';
 
-export type DockPosition = 'floating' | 'right' | 'bottom' | 'minimized';
+/** tiled = dock grid in bottom tray; floating = free window; new sandboxes start minimized */
+export type DockPosition = 'floating' | 'tiled' | 'right' | 'bottom' | 'minimized';
 
 /** Context when sandbox was opened for implementing a user story */
 export interface ImplementationContext {
@@ -98,7 +99,7 @@ export class VncViewerService {
   }
 
   /**
-   * Open a new VNC viewer (opens as minimized by default if other viewers exist)
+   * Open a new VNC viewer (starts minimized in the bottom tray; user can open dock / float from there)
    * Auto-closes oldest viewer if at max capacity
    * @param config VNC connection config
    * @param id Optional viewer ID (sandbox ID)
@@ -132,7 +133,6 @@ export class VncViewerService {
       viewers[existingIndex] = {
         ...viewers[existingIndex],
         config,
-        dockPosition: 'floating',
         bridgePort: mergedPort,
         sandboxToken: mergedToken,
         bridgeUrl: mergedBridgeUrl,
@@ -156,11 +156,10 @@ export class VncViewerService {
       }
     }
     
-    // Create new viewer - always start minimized
     const newViewer: VncViewer = {
       id: viewerId,
       config,
-      dockPosition: 'minimized', // Always start minimized
+      dockPosition: 'minimized',
       title: title || `Sandbox ${viewerId.slice(0, 6)}`,
       createdAt: Date.now(),
       bridgePort,
@@ -211,6 +210,14 @@ export class VncViewerService {
   setDockPosition(viewerId: string, position: DockPosition): void {
     const viewers = this.viewersSubject.value.map(v => 
       v.id === viewerId ? { ...v, dockPosition: position } : v
+    );
+    this.viewersSubject.next(viewers);
+  }
+
+  /** All dock-tile viewers back to minimized chips (one emission). */
+  minimizeAllTiled(): void {
+    const viewers = this.viewersSubject.value.map(v =>
+      v.dockPosition === 'tiled' ? { ...v, dockPosition: 'minimized' as const } : v
     );
     this.viewersSubject.next(viewers);
   }

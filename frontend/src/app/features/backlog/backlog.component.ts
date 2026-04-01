@@ -1036,8 +1036,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
       };
 
       const resolveBranch = (repoUrl: string, archiveUrl?: string) => {
-        if (story.prUrl && repo.provider === 'GitHub') {
-          this.backlogService.getPrHeadBranch(story.prUrl).subscribe({
+        // Stories with an existing PR (e.g. PendingReview): clone the PR's source branch, not default
+        if (story.prUrl?.trim()) {
+          this.backlogService.getPrHeadBranch(story.prUrl.trim()).subscribe({
             next: (res) => {
               openSandboxWithBranch(repoUrl, res.branch, archiveUrl);
             },
@@ -1097,11 +1098,13 @@ export class BacklogComponent implements OnInit, OnDestroy {
       next: (sandbox) => {
         console.log('Sandbox created for user story:', story.title);
         
-        // Update story status to "InProgress" when sandbox opens
-        this.backlogService.updateStoryStatus(story.id, 'InProgress').subscribe({
-          next: () => console.log('Story status updated to InProgress'),
-          error: (err) => console.warn('Failed to update story status to InProgress:', err)
-        });
+        // First-time implementation only: move to InProgress. If a PR exists (e.g. PendingReview), keep that status.
+        if (!story.prUrl) {
+          this.backlogService.updateStoryStatus(story.id, 'InProgress').subscribe({
+            next: () => console.log('Story status updated to InProgress'),
+            error: (err) => console.warn('Failed to update story status to InProgress:', err)
+          });
+        }
         
         setTimeout(() => {
           this.creatingSandboxForStory.set(null);
@@ -1206,19 +1209,6 @@ ${story.acceptanceCriteria}
 **Story Points:** ${story.storyPoints}
 `;
     }
-
-    prompt += `
----
-
-Please analyze the codebase and implement this user story. Follow these steps:
-1. First, understand the current project structure and architecture
-2. Identify the files that need to be created or modified
-3. Implement the changes following the project's coding standards
-4. Ensure the acceptance criteria are met
-5. Add appropriate tests if the project has a testing framework
-
-Start by exploring the codebase and then provide your implementation plan.`;
-
     return prompt;
   }
 

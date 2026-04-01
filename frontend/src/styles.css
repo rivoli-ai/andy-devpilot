@@ -220,6 +220,8 @@
   --sidebar-width: 280px;
   --sidebar-collapsed: 80px;
   --header-height: 64px;
+  /* Reserve above minimized dock; overridden on `.app-container.has-sandbox-dock` */
+  --app-sandbox-main-pad-bottom: 0px;
   --content-max-width: 1400px;
   
   --z-base: 1;

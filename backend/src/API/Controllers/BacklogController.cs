@@ -658,9 +658,8 @@ public class BacklogController : ControllerBase
 
     /// <summary>
     /// Get the head (source) branch name of a pull request from its URL.
-
     /// Used when opening a story that already has a PR so the sandbox can clone that branch.
-    /// Uses the authenticated user's GitHub token from the database.
+    /// Supports GitHub (user GitHub token) and Azure DevOps (PAT or linked account).
     /// </summary>
     [HttpPost("pr-head-branch")]
     [Authorize]
@@ -680,15 +679,36 @@ public class BacklogController : ControllerBase
             return Unauthorized(new { error = "Invalid user token" });
         }
 
-        // Get GitHub access token from database
-        var accessToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
-        if (string.IsNullOrEmpty(accessToken))
-        {
-            return BadRequest(new { error = "GitHub is not connected. Please link your GitHub account first." });
-        }
-
         try
         {
+            if (IsAzureDevOpsPrUrl(request.PrUrl))
+            {
+                var (adoToken, useBasicAuth) = await GetAzureDevOpsAccessTokenAsync(userId, cancellationToken);
+                if (string.IsNullOrEmpty(adoToken))
+                {
+                    return BadRequest(new { error = "Azure DevOps is not connected. Please link your Azure DevOps account or configure a PAT in Settings." });
+                }
+
+                var adoBranch = await _azureDevOpsService.GetPullRequestHeadBranchAsync(
+                    adoToken,
+                    request.PrUrl,
+                    cancellationToken,
+                    useBasicAuth);
+
+                if (string.IsNullOrEmpty(adoBranch))
+                {
+                    return NotFound(new { error = "Could not get PR head branch", prUrl = request.PrUrl });
+                }
+
+                return Ok(new { branch = adoBranch });
+            }
+
+            var accessToken = await GetGitHubAccessTokenAsync(userId, cancellationToken);
+            if (string.IsNullOrEmpty(accessToken))
+            {
+                return BadRequest(new { error = "GitHub is not connected. Please link your GitHub account first." });
+            }
+
             var branch = await _gitHubService.GetPullRequestHeadBranchAsync(
                 accessToken,
                 request.PrUrl,

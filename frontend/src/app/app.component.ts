@@ -1,6 +1,18 @@
-import { Component, signal, OnInit, OnDestroy, computed } from '@angular/core';
-import { RouterOutlet } from '@angular/router';
-import { Subscription } from 'rxjs';
+import {
+  Component,
+  DestroyRef,
+  ElementRef,
+  OnDestroy,
+  OnInit,
+  computed,
+  effect,
+  inject,
+  signal,
+  viewChild
+} from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { NavigationEnd, Router, RouterOutlet } from '@angular/router';
+import { Subscription, filter, map } from 'rxjs';
 import { SidebarComponent } from './layout/sidebar/sidebar.component';
 import { HeaderComponent } from './layout/header/header.component';
 import { ThemeService } from './core/services/theme.service';
@@ -24,8 +36,37 @@ export class AppComponent implements OnInit, OnDestroy {
   sidebarCollapsed = signal(false);
   sidebarOpen = signal(false);
   vncViewers = signal<VncViewer[]>([]);
+  /** Dock-mode (tiled) panel above the page */
+  sandboxDockTiledExpanded = signal(false);
+  /** Minimized chips under the pin row (collapsed = pin + count only) */
+  sandboxDockFootprintExpanded = signal(true);
   
   private subscriptions: Subscription[] = [];
+  private lastTiledCount = 0;
+  private dockResizeObserver: ResizeObserver | null = null;
+
+  readonly sandboxDockRegion = viewChild<ElementRef<HTMLElement>>('sandboxDockRegion');
+
+  /** Short-lived set of sandbox ids playing the “promoted to front” animation */
+  dockPromotingIds = signal<ReadonlySet<string>>(new Set());
+
+  private prevMinimizedReadyById = new Map<string, boolean>();
+  private dockReadyTrackingInitialized = false;
+
+  private readonly router = inject(Router);
+  private readonly routerUrl = toSignal(
+    this.router.events.pipe(
+      filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+      map(e => e.urlAfterRedirects)
+    ),
+    { initialValue: this.router.url }
+  );
+
+  /** Dock tray / floating viewers / side dock panels — only on backlog & code routes */
+  sandboxUiAllowed = computed(() => {
+    const path = (this.routerUrl() ?? '').split('?')[0];
+    return path.includes('/backlog/') || path.includes('/code/');
+  });
 
   // Check if user is authenticated for showing sidebar/header
   isAuthenticated = computed(() => this.authService.isLoggedIn());
@@ -35,17 +76,70 @@ export class AppComponent implements OnInit, OnDestroy {
     private vncViewerService: VncViewerService,
     private sandboxService: SandboxService,
     public authService: AuthService
-  ) {}
+  ) {
+    const destroyRef = inject(DestroyRef);
+    destroyRef.onDestroy(() => this.teardownDockResizeObserver());
 
-  // Computed: viewers that are floating
-  floatingViewers = computed(() => 
+    effect(() => {
+      this.minimizedViewers().length;
+      this.tiledDockViewers().length;
+      this.sandboxDockTiledExpanded();
+      this.sandboxDockFootprintExpanded();
+      this.sandboxUiAllowed();
+      queueMicrotask(() => this.syncSandboxDockHeightObserver());
+    });
+
+    effect(() => {
+      this.trackMinimizedReadyForPromotion();
+    });
+  }
+
+  /** Free draggable windows (not in full-screen dock) */
+  floatingViewers = computed(() =>
     this.vncViewers().filter(v => v.dockPosition === 'floating')
   );
 
-  // Computed: viewers that are minimized
-  minimizedViewers = computed(() => 
-    this.vncViewers().filter(v => v.dockPosition === 'minimized')
+  /** Tiled “dock mode” viewers — shown in the bottom sandbox tray (main column) */
+  tiledDockViewers = computed(() =>
+    this.vncViewers().filter(v => v.dockPosition === 'tiled')
   );
+
+  /** Tray visible: bottom bar + expandable area (minimized chips and/or tiled dock) */
+  sandboxDockTrayVisible = computed(
+    () => this.minimizedViewers().length > 0 || this.tiledDockViewers().length > 0
+  );
+
+  sandboxDockTrayTotal = computed(
+    () => this.minimizedViewers().length + this.tiledDockViewers().length
+  );
+
+  /**
+   * Pin chevron: minimized strip when there are minimized viewers; otherwise tiled panel (tiles-only).
+   */
+  dockPinChevronOpen = computed(() => {
+    if (this.minimizedViewers().length > 0) {
+      return this.sandboxDockFootprintExpanded();
+    }
+    if (this.tiledDockViewers().length > 0) {
+      return this.sandboxDockTiledExpanded();
+    }
+    return false;
+  });
+
+  // Computed: minimized viewers — PR-ready first, then prior app order
+  minimizedViewers = computed(() => {
+    const all = this.vncViewers();
+    const order = new Map(all.map((v, i) => [v.id, i]));
+    const list = all.filter(v => v.dockPosition === 'minimized');
+    return [...list].sort((a, b) => {
+      const ar = a.readyForPr === true ? 1 : 0;
+      const br = b.readyForPr === true ? 1 : 0;
+      if (br !== ar) {
+        return br - ar;
+      }
+      return (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0);
+    });
+  });
 
   // Computed: viewers docked to the right
   rightDockedViewers = computed(() => 
@@ -66,6 +160,18 @@ export class AppComponent implements OnInit, OnDestroy {
       this.vncViewerService.viewers$.subscribe(viewers => {
         console.log('AppComponent received viewers update:', viewers.length);
         this.vncViewers.set(viewers);
+        const minimized = viewers.filter(v => v.dockPosition === 'minimized').length;
+        const tiled = viewers.filter(v => v.dockPosition === 'tiled').length;
+        if (minimized === 0 && tiled === 0) {
+          this.sandboxDockTiledExpanded.set(false);
+          this.sandboxDockFootprintExpanded.set(true);
+        } else if (tiled > this.lastTiledCount) {
+          this.sandboxDockTiledExpanded.set(true);
+        }
+        if (tiled === 0 && this.lastTiledCount > 0) {
+          this.sandboxDockTiledExpanded.set(false);
+        }
+        this.lastTiledCount = tiled;
       })
     );
 
@@ -92,6 +198,89 @@ export class AppComponent implements OnInit, OnDestroy {
 
   ngOnDestroy(): void {
     this.subscriptions.forEach(sub => sub.unsubscribe());
+    this.teardownDockResizeObserver();
+  }
+
+  private trackMinimizedReadyForPromotion(): void {
+    const viewers = this.vncViewers();
+    const minimized = viewers.filter(v => v.dockPosition === 'minimized');
+
+    if (!this.dockReadyTrackingInitialized) {
+      for (const v of minimized) {
+        this.prevMinimizedReadyById.set(v.id, v.readyForPr === true);
+      }
+      this.dockReadyTrackingInitialized = true;
+      return;
+    }
+
+    for (const v of minimized) {
+      const was = this.prevMinimizedReadyById.get(v.id) ?? false;
+      const now = v.readyForPr === true;
+      if (now && !was) {
+        this.flashDockPrReadyPromotion(v.id);
+      }
+      this.prevMinimizedReadyById.set(v.id, now);
+    }
+
+    const alive = new Set(minimized.map(v => v.id));
+    for (const id of [...this.prevMinimizedReadyById.keys()]) {
+      if (!alive.has(id)) {
+        this.prevMinimizedReadyById.delete(id);
+      }
+    }
+  }
+
+  private flashDockPrReadyPromotion(sandboxId: string): void {
+    this.sandboxDockFootprintExpanded.set(true);
+    this.dockPromotingIds.update(s => new Set([...s, sandboxId]));
+    window.setTimeout(() => {
+      this.dockPromotingIds.update(s => {
+        const next = new Set(s);
+        next.delete(sandboxId);
+        return next;
+      });
+    }, 520);
+  }
+
+  private teardownDockResizeObserver(): void {
+    this.dockResizeObserver?.disconnect();
+    this.dockResizeObserver = null;
+    document.documentElement.style.removeProperty('--app-sandbox-dock-height');
+  }
+
+  /** Keep main padding in sync with dock height (no inner scroll — panel grows with content). */
+  private syncSandboxDockHeightObserver(): void {
+    this.dockResizeObserver?.disconnect();
+    this.dockResizeObserver = null;
+
+    if (!this.sandboxUiAllowed() || !this.sandboxDockTrayVisible()) {
+      document.documentElement.style.removeProperty('--app-sandbox-dock-height');
+      return;
+    }
+
+    const el = this.sandboxDockRegion()?.nativeElement;
+    if (!el) {
+      return;
+    }
+
+    const apply = (height: number) => {
+      document.documentElement.style.setProperty(
+        '--app-sandbox-dock-height',
+        `${Math.max(0, Math.ceil(height))}px`
+      );
+    };
+
+    const readDockHeight = (target: Element) =>
+      Math.round(target.getBoundingClientRect().height);
+
+    this.dockResizeObserver = new ResizeObserver(entries => {
+      const entry = entries[0];
+      if (entry?.target) {
+        apply(readDockHeight(entry.target));
+      }
+    });
+    this.dockResizeObserver.observe(el);
+    apply(readDockHeight(el));
   }
 
   /**
@@ -144,6 +333,65 @@ export class AppComponent implements OnInit, OnDestroy {
     this.sidebarOpen.update(open => !open);
   }
 
+  /**
+   * Pin toggles the minimized chip strip only when there are minimized viewers.
+   * When there are only tiled dock viewers: expand shows tiles; collapse minimizes all to chips.
+   */
+  onSandboxDockPinClick(): void {
+    if (this.minimizedViewers().length > 0) {
+      this.sandboxDockFootprintExpanded.update(e => !e);
+      return;
+    }
+    if (this.tiledDockViewers().length > 0) {
+      if (this.sandboxDockTiledExpanded()) {
+        this.collapseTiledDockToMinimized();
+      } else {
+        this.sandboxDockTiledExpanded.set(true);
+      }
+    }
+  }
+
+  /**
+   * Closing the expanded dock (header control or pin) sends every tiled sandbox to minimized chips.
+   */
+  onSandboxDockTiledPanelCollapse(): void {
+    this.collapseTiledDockToMinimized();
+  }
+
+  private collapseTiledDockToMinimized(): void {
+    if (this.tiledDockViewers().length === 0) {
+      this.sandboxDockTiledExpanded.set(false);
+      return;
+    }
+    this.vncViewerService.minimizeAllTiled();
+    this.sandboxDockTiledExpanded.set(false);
+    this.sandboxDockFootprintExpanded.set(true);
+  }
+
+  sandboxDockPinSubline(): string {
+    if (this.minimizedViewers().length > 0) {
+      return this.sandboxDockFootprintExpanded()
+        ? 'Tap to collapse minimized sandboxes'
+        : 'Tap to expand minimized sandboxes';
+    }
+    if (this.tiledDockViewers().length > 0) {
+      return this.sandboxDockTiledExpanded()
+        ? 'Tap to minimize sandboxes to tray'
+        : 'Tap to show dock tiles above';
+    }
+    return '';
+  }
+
+  sandboxDockPinAriaControls(): string | null {
+    if (this.minimizedViewers().length > 0) {
+      return this.sandboxDockFootprintExpanded() ? 'sandbox-dock-minimized-chrome' : null;
+    }
+    if (this.tiledDockViewers().length > 0) {
+      return 'sandbox-dock-body';
+    }
+    return null;
+  }
+
   onVncViewerClose(viewerId: string): void {
     this.vncViewerService.close(viewerId);
   }
@@ -159,14 +407,19 @@ export class AppComponent implements OnInit, OnDestroy {
   // Get CSS classes for main content based on VNC dock positions
   getContentClasses(): string {
     const classes: string[] = [];
-    
-    if (this.rightDockedViewers().length > 0) {
+
+    if (this.sidebarCollapsed()) {
+      classes.push('app-sidebar-collapsed');
+    }
+    if (this.sandboxUiAllowed() && this.rightDockedViewers().length > 0) {
       classes.push('vnc-docked-right');
     }
-    if (this.bottomDockedViewers().length > 0) {
+    if (this.sandboxUiAllowed() && this.bottomDockedViewers().length > 0) {
       classes.push('vnc-docked-bottom');
     }
-    
+    if (this.sandboxUiAllowed() && this.sandboxDockTrayVisible()) {
+      classes.push('has-sandbox-dock');
+    }
     return classes.join(' ');
   }
 }

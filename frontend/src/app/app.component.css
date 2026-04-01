@@ -1,3 +1,8 @@
+/* Hidden on non–backlog/code routes (display:none keeps VNC instances mounted). */
+.sandbox-ui-layer--hidden {
+  display: none !important;
+}
+
 .app-container {
   display: flex;
   min-height: 100vh;
@@ -12,6 +17,7 @@
   flex-direction: column;
   min-height: 100vh;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 }
 
 .main-content {
@@ -22,7 +28,21 @@
   width: 100%;
   box-sizing: border-box;
   overflow-x: hidden;
+  min-height: 0; /* let full-height feature pages shrink when dock padding reserves space */
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/*
+ * Routed view after <router-outlet /> — flex-basis 0 (not auto) so tall inner content can’t
+ * force main / page scroll; feature pages scroll inside their own panes.
+ */
+.main-content > router-outlet ~ * {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
 }
 
 /* VNC Docked Right - Content shifts to left */
@@ -54,6 +74,569 @@
   flex: 1;
   overflow-y: auto;
   padding-bottom: var(--space-4);
+}
+
+/* Tiled “dock mode” lives inside the bottom tray (main column only), not full viewport */
+
+.sandbox-dock__tiled-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/*
+ * Match Sandboxes bar (count pill + control) and minimized chip `.mini-btn` (icon-only).
+ */
+.sandbox-dock__tiled-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-shrink: 0;
+  margin: 0 0 var(--space-1);
+}
+
+.sandbox-dock__tiled-head-tray {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* Align with vnc-viewer `.mini-btn` (minimized expand / close) */
+.sandbox-dock__tiled-collapse-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  margin: 0;
+  padding: 0;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--surface-hover) 92%, transparent);
+  border: 1px solid color-mix(in srgb, var(--border-light) 50%, transparent);
+  border-radius: 10px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.sandbox-dock__tiled-collapse-btn:hover {
+  background: var(--surface-card);
+  color: var(--text-primary);
+}
+
+.sandbox-dock__tiled-collapse-btn:focus {
+  outline: none;
+}
+
+.sandbox-dock__tiled-collapse-btn:focus-visible {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--sandbox-dock-accent) 45%, transparent);
+}
+
+.sandbox-dock__tiled-grid {
+  display: grid;
+  gap: var(--space-3);
+  padding: 2px;
+  min-width: 0;
+  min-height: 0;
+  /* Grow to fill dock panel so 1fr rows get a definite height (3+ tiles) */
+  flex: 1 1 0%;
+  width: 100%;
+  box-sizing: border-box;
+  /* 3+ tiles: two columns; rows share remaining height evenly */
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr);
+  align-content: stretch;
+  overflow: hidden;
+}
+
+/* One docked sandbox: full width and height of the dock panel */
+.sandbox-dock__tiled-grid--single {
+  grid-template-columns: 1fr;
+  grid-template-rows: 1fr;
+  align-content: stretch;
+  overflow: hidden;
+}
+
+/* Two sandboxes: one row, each half the container width */
+.sandbox-dock__tiled-grid--pair {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: 1fr;
+  align-content: stretch;
+  overflow: hidden;
+}
+
+.sandbox-dock__tiled-cell {
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.sandbox-dock__tiled-cell app-vnc-viewer {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.sandbox-dock__minimized-chrome {
+  min-width: 0;
+}
+
+.sandbox-dock__minimized-row {
+  margin: 0 var(--space-4) var(--space-1);
+}
+
+.sandbox-dock__minimized-label {
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+/* Reserve space for fixed tray + floating margin below the card (matches .sandbox-dock bottom offset) */
+.app-container.has-sandbox-dock {
+  --sandbox-dock-float-reserve: calc(
+    var(--sandbox-dock-edge, var(--space-4)) + var(--sandbox-dock-lift, var(--space-3)) + env(safe-area-inset-bottom, 0px)
+  );
+  --app-sandbox-main-pad-bottom: calc(
+    var(--app-sandbox-dock-height, 6.5rem) + var(--sandbox-dock-float-reserve) + var(--space-6)
+  );
+}
+
+.app-container.has-sandbox-dock .main-content {
+  padding-bottom: var(--app-sandbox-main-pad-bottom);
+  /* Clip backgrounds / scroll regions so backlog & code don’t paint under the fixed dock */
+  overflow-y: hidden;
+}
+
+/*
+ * Floating sandbox tray: fixed in the main column, lifted off the bottom edge like a palette
+ * (always visible while scrolling; not flush with the viewport).
+ */
+.sandbox-dock {
+  --sandbox-dock-accent: var(--primary-color, #6366f1);
+  --sandbox-dock-edge: var(--space-4);
+  --sandbox-dock-lift: var(--space-3);
+  position: fixed;
+  z-index: 998;
+  overflow: visible;
+  isolation: isolate;
+  left: calc(var(--sidebar-width) + var(--sandbox-dock-edge));
+  right: var(--sandbox-dock-edge);
+  bottom: var(--sandbox-dock-float-reserve, calc(var(--sandbox-dock-edge) + var(--sandbox-dock-lift) + env(safe-area-inset-bottom, 0px)));
+  width: auto;
+  max-width: none;
+  box-sizing: border-box;
+  padding: 0;
+  background: transparent;
+  border: none;
+  animation: sandboxDockIn 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.app-container.app-sidebar-collapsed .sandbox-dock {
+  left: calc(var(--sidebar-collapsed) + var(--sandbox-dock-edge));
+}
+
+.sandbox-dock__footprint {
+  position: relative;
+  z-index: 3;
+  border-radius: 20px;
+  background: linear-gradient(
+    165deg,
+    color-mix(in srgb, var(--surface-elevated, #1e1e2e) 48%, transparent) 0%,
+    color-mix(in srgb, var(--surface-ground, #0c0c12) 38%, transparent) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--border-light) 42%, transparent);
+  box-shadow:
+    0 22px 56px -18px rgba(0, 0, 0, 0.38),
+    0 12px 32px -16px rgba(0, 0, 0, 0.22),
+    0 4px 12px -4px rgba(0, 0, 0, 0.14),
+    -8px 0 28px -18px rgba(0, 0, 0, 0.1),
+    8px 0 28px -18px rgba(0, 0, 0, 0.08),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+  backdrop-filter: blur(26px) saturate(1.08);
+  -webkit-backdrop-filter: blur(26px) saturate(1.08);
+  overflow: hidden;
+}
+
+.sandbox-dock__footprint::before {
+  content: '';
+  position: absolute;
+  top: 0.5rem;
+  left: 12%;
+  right: 12%;
+  height: 2px;
+  border-radius: 999px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--sandbox-dock-accent) 45%, transparent),
+    transparent
+  );
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+@keyframes sandboxDockIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* Top control bar — tap to expand / collapse */
+.sandbox-dock__pin {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  padding-top: calc(var(--space-3) + 4px);
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  transition: background 0.18s ease;
+}
+
+.sandbox-dock__pin:hover {
+  background: color-mix(in srgb, var(--surface-hover) 28%, transparent);
+}
+
+.sandbox-dock__pin:focus {
+  outline: none;
+}
+
+.sandbox-dock__pin:focus-visible {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--sandbox-dock-accent) 45%, transparent);
+}
+
+.sandbox-dock__pin-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.12rem;
+  min-width: 0;
+  flex: 1;
+  text-align: start;
+}
+
+.sandbox-dock__icon-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--sandbox-dock-accent) 22%, transparent);
+  color: var(--sandbox-dock-accent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.05) inset;
+}
+
+.sandbox-dock__icon {
+  display: block;
+}
+
+.sandbox-dock__label {
+  font-size: 0.9375rem;
+  font-weight: 650;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+.sandbox-dock__sub {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.01em;
+  line-height: 1.35;
+}
+
+.sandbox-dock__count {
+  flex-shrink: 0;
+  min-width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--sandbox-dock-accent) 12%, transparent);
+  color: var(--sandbox-dock-accent);
+  border: 1px solid color-mix(in srgb, var(--sandbox-dock-accent) 22%, transparent);
+}
+
+.sandbox-dock__chevron {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  transition: transform 0.3s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.sandbox-dock__chevron--open {
+  transform: rotate(180deg);
+}
+
+/* Dock tiles: panel grows upward over the page (main column only); does not add layout height */
+.sandbox-dock__body {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 100%;
+  margin-bottom: var(--space-2);
+  z-index: 1;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0 var(--space-4);
+  pointer-events: none;
+  border-radius: 16px 16px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--border-light) 42%, transparent);
+  background: linear-gradient(
+    175deg,
+    color-mix(in srgb, var(--surface-elevated, #1e1e2e) 52%, transparent) 0%,
+    color-mix(in srgb, var(--surface-ground, #0c0c12) 42%, transparent) 100%
+  );
+  box-shadow:
+    0 -12px 44px -16px rgba(0, 0, 0, 0.35),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  backdrop-filter: blur(22px) saturate(1.07);
+  -webkit-backdrop-filter: blur(22px) saturate(1.07);
+  transition:
+    max-height 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.24s ease,
+    padding-block 0.32s ease;
+}
+
+.sandbox-dock__body--open {
+  display: flex;
+  flex-direction: column;
+  height: min(72vh, 920px);
+  max-height: min(72vh, 920px);
+  opacity: 1;
+  padding-top: var(--space-3);
+  padding-bottom: var(--space-4);
+  pointer-events: auto;
+  overflow: hidden;
+}
+
+.sandbox-dock__body-inner {
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-overflow-scrolling: touch;
+}
+
+.sandbox-dock__body--open .sandbox-dock__body-inner {
+  overflow: hidden;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sandbox-dock {
+    animation: none;
+    transform: none;
+  }
+
+  .sandbox-dock__body {
+    transition: none;
+  }
+
+  .sandbox-dock__chevron {
+    transition: none;
+  }
+}
+
+.sandbox-dock__tiles-wrap {
+  position: relative;
+  margin: 0 calc(-1 * var(--space-1));
+  /* Room for Push PR badge (top: -8px) + comfortable vertical padding */
+  padding: 22px var(--space-1) var(--space-2);
+  border-radius: 14px;
+  overflow: visible;
+  background: color-mix(in srgb, var(--surface-ground, #0a0a0f) 20%, transparent);
+}
+
+.sandbox-dock__tiles-wrap--footprint {
+  margin: 0 var(--space-2) var(--space-2);
+  border-radius: 12px;
+  padding: 16px var(--space-2) var(--space-3);
+}
+
+/* Wrapping row(s): panel grows upward with more sandboxes — no horizontal scroll */
+.sandbox-dock__tiles {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  align-content: flex-start;
+  gap: var(--space-3);
+  overflow: visible;
+  padding: 2px 4px 6px;
+  margin: 0;
+}
+
+/* Tile wrapper: flex sizing + promotion motion when a sandbox becomes PR-ready */
+.sandbox-dock__tile {
+  flex: 0 0 auto;
+  width: min(320px, 100%);
+  max-width: 320px;
+  overflow: visible;
+  transition:
+    transform 0.42s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.42s ease,
+    filter 0.42s ease;
+}
+
+.sandbox-dock__tile--promoting {
+  animation: sandboxDockTilePromote 0.52s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@keyframes sandboxDockTilePromote {
+  0% {
+    transform: translateY(10px) scale(0.97);
+    filter: saturate(1.1);
+    box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+  }
+  40% {
+    transform: translateY(-4px) scale(1.02);
+    filter: saturate(1.2);
+    box-shadow:
+      0 16px 40px -12px rgba(99, 102, 241, 0.35),
+      0 0 0 1px rgba(99, 102, 241, 0.25);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+    box-shadow: none;
+  }
+}
+
+.sandbox-dock__tiles app-vnc-viewer {
+  display: block;
+  width: 100%;
+  overflow: visible;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sandbox-dock__tile {
+    transition: none;
+  }
+
+  .sandbox-dock__tile--promoting {
+    animation: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-container.has-sandbox-dock {
+    --sandbox-dock-edge: var(--space-3);
+    --sandbox-dock-lift: var(--space-2);
+    --sandbox-dock-float-reserve: calc(
+      var(--sandbox-dock-edge) + var(--sandbox-dock-lift) + env(safe-area-inset-bottom, 0px)
+    );
+  }
+
+  .sandbox-dock {
+    --sandbox-dock-edge: var(--space-3);
+    --sandbox-dock-lift: var(--space-2);
+    left: var(--sandbox-dock-edge);
+    right: var(--sandbox-dock-edge);
+  }
+
+  .app-container.app-sidebar-collapsed .sandbox-dock {
+    left: var(--sandbox-dock-edge);
+  }
+
+  .sandbox-dock__pin {
+    padding: var(--space-3);
+    padding-top: calc(var(--space-3) + 4px);
+  }
+
+  .sandbox-dock__body {
+    padding-inline: var(--space-3);
+  }
+
+  .sandbox-dock__icon-wrap {
+    width: 2.5rem;
+    height: 2.5rem;
+  }
+
+  .sandbox-dock__label {
+    font-size: 0.875rem;
+  }
+
+  .app-container.has-sandbox-dock {
+    --app-sandbox-main-pad-bottom: calc(
+      var(--app-sandbox-dock-height, 6.75rem) + var(--sandbox-dock-float-reserve) + var(--space-5)
+    );
+  }
+}
+
+/* Light theme: dock reads cleaner on bright UI */
+:root[data-theme="light"] .sandbox-dock__footprint {
+  background: linear-gradient(
+    165deg,
+    rgba(255, 255, 255, 0.38) 0%,
+    color-mix(in srgb, var(--surface-ground, #f8fafc) 32%, rgba(255, 255, 255, 0.2)) 100%
+  );
+  border-color: color-mix(in srgb, var(--border-light) 52%, transparent);
+  box-shadow:
+    0 22px 48px -16px rgba(15, 23, 42, 0.14),
+    0 12px 28px -12px rgba(15, 23, 42, 0.1),
+    0 4px 12px -4px rgba(15, 23, 42, 0.06),
+    -6px 0 24px -14px rgba(15, 23, 42, 0.05),
+    6px 0 24px -14px rgba(15, 23, 42, 0.05),
+    0 0 0 1px rgba(255, 255, 255, 0.45) inset;
+  backdrop-filter: blur(26px) saturate(1.06);
+  -webkit-backdrop-filter: blur(26px) saturate(1.06);
+}
+
+:root[data-theme="light"] .sandbox-dock__body {
+  border-color: color-mix(in srgb, var(--border-light) 48%, transparent);
+  background: linear-gradient(
+    175deg,
+    rgba(255, 255, 255, 0.42) 0%,
+    color-mix(in srgb, var(--surface-ground, #f8fafc) 40%, rgba(255, 255, 255, 0.25)) 100%
+  );
+  box-shadow:
+    0 -12px 32px -14px rgba(15, 23, 42, 0.1),
+    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+}
+
+:root[data-theme="light"] .sandbox-dock__pin:hover {
+  background: color-mix(in srgb, var(--surface-hover) 32%, transparent);
+}
+
+:root[data-theme="light"] .sandbox-dock__tiles-wrap {
+  background: color-mix(in srgb, var(--surface-ground, #f1f5f9) 22%, transparent);
 }
 
 /* Sidebar Overlay */

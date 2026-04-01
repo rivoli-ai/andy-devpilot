@@ -1,6 +1,6 @@
 import { Injectable, inject } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Observable, catchError, of, map, interval, Subject, takeUntil, switchMap, filter, take, tap } from 'rxjs';
+import { Observable, catchError, of, map, interval, Subject, takeUntil, switchMap, filter, take, tap, scan, throwError } from 'rxjs';
 import { VPS_CONFIG } from '../config/vps.config';
 import { VncViewerService } from './vnc-viewer.service';
 
@@ -48,6 +48,12 @@ export interface ZedConversationsResponse {
   /** From /all-conversations: true while bridge is handling a chat request (LLM streaming/processing) */
   request_in_progress?: boolean;
 }
+
+/**
+ * Consecutive idle polls (same latest conversation id, no LLM round in flight) before treating
+ * the agent as "settled" for Push PR and implementation-complete heuristics.
+ */
+export const SANDBOX_AGENT_QUIET_POLL_COUNT = 4;
 
 @Injectable({
   providedIn: 'root'
@@ -378,64 +384,104 @@ export class SandboxBridgeService {
 
   /**
    * Wait for implementation to complete.
-   * Polls /all-conversations and detects when the AI has finished responding.
-   * Uses bridge's request_in_progress flag (no hardcoded delay).
+   *
+   * The bridge sets `request_in_progress` only for each upstream /v1/chat/completions call.
+   * Zed often performs many rounds (text → tools → text → …); between rounds the bridge looks
+   * “idle” even though the agent is not finished. A 200 or a single new assistant message is
+   * therefore not a reliable “done” signal.
+   *
+   * Heuristic: require (1) at least one conversation after `promptSentTimestamp`, (2) while not
+   * in progress, the *latest* such conversation id unchanged for `stableIdlePolls` consecutive
+   * polls. That approximates “quiet period after the last stored assistant reply”.
    *
    * @param bridgePort The bridge port
-   * @param promptSentTimestamp The timestamp when the prompt was sent (to ignore older conversations)
-   * @param pollIntervalMs Poll interval in milliseconds (default 5000 = 5s)
-   * @param timeoutMs Maximum time to wait (default 600000 = 10 minutes)
+   * @param promptSentTimestamp Unix time (seconds) when the prompt was sent
+   * @param pollIntervalMs Poll interval (default 5000)
+   * @param timeoutMs Max wait (default 600000)
+   * @param stableIdlePolls Consecutive idle polls with same latest id (default 4 ≈ 20s at 5s interval)
    */
   waitForImplementationComplete(
     bridgePort: number,
     promptSentTimestamp: number,
     pollIntervalMs: number = 5000,
-    timeoutMs: number = 600000
+    timeoutMs: number = 600000,
+    stableIdlePolls: number = SANDBOX_AGENT_QUIET_POLL_COUNT
   ): Observable<ZedConversation> {
     const stop$ = new Subject<void>();
     const startTime = Date.now();
 
-    console.log('[WaitForImpl] Starting to monitor for implementation completion...');
-    console.log('[WaitForImpl] Using bridge request_in_progress (no fixed delay)');
+    interface Accum {
+      stableLatestId: string | null;
+      consecutiveStableIdle: number;
+      lastComplete: ZedConversation | null;
+    }
+
+    const initial: Accum = {
+      stableLatestId: null,
+      consecutiveStableIdle: 0,
+      lastComplete: null
+    };
+
+    console.log(
+      '[WaitForImpl] Monitoring completion (quiet period + stable latest id,',
+      stableIdlePolls,
+      'polls)...'
+    );
 
     return interval(pollIntervalMs).pipe(
       takeUntil(stop$),
       switchMap(() => {
         const elapsed = Date.now() - startTime;
-
         if (elapsed > timeoutMs) {
-          console.log('[WaitForImpl] Timeout waiting for implementation');
           stop$.next();
-          throw new Error('Timeout waiting for implementation to complete');
+          return throwError(() => new Error('Timeout waiting for implementation to complete'));
         }
-
         console.log(`[WaitForImpl] Polling... (${Math.round(elapsed / 1000)}s elapsed)`);
         return this.getAllConversations(bridgePort);
       }),
-      map(response => {
-        const recentConversations = response.conversations.filter(
-          c => c.timestamp > promptSentTimestamp
-        );
-
-        if (recentConversations.length === 0) {
-          return null;
-        }
-
-        const latest = recentConversations[recentConversations.length - 1];
+      scan((acc: Accum, response): Accum => {
         const inProgress = response.request_in_progress === true;
+        const recent = response.conversations.filter(c => c.timestamp > promptSentTimestamp);
 
         if (inProgress) {
-          console.log('[WaitForImpl] Bridge still processing, waiting...');
-          return null;
+          if (recent.length > 0) {
+            const lid = recent[recent.length - 1].id;
+            console.log('[WaitForImpl] LLM round in progress (latest captured id:', lid, ')…');
+          } else {
+            console.log('[WaitForImpl] LLM round in progress, no post-prompt reply yet…');
+          }
+          return { ...acc, consecutiveStableIdle: 0, lastComplete: null };
         }
 
-        console.log('[WaitForImpl] Bridge idle + conversation present - marking as complete');
-        return latest;
-      }),
+        if (recent.length === 0) {
+          return { stableLatestId: null, consecutiveStableIdle: 0, lastComplete: null };
+        }
+
+        const latest = recent[recent.length - 1];
+
+        if (acc.stableLatestId !== latest.id) {
+          console.log('[WaitForImpl] New assistant message; resetting quiet counter →', latest.id.slice(0, 8));
+          return {
+            stableLatestId: latest.id,
+            consecutiveStableIdle: 0,
+            lastComplete: null
+          };
+        }
+
+        const next = acc.consecutiveStableIdle + 1;
+        console.log(`[WaitForImpl] Same latest id, bridge idle — quiet ${next}/${stableIdlePolls}`);
+
+        return {
+          stableLatestId: latest.id,
+          consecutiveStableIdle: next,
+          lastComplete: next >= stableIdlePolls ? latest : null
+        };
+      }, initial),
+      map(acc => acc.lastComplete),
       filter((conv): conv is ZedConversation => conv !== null),
       take(1),
       tap(conv => {
-        console.log('[WaitForImpl] Implementation complete!', conv.id);
+        console.log('[WaitForImpl] Implementation complete (quiet period after last reply):', conv.id);
         stop$.next();
       })
     );

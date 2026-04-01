@@ -1,11 +1,11 @@
-<!-- Backdrop (only visible when floating, not when docked or embedded) -->
+<!-- Backdrop: free-floating window only (not tiled dock, embedded, or fullscreen) -->
 @if (dockPosition() === 'floating' && !embedded() && !isFullscreen()) {
   <div class="vnc-backdrop visible" (click)="toggleMinimize()"></div>
 }
 
 <!-- Minimized Widget (not shown when embedded) -->
 @if (dockPosition() === 'minimized' && !embedded()) {
-  <div class="vnc-minimized" [class.ready-for-pr]="readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()" (click)="toggleMinimize()" [style.right]="minimizedStyle().right">
+  <div class="vnc-minimized" [class.ready-for-pr]="readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()" (click)="toggleMinimize()">
     <!-- Ready for PR Alert Badge (only for story implementation sandboxes) -->
     @if (readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()) {
       <div class="pr-alert-badge" (click)="toggleMinimize(); $event.stopPropagation()">
@@ -48,7 +48,7 @@
     </div>
     <div class="minimized-info">
       @if (readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()) {
-        <span class="minimized-pr-ready">Ready for PR!</span>
+        <span class="minimized-pr-ready">Ready to push</span>
         <span class="minimized-story">{{ implementationContext()?.storyTitle || viewerTitle() }}</span>
       } @else {
         @if (implementationContext(); as ctx) {
@@ -86,6 +86,7 @@
        [class.vnc-popup-fullscreen]="isFullscreen()"
        #popupContainer
        [class.floating]="dockPosition() === 'floating'"
+       [class.tiled-workspace]="dockPosition() === 'tiled'"
        [class.docked-right]="dockPosition() === 'right'"
        [class.docked-bottom]="dockPosition() === 'bottom'"
        [style.width]="isFullscreen() ? null : popupStyle().width"
@@ -116,35 +117,35 @@
       </div>
 
       <div class="header-actions">
-        <!-- Dock buttons -->
-        <button class="action-btn" 
-                [class.active]="dockPosition() === 'floating'"
-                (click)="setDockPosition('floating')"
-                title="Float">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-          </svg>
-        </button>
-        <button class="action-btn"
-                [class.active]="dockPosition() === 'right'"
-                (click)="setDockPosition('right')"
-                title="Dock Right">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <line x1="15" y1="3" x2="15" y2="21"/>
-          </svg>
-        </button>
-        <button class="action-btn"
-                [class.active]="dockPosition() === 'bottom'"
-                (click)="setDockPosition('bottom')"
-                title="Dock Bottom">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <rect x="3" y="3" width="18" height="18" rx="2"/>
-            <line x1="3" y1="15" x2="21" y2="15"/>
-          </svg>
-        </button>
-        
-        <div class="action-divider"></div>
+        @if (!embedded()) {
+          <div class="header-actions--layout">
+            <button type="button"
+                    class="action-btn"
+                    [class.active]="dockPosition() === 'floating'"
+                    (click)="setDockPosition('floating')"
+                    title="Window — movable, resizable desktop (over the app)">
+              <svg class="layout-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="5" width="18" height="14" rx="2"/>
+                <line x1="3" y1="9" x2="21" y2="9"/>
+              </svg>
+              <span class="action-btn__label">Window</span>
+            </button>
+            <button type="button"
+                    class="action-btn"
+                    [class.active]="dockPosition() === 'tiled'"
+                    (click)="setDockPosition('tiled')"
+                    title="Dock — full-screen grid with your other open sandboxes (up to several at once)">
+              <svg class="layout-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="7" height="7" rx="1"/>
+                <rect x="14" y="3" width="7" height="7" rx="1"/>
+                <rect x="3" y="14" width="7" height="7" rx="1"/>
+                <rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+              <span class="action-btn__label">Dock</span>
+            </button>
+          </div>
+          <div class="action-divider"></div>
+        }
 
         @if (bridgePort() && isConnected()) {
           <button
@@ -242,8 +243,8 @@
                     class="push-pr-btn"
                     [class.push-pr-btn--working]="pushCreatingPr()"
                     (click)="pushAndCreatePr()"
-                    [disabled]="pushCreatingPr() || !hasLatestAssistantMessage()"
-                    [title]="!hasLatestAssistantMessage() ? 'Wait for the AI to reply before pushing' : ''">
+                    [disabled]="pushCreatingPr() || !canPushPrAfterQuiet()"
+                    [title]="!canPushPrAfterQuiet() ? 'Wait until the AI has finished (quiet period after the last reply)' : ''">
                     @if (pushCreatingPr()) {
                       <span class="push-spinner"></span>
                       <span>Pushing...</span>
@@ -444,7 +445,7 @@
       </div>
     </div>
 
-    <!-- Resize Handles (only for floating mode) -->
+    <!-- Resize handles: free-floating window only -->
     @if (dockPosition() === 'floating') {
       <div class="resize-handle resize-n" (mousedown)="onResizeStart($event, 'n')"></div>
       <div class="resize-handle resize-e" (mousedown)="onResizeStart($event, 'e')"></div>

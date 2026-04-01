@@ -6,67 +6,185 @@
       <main class="main-content">
         <router-outlet />
       </main>
+
+      <div
+        class="sandbox-ui-layer"
+        [class.sandbox-ui-layer--hidden]="!sandboxUiAllowed()"
+        [attr.aria-hidden]="sandboxUiAllowed() ? null : 'true'">
+      @if (sandboxDockTrayVisible()) {
+        <div
+          class="sandbox-dock"
+          role="region"
+          id="sandbox-dock-region"
+          [attr.aria-label]="
+            'Sandboxes — ' +
+            sandboxDockTrayTotal() +
+            (sandboxDockTrayTotal() === 1 ? ' item' : ' items') +
+            ' (dock mode and/or minimized). Use the bar to expand or collapse.'
+          ">
+          <div #sandboxDockRegion class="sandbox-dock__footprint">
+            <button
+              type="button"
+              class="sandbox-dock__pin"
+              id="sandbox-dock-toggle"
+              [attr.aria-expanded]="dockPinChevronOpen()"
+              [attr.aria-controls]="sandboxDockPinAriaControls()"
+              (click)="onSandboxDockPinClick()">
+              <span class="sandbox-dock__icon-wrap" aria-hidden="true">
+                <svg class="sandbox-dock__icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                  <line x1="8" y1="21" x2="16" y2="21"/>
+                  <line x1="12" y1="17" x2="12" y2="21"/>
+                </svg>
+              </span>
+              <span class="sandbox-dock__pin-text">
+                <span class="sandbox-dock__label">Sandboxes</span>
+                <span class="sandbox-dock__sub">{{ sandboxDockPinSubline() }}</span>
+              </span>
+              <span class="sandbox-dock__count" aria-hidden="true">{{ sandboxDockTrayTotal() }}</span>
+              <span class="sandbox-dock__chevron" aria-hidden="true" [class.sandbox-dock__chevron--open]="dockPinChevronOpen()">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                  <polyline points="6 15 12 9 18 15"/>
+                </svg>
+              </span>
+            </button>
+
+            @if (minimizedViewers().length > 0 && sandboxDockFootprintExpanded()) {
+              <div
+                id="sandbox-dock-minimized-chrome"
+                class="sandbox-dock__minimized-chrome"
+                role="group"
+                [attr.aria-label]="'Minimized sandboxes, ' + minimizedViewers().length + ' items'">
+              <div class="sandbox-dock__minimized-row">
+                <span class="sandbox-dock__minimized-label">Minimized</span>
+              </div>
+              <div class="sandbox-dock__tiles-wrap sandbox-dock__tiles-wrap--footprint">
+                <div
+                  class="sandbox-dock__tiles"
+                  role="group"
+                  [attr.aria-label]="'Minimized sandbox cards, ' + minimizedViewers().length + ' items'">
+                  @for (viewer of minimizedViewers(); track viewer.id) {
+                    <div
+                      class="sandbox-dock__tile"
+                      [class.sandbox-dock__tile--promoting]="dockPromotingIds().has(viewer.id)">
+                      <app-vnc-viewer
+                        [config]="viewer.config"
+                        [viewerId]="viewer.id"
+                        [initialDockPosition]="viewer.dockPosition"
+                        [initialConnectionState]="viewer.connectionState"
+                        [viewerTitle]="viewer.title || 'Sandbox'"
+                        [bridgePort]="viewer.bridgePort"
+                        [implementationContext]="viewer.implementationContext"
+                        (closeEvent)="onVncViewerClose(viewer.id)">
+                      </app-vnc-viewer>
+                    </div>
+                  }
+                </div>
+              </div>
+              </div>
+            }
+          </div>
+
+          @if (tiledDockViewers().length > 0) {
+            <div
+              class="sandbox-dock__body"
+              id="sandbox-dock-body"
+              [class.sandbox-dock__body--open]="sandboxDockTiledExpanded()"
+              [attr.inert]="sandboxDockTiledExpanded() ? null : ''"
+              aria-label="Dock mode sandboxes">
+              <div class="sandbox-dock__body-inner">
+                <div class="sandbox-dock__tiled-section">
+                  <div class="sandbox-dock__tiled-head">
+                    <span class="sandbox-dock__minimized-label">Dock mode</span>
+                    <div class="sandbox-dock__tiled-head-tray">
+                      <span class="sandbox-dock__count" aria-hidden="true">{{ tiledDockViewers().length }}</span>
+                      <button
+                        type="button"
+                        class="sandbox-dock__tiled-collapse-btn"
+                        aria-controls="sandbox-dock-body"
+                        aria-label="Collapse dock tiles"
+                        title="Collapse dock"
+                        (click)="onSandboxDockTiledPanelCollapse()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </button>
+                    </div>
+                  </div>
+                  <div
+                    class="sandbox-dock__tiled-grid"
+                    [class.sandbox-dock__tiled-grid--single]="tiledDockViewers().length === 1"
+                    [class.sandbox-dock__tiled-grid--pair]="tiledDockViewers().length === 2">
+                    @for (viewer of tiledDockViewers(); track viewer.id) {
+                      <div class="sandbox-dock__tiled-cell">
+                        <app-vnc-viewer
+                          [config]="viewer.config"
+                          [viewerId]="viewer.id"
+                          [initialDockPosition]="viewer.dockPosition"
+                          [initialConnectionState]="viewer.connectionState"
+                          [viewerTitle]="viewer.title || 'Sandbox'"
+                          [bridgePort]="viewer.bridgePort"
+                          [implementationContext]="viewer.implementationContext"
+                          (closeEvent)="onVncViewerClose(viewer.id)">
+                        </app-vnc-viewer>
+                      </div>
+                    }
+                  </div>
+                </div>
+              </div>
+            </div>
+          }
+        </div>
+      }
+
+      <!-- Free-floating sandbox windows: scoped under main column (not over sidebar/header) -->
+      @for (viewer of floatingViewers(); track viewer.id) {
+        <app-vnc-viewer
+          [config]="viewer.config"
+          [viewerId]="viewer.id"
+          [initialDockPosition]="viewer.dockPosition"
+          [initialConnectionState]="viewer.connectionState"
+          [viewerTitle]="viewer.title || 'Sandbox'"
+          [bridgePort]="viewer.bridgePort"
+          [implementationContext]="viewer.implementationContext"
+          (closeEvent)="onVncViewerClose(viewer.id)">
+        </app-vnc-viewer>
+      }
+      </div>
     </div>
     @if (sidebarOpen()) {
       <div class="sidebar-overlay" (click)="toggleSidebar()"></div>
     }
   </div>
 } @else {
-  <!-- No sidebar/header for unauthenticated pages (login, callback) -->
   <router-outlet />
 }
 
-<!-- Floating VNC Viewers -->
-@for (viewer of floatingViewers(); track viewer.id) {
-  <app-vnc-viewer 
-    [config]="viewer.config"
-    [viewerId]="viewer.id"
-    [viewerIndex]="0"
-    [initialDockPosition]="viewer.dockPosition"
-    [initialConnectionState]="viewer.connectionState"
-    [viewerTitle]="viewer.title || 'Sandbox'"
-    [bridgePort]="viewer.bridgePort"
-    [implementationContext]="viewer.implementationContext"
-    (closeEvent)="onVncViewerClose(viewer.id)">
-  </app-vnc-viewer>
+@if (authService.isLoggedIn()) {
+  <div
+    class="sandbox-ui-layer sandbox-ui-layer--side-panels"
+    [class.sandbox-ui-layer--hidden]="!sandboxUiAllowed()"
+    [attr.aria-hidden]="sandboxUiAllowed() ? null : 'true'">
+    @if (rightDockedViewers().length > 0) {
+      <app-dock-panel
+        [viewers]="rightDockedViewers()"
+        [position]="'right'"
+        (viewerClosed)="onVncViewerClose($event)"
+        (viewerUndocked)="onViewerUndocked($event)"
+        (viewerMinimized)="onViewerMinimized($event)">
+      </app-dock-panel>
+    }
+
+    @if (bottomDockedViewers().length > 0) {
+      <app-dock-panel
+        [viewers]="bottomDockedViewers()"
+        [position]="'bottom'"
+        (viewerClosed)="onVncViewerClose($event)"
+        (viewerUndocked)="onViewerUndocked($event)"
+        (viewerMinimized)="onViewerMinimized($event)">
+      </app-dock-panel>
+    }
+  </div>
 }
 
-<!-- Minimized VNC Viewers -->
-@for (viewer of minimizedViewers(); track viewer.id; let i = $index) {
-  <app-vnc-viewer 
-    [config]="viewer.config"
-    [viewerId]="viewer.id"
-    [viewerIndex]="i"
-    [initialDockPosition]="viewer.dockPosition"
-    [initialConnectionState]="viewer.connectionState"
-    [viewerTitle]="viewer.title || 'Sandbox'"
-    [bridgePort]="viewer.bridgePort"
-    [implementationContext]="viewer.implementationContext"
-    (closeEvent)="onVncViewerClose(viewer.id)">
-  </app-vnc-viewer>
-}
-
-<!-- Right Docked Panel (with tabs if multiple viewers) -->
-@if (rightDockedViewers().length > 0) {
-  <app-dock-panel
-    [viewers]="rightDockedViewers()"
-    [position]="'right'"
-    (viewerClosed)="onVncViewerClose($event)"
-    (viewerUndocked)="onViewerUndocked($event)"
-    (viewerMinimized)="onViewerMinimized($event)">
-  </app-dock-panel>
-}
-
-<!-- Bottom Docked Panel (with tabs if multiple viewers) -->
-@if (bottomDockedViewers().length > 0) {
-  <app-dock-panel
-    [viewers]="bottomDockedViewers()"
-    [position]="'bottom'"
-    (viewerClosed)="onVncViewerClose($event)"
-    (viewerUndocked)="onViewerUndocked($event)"
-    (viewerMinimized)="onViewerMinimized($event)">
-  </app-dock-panel>
-}
-
-<!-- Global Toast Notifications -->
 <app-toast />

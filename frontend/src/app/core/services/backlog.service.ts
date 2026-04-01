@@ -100,7 +100,7 @@ export class BacklogService {
   /**
    * Get the head (source) branch name of a pull request from its URL.
    * Used when opening a story that already has a PR so the sandbox can clone that branch.
-   * The backend uses the authenticated user's GitHub token from the database.
+   * Backend supports GitHub and Azure DevOps PR URLs with the appropriate tokens.
    */
   getPrHeadBranch(prUrl: string): Observable<{ branch: string }> {
     return this.apiService.post<{ branch: string }>('/backlog/pr-head-branch', { prUrl });
