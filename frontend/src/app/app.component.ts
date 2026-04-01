@@ -440,6 +440,9 @@ export class AppComponent implements OnInit, OnDestroy {
     if (this.sandboxUiAllowed()) {
       classes.push('app-workspace-view');
     }
+    if (this.sandboxUiAllowed() && this.sandboxDockTrayVisible()) {
+      classes.push('has-sandbox-dock');
+    }
     if (
       this.sandboxUiAllowed() &&
       this.tiledDockViewers().length > 0 &&

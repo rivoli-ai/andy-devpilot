@@ -75,14 +75,19 @@
   --sandbox-dock-panel-open-height: 0px;
   --sandbox-dock-bar-bottom: var(--space-3);
   --sandbox-dock-bar-radius: 14px;
-  --app-sandbox-main-pad-bottom: calc(
-    var(--sandbox-dock-footprint-height, 6.5rem) + var(--sandbox-dock-panel-open-height) +
-      var(--sandbox-dock-bar-bottom) + var(--sandbox-dock-safe-bottom) + var(--space-3)
-  );
+  /* No tray: normal bottom inset only. Tray: .has-sandbox-dock adds footprint + panel calc */
+  --app-sandbox-main-pad-bottom: var(--space-8);
   height: 100dvh;
   min-height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
+}
+
+.app-container.app-workspace-view.has-sandbox-dock {
+  --app-sandbox-main-pad-bottom: calc(
+    var(--sandbox-dock-footprint-height, 6.5rem) + var(--sandbox-dock-panel-open-height) +
+      var(--sandbox-dock-bar-bottom) + var(--sandbox-dock-safe-bottom) + var(--space-3)
+  );
 }
 
 .app-container.app-workspace-view .app-content {
@@ -627,7 +632,7 @@
 
 @media (max-width: 768px) {
   /* Match .main-content padding on small screens; sidebar is an overlay */
-  .app-container.app-workspace-view {
+  .app-container.app-workspace-view.has-sandbox-dock {
     --sandbox-dock-bar-bottom: var(--space-2);
   }
 
@@ -715,6 +720,13 @@
 
   .app-container.app-workspace-view .main-content {
     padding-top: calc(var(--header-height) + var(--space-4));
+  }
+
+  .app-container.app-workspace-view:not(.has-sandbox-dock) .main-content {
+    padding-bottom: var(--space-4);
+  }
+
+  .app-container.app-workspace-view.has-sandbox-dock .main-content {
     padding-bottom: var(--app-sandbox-main-pad-bottom);
   }
 
