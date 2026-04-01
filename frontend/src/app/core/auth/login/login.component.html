@@ -1,175 +1,218 @@
-<div class="login-container">
-  <app-card padding="md" class="login-card">
-    <!-- Logo -->
-    <div class="login-logo">
-      <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor"/>
-        <path d="M2 17L12 22L22 17V12L12 17L2 12V17Z" fill="currentColor"/>
-      </svg>
-      <h1 class="logo-text">DevPilot</h1>
-    </div>
-
-    <!-- Header -->
-    <div class="login-header">
-      <h2 class="login-title">{{ isRegisterMode() ? 'Create account' : 'Welcome back' }}</h2>
-      <p class="login-subtitle">
-        {{ isRegisterMode() ? 'Get started with your DevOps journey' : 'Sign in to access your DevOps dashboard' }}
+<div class="login-page">
+  <aside class="login-aside" aria-label="Product">
+    <div class="login-aside__glow" aria-hidden="true"></div>
+    <div class="login-aside__mesh" aria-hidden="true"></div>
+    <div class="login-aside__content">
+      <div class="login-aside__brand">
+        <div class="login-aside__mark" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor"/>
+            <path d="M2 17L12 22L22 17V12L12 17L2 12V17Z" fill="currentColor" opacity="0.88"/>
+          </svg>
+        </div>
+        <span class="login-aside__name">DevPilot</span>
+      </div>
+      <h2 class="login-aside__headline">Your workspace for shipping software</h2>
+      <p class="login-aside__lede">
+        Connect repositories, backlog, and sandboxes in one place—without losing context.
       </p>
-    </div>
-
-    <!-- Error message -->
-    @if (error()) {
-      <div class="error-message">
-        <svg class="error-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 8V12M12 16H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span>{{ error() }}</span>
-      </div>
-    }
-
-    <!-- Email/Password Form (only if Local provider is enabled) -->
-    @if (isLocalEnabled()) {
-      <form (ngSubmit)="submitForm()" class="login-form">
-        @if (isRegisterMode()) {
-          <div class="form-group">
-            <label for="name" class="form-label">Name (optional)</label>
-            <input
-              type="text"
-              id="name"
-              [(ngModel)]="name"
-              name="name"
-              class="form-input"
-              placeholder="Your name"
-              [disabled]="loading()"
-            />
-          </div>
-        }
-
-        <div class="form-group">
-          <label for="email" class="form-label">Email</label>
-          <input
-            type="email"
-            id="email"
-            [(ngModel)]="email"
-            name="email"
-            class="form-input"
-            placeholder="you&#64;example.com"
-            required
-            [disabled]="loading()"
-          />
-        </div>
-
-        <div class="form-group">
-          <label for="password" class="form-label">Password</label>
-          <input
-            type="password"
-            id="password"
-            [(ngModel)]="password"
-            name="password"
-            class="form-input"
-            placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
-            required
-            [disabled]="loading()"
-          />
-        </div>
-
-        @if (isRegisterMode()) {
-          <div class="form-group">
-            <label for="confirmPassword" class="form-label">Confirm Password</label>
-            <input
-              type="password"
-              id="confirmPassword"
-              [(ngModel)]="confirmPassword"
-              name="confirmPassword"
-              class="form-input"
-              placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
-              required
-              [disabled]="loading()"
-            />
-          </div>
-        }
-
-        <button type="submit" class="submit-button" [disabled]="loading()">
-          @if (loading()) {
-            <svg class="button-spinner" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-              <circle class="spinner-circle" cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="3"/>
+      <ul class="login-aside__features">
+        <li>
+          <span class="login-aside__check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
             </svg>
-            <span>{{ isRegisterMode() ? 'Creating account...' : 'Signing in...' }}</span>
-          } @else {
-            <span>{{ isRegisterMode() ? 'Create account' : 'Sign in' }}</span>
-          }
-        </button>
-      </form>
-
-      <!-- Toggle mode link -->
-      <div class="toggle-mode">
-        @if (isRegisterMode()) {
-          <span>Already have an account?</span>
-          <button type="button" class="toggle-link" (click)="toggleMode()">Sign in</button>
-        } @else {
-          <span>Don't have an account?</span>
-          <button type="button" class="toggle-link" (click)="toggleMode()">Create one</button>
-        }
-      </div>
-    }
-
-    <!-- External providers section -->
-    @if (hasExternalProviders()) {
-      <!-- Divider (only if local is also enabled) -->
-      @if (isLocalEnabled()) {
-        <div class="divider">
-          <span class="divider-text">or continue with</span>
-        </div>
-      }
-
-      <!-- Dynamic OAuth / OIDC Buttons -->
-      <div class="oauth-buttons">
-        <!-- BackendOAuth providers (e.g. GitHub) -->
-        @for (provider of backendOAuthProviders(); track provider.name) {
-          <button
-            (click)="loginWithBackendOAuth(provider)"
-            class="oauth-button"
-            [class]="'oauth-button ' + provider.name.toLowerCase()"
-            [disabled]="loading()"
-          >
-            @if (provider.name.toLowerCase() === 'github') {
-              <svg class="oauth-icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
-              </svg>
-            }
-            <span>{{ getProviderDisplayName(provider) }}</span>
-          </button>
-        }
-
-        <!-- FrontendOidc providers (e.g. AzureAd, Duende) -->
-        @for (provider of frontendOidcProviders(); track provider.name) {
-          <button
-            (click)="loginWithOidc(provider)"
-            class="oauth-button"
-            [class]="'oauth-button ' + provider.name.toLowerCase()"
-            [disabled]="loading()"
-          >
-            @if (provider.name.toLowerCase() === 'azuread') {
-              <svg class="oauth-icon" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"/>
-              </svg>
-            } @else if (provider.name.toLowerCase() === 'duende') {
-              <img src="assets/images/duende-logo.png" alt="Duende" class="oauth-icon oauth-icon-img" />
-            } @else {
-              <svg class="oauth-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <circle cx="12" cy="12" r="10"/>
-                <path d="M12 16v-4M12 8h.01"/>
-              </svg>
-            }
-            <span>{{ getProviderDisplayName(provider) }}</span>
-          </button>
-        }
-      </div>
-    }
-
-    <!-- Footer -->
-    <div class="login-footer">
-      <p>By signing in, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></p>
+          </span>
+          Repositories &amp; code intelligence
+        </li>
+        <li>
+          <span class="login-aside__check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </span>
+          Backlog &amp; Azure DevOps alignment
+        </li>
+        <li>
+          <span class="login-aside__check" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="20 6 9 17 4 12"/>
+            </svg>
+          </span>
+          Sandboxed environments on demand
+        </li>
+      </ul>
     </div>
-  </app-card>
+  </aside>
+
+  <main class="login-main">
+    <div class="login-mobile-brand">
+      <div class="login-mobile-brand__mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor"/>
+          <path d="M2 17L12 22L22 17V12L12 17L2 12V17Z" fill="currentColor"/>
+        </svg>
+      </div>
+      <span class="login-mobile-brand__text">DevPilot</span>
+    </div>
+
+    <div class="login-container">
+      <app-card padding="md" class="login-card">
+        <div class="login-header">
+          <h2 class="login-title">{{ isRegisterMode() ? 'Create account' : 'Welcome back' }}</h2>
+          <p class="login-subtitle">
+            {{ isRegisterMode() ? 'Get started with your DevOps journey' : 'Sign in to continue to your dashboard' }}
+          </p>
+        </div>
+
+        <!-- Error message -->
+        @if (error()) {
+          <div class="error-message">
+            <svg class="error-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M12 8V12M12 16H12.01M21 12C21 16.9706 16.9706 21 12 21C7.02944 21 3 16.9706 3 12C3 7.02944 7.02944 3 12 3C16.9706 3 21 7.02944 21 12Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <span>{{ error() }}</span>
+          </div>
+        }
+
+        <!-- Email/Password Form (only if Local provider is enabled) -->
+        @if (isLocalEnabled()) {
+          <form (ngSubmit)="submitForm()" class="login-form">
+            @if (isRegisterMode()) {
+              <div class="form-group">
+                <label for="name" class="form-label">Name (optional)</label>
+                <input
+                  type="text"
+                  id="name"
+                  [(ngModel)]="name"
+                  name="name"
+                  class="form-input"
+                  placeholder="Your name"
+                  [disabled]="loading()"
+                />
+              </div>
+            }
+
+            <div class="form-group">
+              <label for="email" class="form-label">Email</label>
+              <input
+                type="email"
+                id="email"
+                [(ngModel)]="email"
+                name="email"
+                class="form-input"
+                placeholder="you&#64;example.com"
+                required
+                [disabled]="loading()"
+              />
+            </div>
+
+            <div class="form-group">
+              <label for="password" class="form-label">Password</label>
+              <input
+                type="password"
+                id="password"
+                [(ngModel)]="password"
+                name="password"
+                class="form-input"
+                placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+                required
+                [disabled]="loading()"
+              />
+            </div>
+
+            @if (isRegisterMode()) {
+              <div class="form-group">
+                <label for="confirmPassword" class="form-label">Confirm Password</label>
+                <input
+                  type="password"
+                  id="confirmPassword"
+                  [(ngModel)]="confirmPassword"
+                  name="confirmPassword"
+                  class="form-input"
+                  placeholder="&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;&#8226;"
+                  required
+                  [disabled]="loading()"
+                />
+              </div>
+            }
+
+            <button type="submit" class="submit-button" [disabled]="loading()">
+              @if (loading()) {
+                <svg class="button-spinner" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <circle class="spinner-circle" cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="3"/>
+                </svg>
+                <span>{{ isRegisterMode() ? 'Creating account...' : 'Signing in...' }}</span>
+              } @else {
+                <span>{{ isRegisterMode() ? 'Create account' : 'Sign in' }}</span>
+              }
+            </button>
+          </form>
+
+          <div class="toggle-mode">
+            @if (isRegisterMode()) {
+              <span>Already have an account?</span>
+              <button type="button" class="toggle-link" (click)="toggleMode()">Sign in</button>
+            } @else {
+              <span>Don't have an account?</span>
+              <button type="button" class="toggle-link" (click)="toggleMode()">Create one</button>
+            }
+          </div>
+        }
+
+        @if (hasExternalProviders()) {
+          @if (isLocalEnabled()) {
+            <div class="divider">
+              <span class="divider-text">or continue with</span>
+            </div>
+          }
+
+          <div class="oauth-buttons">
+            @for (provider of backendOAuthProviders(); track provider.name) {
+              <button
+                (click)="loginWithBackendOAuth(provider)"
+                class="oauth-button"
+                [class]="'oauth-button ' + provider.name.toLowerCase()"
+                [disabled]="loading()"
+              >
+                @if (provider.name.toLowerCase() === 'github') {
+                  <svg class="oauth-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                  </svg>
+                }
+                <span>{{ getProviderDisplayName(provider) }}</span>
+              </button>
+            }
+
+            @for (provider of frontendOidcProviders(); track provider.name) {
+              <button
+                (click)="loginWithOidc(provider)"
+                class="oauth-button"
+                [class]="'oauth-button ' + provider.name.toLowerCase()"
+                [disabled]="loading()"
+              >
+                @if (provider.name.toLowerCase() === 'azuread') {
+                  <svg class="oauth-icon" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z"/>
+                  </svg>
+                } @else if (provider.name.toLowerCase() === 'duende') {
+                  <img src="assets/images/duende-logo.png" alt="Duende" class="oauth-icon oauth-icon-img" />
+                } @else {
+                  <svg class="oauth-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/>
+                    <path d="M12 16v-4M12 8h.01"/>
+                  </svg>
+                }
+                <span>{{ getProviderDisplayName(provider) }}</span>
+              </button>
+            }
+          </div>
+        }
+
+        <div class="login-footer">
+          <p>By signing in, you agree to our <a href="#">Terms of Service</a> and <a href="#">Privacy Policy</a></p>
+        </div>
+      </app-card>
+    </div>
+  </main>
 </div>

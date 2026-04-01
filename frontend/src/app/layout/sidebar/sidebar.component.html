@@ -1,68 +1,121 @@
-<aside [class.collapsed]="isCollapsed()" class="sidebar">
-  <!-- Logo Section -->
-  <div class="sidebar-header">
-    <div class="logo-container">
-      <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor"/>
-        <path d="M2 17L12 22L22 17V12L12 17L2 12V17Z" fill="currentColor"/>
-      </svg>
-      @if (!isCollapsed()) {
-        <span class="logo-text">DevPilot</span>
-      }
+<aside
+  class="sidebar"
+  [class.collapsed]="isCollapsed()"
+  [class.open]="mobileOpen()">
+  <header class="sidebar-header">
+    <div class="sidebar-header__top">
+      <div class="sidebar-brand">
+        <div class="sidebar-brand__mark" aria-hidden="true">
+          <svg class="logo-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2L2 7L12 12L22 7L12 2Z" fill="currentColor"/>
+            <path d="M2 17L12 22L22 17V12L12 17L2 12V17Z" fill="currentColor" opacity="0.85"/>
+          </svg>
+        </div>
+        @if (!isCollapsed()) {
+          <div class="sidebar-brand__text">
+            <span class="sidebar-brand__name">DevPilot</span>
+            <span class="sidebar-brand__tagline">Workspace</span>
+          </div>
+        }
+      </div>
+      <button
+        type="button"
+        class="sidebar-collapse-toggle"
+        (click)="onToggleCollapse()"
+        [attr.aria-label]="isCollapsed() ? 'Expand sidebar' : 'Collapse sidebar'"
+        [attr.aria-expanded]="!isCollapsed()"
+        [title]="isCollapsed() ? 'Expand sidebar' : 'Collapse sidebar'">
+        @if (isCollapsed()) {
+          <!-- Single chevron: expand rail -->
+          <svg class="toggle-icon toggle-icon--expand" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="11 6 16 12 11 18"/>
+          </svg>
+        } @else {
+          <svg class="toggle-icon toggle-icon--collapse" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <polyline points="13 6 8 12 13 18"/>
+          </svg>
+        }
+      </button>
     </div>
-  </div>
+  </header>
 
-  <!-- Navigation Menu -->
-  <nav class="sidebar-nav">
+  <nav class="sidebar-nav" aria-label="Main navigation">
     <div class="nav-section">
-      <h3 *ngIf="!isCollapsed()" class="nav-section-title">Main</h3>
-      <a routerLink="/repositories" 
-         routerLinkActive="active" 
-         [routerLinkActiveOptions]="{exact: false}"
-         class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
-        </svg>
-        @if (!isCollapsed()) {
-          <span class="nav-label">Repositories</span>
-        }
-      </a>
-      <a routerLink="/settings" 
-         routerLinkActive="active" 
-         class="nav-item">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <circle cx="12" cy="12" r="3"/>
-          <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
-        </svg>
-        @if (!isCollapsed()) {
-          <span class="nav-label">Settings</span>
-        }
-      </a>
+      @if (!isCollapsed()) {
+        <p class="nav-section-title">Navigate</p>
+      }
+      <ul class="nav-list" [attr.aria-label]="isCollapsed() ? 'Primary links' : null">
+        <li>
+          <a
+            routerLink="/repositories"
+            [class.active]="repositoriesNavActive()"
+            class="nav-item"
+            title="Repositories"
+            aria-label="Repositories">
+            <span class="nav-item__icon" aria-hidden="true">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4"/>
+              </svg>
+            </span>
+            @if (!isCollapsed()) {
+              <span class="nav-label">Repositories</span>
+            }
+          </a>
+        </li>
+        <li>
+          <a
+            routerLink="/settings"
+            routerLinkActive="active"
+            class="nav-item"
+            title="Settings"
+            aria-label="Settings">
+            <span class="nav-item__icon" aria-hidden="true">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-2 2 2 2 0 01-2-2v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83 0 2 2 0 010-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 01-2-2 2 2 0 012-2h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 010-2.83 2 2 0 012.83 0l.06.06a1.65 1.65 0 001.82.33H9a1.65 1.65 0 001-1.51V3a2 2 0 012-2 2 2 0 012 2v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 0 2 2 0 010 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9a1.65 1.65 0 001.51 1H21a2 2 0 012 2 2 2 0 01-2 2h-.09a1.65 1.65 0 00-1.51 1z"/>
+              </svg>
+            </span>
+            @if (!isCollapsed()) {
+              <span class="nav-label">Settings</span>
+            }
+          </a>
+        </li>
+      </ul>
     </div>
   </nav>
 
-  <!-- User Profile Section -->
-  <div class="sidebar-footer">
+  <footer class="sidebar-footer">
     @if (authService.getCurrentUser(); as user) {
-      <div class="user-profile">
-        <div class="user-avatar">
+      <div class="sidebar-user" [class.sidebar-user--collapsed]="isCollapsed()">
+        <div class="sidebar-user__avatar" [attr.title]="user.githubUsername || user.email || 'User'">
           {{ (user.githubUsername || user.email || 'U')[0].toUpperCase() }}
         </div>
         @if (!isCollapsed()) {
-          <div class="user-info">
-            <div class="user-name">{{ user.githubUsername || user.name || 'User' }}</div>
-            <div class="user-email">{{ user.email }}</div>
+          <div class="sidebar-user__meta">
+            <span class="sidebar-user__name">{{ user.githubUsername || user.name || 'User' }}</span>
+            <span class="sidebar-user__email">{{ user.email }}</span>
           </div>
         }
       </div>
       @if (!isCollapsed()) {
-        <button (click)="logout()" class="logout-button">
-          <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <button type="button" (click)="logout()" class="logout-button">
+          <svg class="logout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
           </svg>
-          <span>Logout</span>
+          <span>Sign out</span>
+        </button>
+      } @else {
+        <button
+          type="button"
+          (click)="logout()"
+          class="logout-button logout-button--icon"
+          title="Sign out"
+          aria-label="Sign out">
+          <svg class="logout-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+          </svg>
         </button>
       }
     }
-  </div>
+  </footer>
 </aside>

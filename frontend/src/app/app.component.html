@@ -1,6 +1,9 @@
 @if (authService.isLoggedIn()) {
   <div class="app-container" [class]="getContentClasses()">
-    <app-sidebar [isCollapsed]="sidebarCollapsed()" />
+    <app-sidebar
+      [isCollapsed]="sidebarCollapsed()"
+      [mobileOpen]="sidebarOpen()"
+      (collapseToggled)="toggleSidebarCollapsed()" />
     <div class="app-content">
       <app-header (toggleSidebar)="toggleSidebar()" />
       <main class="main-content">
@@ -155,36 +158,34 @@
     @if (sidebarOpen()) {
       <div class="sidebar-overlay" (click)="toggleSidebar()"></div>
     }
+
+    <div
+      class="sandbox-ui-layer sandbox-ui-layer--side-panels"
+      [class.sandbox-ui-layer--hidden]="!sandboxUiAllowed()"
+      [attr.aria-hidden]="sandboxUiAllowed() ? null : 'true'">
+      @if (rightDockedViewers().length > 0) {
+        <app-dock-panel
+          [viewers]="rightDockedViewers()"
+          [position]="'right'"
+          (viewerClosed)="onVncViewerClose($event)"
+          (viewerUndocked)="onViewerUndocked($event)"
+          (viewerMinimized)="onViewerMinimized($event)">
+        </app-dock-panel>
+      }
+
+      @if (bottomDockedViewers().length > 0) {
+        <app-dock-panel
+          [viewers]="bottomDockedViewers()"
+          [position]="'bottom'"
+          (viewerClosed)="onVncViewerClose($event)"
+          (viewerUndocked)="onViewerUndocked($event)"
+          (viewerMinimized)="onViewerMinimized($event)">
+        </app-dock-panel>
+      }
+    </div>
   </div>
 } @else {
   <router-outlet />
-}
-
-@if (authService.isLoggedIn()) {
-  <div
-    class="sandbox-ui-layer sandbox-ui-layer--side-panels"
-    [class.sandbox-ui-layer--hidden]="!sandboxUiAllowed()"
-    [attr.aria-hidden]="sandboxUiAllowed() ? null : 'true'">
-    @if (rightDockedViewers().length > 0) {
-      <app-dock-panel
-        [viewers]="rightDockedViewers()"
-        [position]="'right'"
-        (viewerClosed)="onVncViewerClose($event)"
-        (viewerUndocked)="onViewerUndocked($event)"
-        (viewerMinimized)="onViewerMinimized($event)">
-      </app-dock-panel>
-    }
-
-    @if (bottomDockedViewers().length > 0) {
-      <app-dock-panel
-        [viewers]="bottomDockedViewers()"
-        [position]="'bottom'"
-        (viewerClosed)="onVncViewerClose($event)"
-        (viewerUndocked)="onViewerUndocked($event)"
-        (viewerMinimized)="onViewerMinimized($event)">
-      </app-dock-panel>
-    }
-  </div>
 }
 
 <app-toast />

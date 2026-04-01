@@ -1,4 +1,4 @@
-import { Component, signal, input } from '@angular/core';
+import { Component, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router, RouterLink, RouterLinkActive } from '@angular/router';
 import { AuthService } from '../../core/services/auth.service';
@@ -14,15 +14,35 @@ import { AuthService } from '../../core/services/auth.service';
   styleUrl: './sidebar.component.css'
 })
 export class SidebarComponent {
+  /** Narrow icon rail when true */
   isCollapsed = input(false);
-  
+  /** Mobile drawer open state */
+  mobileOpen = input(false);
+
+  collapseToggled = output<void>();
+
   constructor(
     public authService: AuthService,
     private router: Router
   ) {}
 
+  onToggleCollapse(): void {
+    this.collapseToggled.emit();
+  }
+
   logout(): void {
     this.authService.logout();
     this.router.navigate(['/login']);
+  }
+
+  /** Repos list + repo-scoped backlog/code live outside `/repositories/*` in the router. */
+  repositoriesNavActive(): boolean {
+    const path = this.router.url.split('?')[0].split('#')[0];
+    return (
+      path === '/repositories' ||
+      path.startsWith('/repositories/') ||
+      path.startsWith('/backlog/') ||
+      path.startsWith('/code/')
+    );
   }
 }

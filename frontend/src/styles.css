@@ -218,9 +218,9 @@
 /* Layout */
 :root {
   --sidebar-width: 280px;
-  --sidebar-collapsed: 80px;
+  --sidebar-collapsed: 56px;
   --header-height: 64px;
-  /* Reserve above minimized dock; overridden on `.app-container.has-sandbox-dock` */
+  /* Reserve above sandbox tray; overridden on `.app-container.app-workspace-view` */
   --app-sandbox-main-pad-bottom: 0px;
   --content-max-width: 1400px;
   

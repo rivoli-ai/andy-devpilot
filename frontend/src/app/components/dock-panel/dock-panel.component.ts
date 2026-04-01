@@ -104,6 +104,11 @@ import { VncViewerComponent } from '../vnc-viewer/vnc-viewer.component';
       border-top: 1px solid var(--border-light);
       border-radius: 0;
       z-index: 1000;
+      transition: left var(--duration-slow, 0.3s) var(--ease-out, ease);
+    }
+
+    :host-context(.app-container.app-sidebar-collapsed) .dock-panel.dock-bottom {
+      left: var(--sidebar-collapsed, 56px);
     }
     
     /* Tab Bar */

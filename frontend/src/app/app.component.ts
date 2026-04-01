@@ -33,13 +33,15 @@ import { CommonModule } from '@angular/common';
   styleUrl: './app.component.css'
 })
 export class AppComponent implements OnInit, OnDestroy {
-  sidebarCollapsed = signal(false);
+  private static readonly SIDEBAR_COLLAPSED_KEY = 'devpilot-sidebar-collapsed';
+
+  sidebarCollapsed = signal(this.readSidebarCollapsedPreference());
   sidebarOpen = signal(false);
   vncViewers = signal<VncViewer[]>([]);
   /** Dock-mode (tiled) panel above the page */
   sandboxDockTiledExpanded = signal(false);
   /** Minimized chips under the pin row (collapsed = pin + count only) */
-  sandboxDockFootprintExpanded = signal(true);
+  sandboxDockFootprintExpanded = signal(false);
   
   private subscriptions: Subscription[] = [];
   private lastTiledCount = 0;
@@ -164,7 +166,7 @@ export class AppComponent implements OnInit, OnDestroy {
         const tiled = viewers.filter(v => v.dockPosition === 'tiled').length;
         if (minimized === 0 && tiled === 0) {
           this.sandboxDockTiledExpanded.set(false);
-          this.sandboxDockFootprintExpanded.set(true);
+          this.sandboxDockFootprintExpanded.set(false);
         } else if (tiled > this.lastTiledCount) {
           this.sandboxDockTiledExpanded.set(true);
         }
@@ -245,42 +247,36 @@ export class AppComponent implements OnInit, OnDestroy {
   private teardownDockResizeObserver(): void {
     this.dockResizeObserver?.disconnect();
     this.dockResizeObserver = null;
-    document.documentElement.style.removeProperty('--app-sandbox-dock-height');
+    document.documentElement.style.removeProperty('--sandbox-dock-footprint-height');
   }
 
-  /** Keep main padding in sync with dock height (no inner scroll — panel grows with content). */
+  /**
+   * Publishes the sandbox footprint bar height (px) on :root for CSS.
+   * Open dock panel height and main padding-bottom share one formula in CSS
+   * (.sandbox-dock-tiled-open) so the column does not overflow the viewport.
+   */
   private syncSandboxDockHeightObserver(): void {
     this.dockResizeObserver?.disconnect();
     this.dockResizeObserver = null;
 
     if (!this.sandboxUiAllowed() || !this.sandboxDockTrayVisible()) {
-      document.documentElement.style.removeProperty('--app-sandbox-dock-height');
+      document.documentElement.style.removeProperty('--sandbox-dock-footprint-height');
       return;
     }
 
-    const el = this.sandboxDockRegion()?.nativeElement;
-    if (!el) {
+    const footprintEl = this.sandboxDockRegion()?.nativeElement;
+    if (!footprintEl) {
       return;
     }
 
-    const apply = (height: number) => {
-      document.documentElement.style.setProperty(
-        '--app-sandbox-dock-height',
-        `${Math.max(0, Math.ceil(height))}px`
-      );
+    const measure = () => {
+      const footprintH = Math.max(0, Math.round(footprintEl.getBoundingClientRect().height));
+      document.documentElement.style.setProperty('--sandbox-dock-footprint-height', `${footprintH}px`);
     };
 
-    const readDockHeight = (target: Element) =>
-      Math.round(target.getBoundingClientRect().height);
-
-    this.dockResizeObserver = new ResizeObserver(entries => {
-      const entry = entries[0];
-      if (entry?.target) {
-        apply(readDockHeight(entry.target));
-      }
-    });
-    this.dockResizeObserver.observe(el);
-    apply(readDockHeight(el));
+    this.dockResizeObserver = new ResizeObserver(() => measure());
+    this.dockResizeObserver.observe(footprintEl);
+    measure();
   }
 
   /**
@@ -333,6 +329,30 @@ export class AppComponent implements OnInit, OnDestroy {
     this.sidebarOpen.update(open => !open);
   }
 
+  toggleSidebarCollapsed(): void {
+    this.sidebarCollapsed.update(collapsed => {
+      const next = !collapsed;
+      try {
+        localStorage.setItem(AppComponent.SIDEBAR_COLLAPSED_KEY, next ? '1' : '0');
+      } catch {
+        /* ignore quota / private mode */
+      }
+      return next;
+    });
+  }
+
+  private readSidebarCollapsedPreference(): boolean {
+    try {
+      const v = localStorage.getItem(AppComponent.SIDEBAR_COLLAPSED_KEY);
+      if (v === null) {
+        return false;
+      }
+      return v === '1' || v === 'true';
+    } catch {
+      return false;
+    }
+  }
+
   /**
    * Pin toggles the minimized chip strip only when there are minimized viewers.
    * When there are only tiled dock viewers: expand shows tiles; collapse minimizes all to chips.
@@ -365,7 +385,7 @@ export class AppComponent implements OnInit, OnDestroy {
     }
     this.vncViewerService.minimizeAllTiled();
     this.sandboxDockTiledExpanded.set(false);
-    this.sandboxDockFootprintExpanded.set(true);
+    this.sandboxDockFootprintExpanded.set(false);
   }
 
   sandboxDockPinSubline(): string {
@@ -417,8 +437,15 @@ export class AppComponent implements OnInit, OnDestroy {
     if (this.sandboxUiAllowed() && this.bottomDockedViewers().length > 0) {
       classes.push('vnc-docked-bottom');
     }
-    if (this.sandboxUiAllowed() && this.sandboxDockTrayVisible()) {
-      classes.push('has-sandbox-dock');
+    if (this.sandboxUiAllowed()) {
+      classes.push('app-workspace-view');
+    }
+    if (
+      this.sandboxUiAllowed() &&
+      this.tiledDockViewers().length > 0 &&
+      this.sandboxDockTiledExpanded()
+    ) {
+      classes.push('sandbox-dock-tiled-open');
     }
     return classes.join(' ');
   }

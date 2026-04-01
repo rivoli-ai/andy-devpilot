@@ -3,6 +3,21 @@
   display: none !important;
 }
 
+/*
+ * VNC side dock lives inside .app-container for :host-context(collapsed) alignment,
+ * but must not participate in the flex row — same full-viewport overlay as before.
+ */
+.app-container > .sandbox-ui-layer.sandbox-ui-layer--side-panels {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 999;
+}
+
+.app-container > .sandbox-ui-layer.sandbox-ui-layer--side-panels app-dock-panel {
+  pointer-events: auto;
+}
+
 .app-container {
   display: flex;
   min-height: 100vh;
@@ -16,8 +31,13 @@
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: margin-left var(--duration-slow) var(--ease-out);
   position: relative;
+  min-width: 0; /* flex child can shrink; width tracks remaining space beside sidebar */
+}
+
+.app-container.app-sidebar-collapsed .app-content {
+  margin-left: var(--sidebar-collapsed);
 }
 
 .main-content {
@@ -43,6 +63,101 @@
   flex: 1 1 0;
   min-height: 0;
   min-width: 0;
+}
+
+/*
+ * Backlog / code: same bottom reserve + tiled panel height as when the sandbox tray is visible.
+ * Shell is locked to the viewport so flex can give main true remaining height (header is fixed;
+ * sandbox layer is fixed — both must not consume column flex space).
+ */
+.app-container.app-workspace-view {
+  --sandbox-dock-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sandbox-dock-panel-open-height: 0px;
+  --sandbox-dock-bar-bottom: var(--space-3);
+  --sandbox-dock-bar-radius: 14px;
+  --app-sandbox-main-pad-bottom: calc(
+    var(--sandbox-dock-footprint-height, 6.5rem) + var(--sandbox-dock-panel-open-height) +
+      var(--sandbox-dock-bar-bottom) + var(--sandbox-dock-safe-bottom) + var(--space-3)
+  );
+  height: 100dvh;
+  min-height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+.app-container.app-workspace-view .app-content {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  height: 100dvh;
+  max-height: 100dvh;
+  overflow: hidden;
+}
+
+/* Fixed header lives in flow as a zero-size flex item so <main> gets the full column */
+.app-container.app-workspace-view .app-content > app-header {
+  flex: 0 0 0;
+  width: 100%;
+  height: 0;
+  margin: 0;
+  overflow: visible;
+}
+
+/* Bottom / floating sandbox UI is position:fixed — keep layer from stealing flex height */
+.app-container.app-workspace-view .app-content > .sandbox-ui-layer {
+  flex: 0 0 0;
+  width: 100%;
+  height: 0;
+  min-height: 0;
+  overflow: visible;
+}
+
+.app-container.app-workspace-view.sandbox-dock-tiled-open {
+  --sandbox-dock-panel-open-height: max(
+    10.5rem,
+    calc(
+      100dvh - var(--header-height) - var(--sandbox-dock-footprint-height, 5rem) -
+        var(--sandbox-dock-safe-bottom) - var(--space-8) - var(--space-3)
+    )
+  );
+}
+
+.app-container.app-workspace-view .main-content {
+  flex: 1 1 0;
+  min-height: 0;
+  margin-top: 0;
+  /* Clear fixed header inside the flex item (margin would fight flex height distribution) */
+  padding-top: calc(var(--header-height) + var(--space-8));
+  padding-bottom: var(--app-sandbox-main-pad-bottom);
+  overflow-y: hidden;
+}
+
+.app-container.app-workspace-view.vnc-docked-bottom {
+  height: auto;
+  max-height: none;
+  min-height: auto;
+  overflow: visible;
+}
+
+.app-container.app-workspace-view.vnc-docked-bottom .app-content {
+  height: auto;
+  max-height: none;
+  min-height: auto;
+  overflow: visible;
+}
+
+.app-container.app-workspace-view.vnc-docked-bottom .app-content > app-header,
+.app-container.app-workspace-view.vnc-docked-bottom .app-content > .sandbox-ui-layer {
+  flex: unset;
+  width: unset;
+  height: unset;
+  min-height: unset;
+  overflow: unset;
+}
+
+.app-container.app-workspace-view.vnc-docked-bottom .main-content {
+  flex: 1;
+  min-height: 0;
 }
 
 /* VNC Docked Right - Content shifts to left */
@@ -205,37 +320,20 @@
   color: var(--text-tertiary);
 }
 
-/* Reserve space for fixed tray + floating margin below the card (matches .sandbox-dock bottom offset) */
-.app-container.has-sandbox-dock {
-  --sandbox-dock-float-reserve: calc(
-    var(--sandbox-dock-edge, var(--space-4)) + var(--sandbox-dock-lift, var(--space-3)) + env(safe-area-inset-bottom, 0px)
-  );
-  --app-sandbox-main-pad-bottom: calc(
-    var(--app-sandbox-dock-height, 6.5rem) + var(--sandbox-dock-float-reserve) + var(--space-6)
-  );
-}
-
-.app-container.has-sandbox-dock .main-content {
-  padding-bottom: var(--app-sandbox-main-pad-bottom);
-  /* Clip backgrounds / scroll regions so backlog & code don’t paint under the fixed dock */
-  overflow-y: hidden;
-}
-
 /*
- * Floating sandbox tray: fixed in the main column, lifted off the bottom edge like a palette
- * (always visible while scrolling; not flush with the viewport).
+ * Sandbox tray: fixed to the bottom of the main column, horizontally aligned with .main-content padding
+ * (same inset as page body — var(--space-8)), and same sidebar offset as .app-content.
  */
 .sandbox-dock {
   --sandbox-dock-accent: var(--primary-color, #6366f1);
-  --sandbox-dock-edge: var(--space-4);
-  --sandbox-dock-lift: var(--space-3);
+  --sandbox-dock-hpad: var(--space-8);
   position: fixed;
   z-index: 998;
   overflow: visible;
   isolation: isolate;
-  left: calc(var(--sidebar-width) + var(--sandbox-dock-edge));
-  right: var(--sandbox-dock-edge);
-  bottom: var(--sandbox-dock-float-reserve, calc(var(--sandbox-dock-edge) + var(--sandbox-dock-lift) + env(safe-area-inset-bottom, 0px)));
+  left: calc(var(--sidebar-width) + var(--sandbox-dock-hpad));
+  right: var(--sandbox-dock-hpad);
+  bottom: env(safe-area-inset-bottom, 0px);
   width: auto;
   max-width: none;
   box-sizing: border-box;
@@ -243,60 +341,36 @@
   background: transparent;
   border: none;
   animation: sandboxDockIn 0.46s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: left var(--duration-slow) var(--ease-out), right var(--duration-slow) var(--ease-out);
 }
 
 .app-container.app-sidebar-collapsed .sandbox-dock {
-  left: calc(var(--sidebar-collapsed) + var(--sandbox-dock-edge));
+  left: calc(var(--sidebar-collapsed) + var(--sandbox-dock-hpad));
 }
 
 .sandbox-dock__footprint {
   position: relative;
   z-index: 3;
-  border-radius: 20px;
-  background: linear-gradient(
-    165deg,
-    color-mix(in srgb, var(--surface-elevated, #1e1e2e) 48%, transparent) 0%,
-    color-mix(in srgb, var(--surface-ground, #0c0c12) 38%, transparent) 100%
-  );
-  border: 1px solid color-mix(in srgb, var(--border-light) 42%, transparent);
+  margin: 0 0 var(--sandbox-dock-bar-bottom);
+  border-radius: var(--sandbox-dock-bar-radius);
+  background: var(--surface-elevated, #1e1e2e);
+  border: 1px solid color-mix(in srgb, var(--border-light) 55%, transparent);
   box-shadow:
-    0 22px 56px -18px rgba(0, 0, 0, 0.38),
-    0 12px 32px -16px rgba(0, 0, 0, 0.22),
-    0 4px 12px -4px rgba(0, 0, 0, 0.14),
-    -8px 0 28px -18px rgba(0, 0, 0, 0.1),
-    8px 0 28px -18px rgba(0, 0, 0, 0.08),
-    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
-  backdrop-filter: blur(26px) saturate(1.08);
-  -webkit-backdrop-filter: blur(26px) saturate(1.08);
+    0 -4px 24px -8px rgba(0, 0, 0, 0.28),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   overflow: hidden;
-}
-
-.sandbox-dock__footprint::before {
-  content: '';
-  position: absolute;
-  top: 0.5rem;
-  left: 12%;
-  right: 12%;
-  height: 2px;
-  border-radius: 999px;
-  background: linear-gradient(
-    90deg,
-    transparent,
-    color-mix(in srgb, var(--sandbox-dock-accent) 45%, transparent),
-    transparent
-  );
-  opacity: 0.9;
-  pointer-events: none;
 }
 
 @keyframes sandboxDockIn {
   from {
     opacity: 0;
-    transform: translateY(20px) scale(0.985);
+    transform: translateY(10px);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: translateY(0);
   }
 }
 
@@ -308,7 +382,6 @@
   width: 100%;
   margin: 0;
   padding: var(--space-3) var(--space-4);
-  padding-top: calc(var(--space-3) + 4px);
   border: none;
   border-radius: 0;
   background: transparent;
@@ -415,18 +488,13 @@
   overflow: hidden;
   padding: 0 var(--space-4);
   pointer-events: none;
-  border-radius: 16px 16px 12px 12px;
+  border-radius: var(--sandbox-dock-bar-radius) var(--sandbox-dock-bar-radius) 0 0;
   border: 1px solid color-mix(in srgb, var(--border-light) 42%, transparent);
-  background: linear-gradient(
-    175deg,
-    color-mix(in srgb, var(--surface-elevated, #1e1e2e) 52%, transparent) 0%,
-    color-mix(in srgb, var(--surface-ground, #0c0c12) 42%, transparent) 100%
-  );
-  box-shadow:
-    0 -12px 44px -16px rgba(0, 0, 0, 0.35),
-    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
-  backdrop-filter: blur(22px) saturate(1.07);
-  -webkit-backdrop-filter: blur(22px) saturate(1.07);
+  border-bottom: none;
+  background: var(--surface-card, #12121a);
+  box-shadow: 0 -8px 32px -12px rgba(0, 0, 0, 0.4);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
   transition:
     max-height 0.4s cubic-bezier(0.22, 1, 0.36, 1),
     opacity 0.24s ease,
@@ -436,8 +504,9 @@
 .sandbox-dock__body--open {
   display: flex;
   flex-direction: column;
-  height: min(72vh, 920px);
-  max-height: min(72vh, 920px);
+  height: var(--sandbox-dock-panel-open-height);
+  max-height: var(--sandbox-dock-panel-open-height);
+  min-height: 0;
   opacity: 1;
   padding-top: var(--space-3);
   padding-bottom: var(--space-4);
@@ -463,6 +532,7 @@
   .sandbox-dock {
     animation: none;
     transform: none;
+    transition: none;
   }
 
   .sandbox-dock__body {
@@ -556,28 +626,24 @@
 }
 
 @media (max-width: 768px) {
-  .app-container.has-sandbox-dock {
-    --sandbox-dock-edge: var(--space-3);
-    --sandbox-dock-lift: var(--space-2);
-    --sandbox-dock-float-reserve: calc(
-      var(--sandbox-dock-edge) + var(--sandbox-dock-lift) + env(safe-area-inset-bottom, 0px)
-    );
+  /* Match .main-content padding on small screens; sidebar is an overlay */
+  .app-container.app-workspace-view {
+    --sandbox-dock-bar-bottom: var(--space-2);
   }
 
   .sandbox-dock {
-    --sandbox-dock-edge: var(--space-3);
-    --sandbox-dock-lift: var(--space-2);
-    left: var(--sandbox-dock-edge);
-    right: var(--sandbox-dock-edge);
+    --sandbox-dock-hpad: var(--space-4);
+    left: var(--sandbox-dock-hpad);
+    right: var(--sandbox-dock-hpad);
   }
 
   .app-container.app-sidebar-collapsed .sandbox-dock {
-    left: var(--sandbox-dock-edge);
+    left: var(--sandbox-dock-hpad);
+    right: var(--sandbox-dock-hpad);
   }
 
   .sandbox-dock__pin {
     padding: var(--space-3);
-    padding-top: calc(var(--space-3) + 4px);
   }
 
   .sandbox-dock__body {
@@ -593,42 +659,21 @@
     font-size: 0.875rem;
   }
 
-  .app-container.has-sandbox-dock {
-    --app-sandbox-main-pad-bottom: calc(
-      var(--app-sandbox-dock-height, 6.75rem) + var(--sandbox-dock-float-reserve) + var(--space-5)
-    );
-  }
 }
 
 /* Light theme: dock reads cleaner on bright UI */
 :root[data-theme="light"] .sandbox-dock__footprint {
-  background: linear-gradient(
-    165deg,
-    rgba(255, 255, 255, 0.38) 0%,
-    color-mix(in srgb, var(--surface-ground, #f8fafc) 32%, rgba(255, 255, 255, 0.2)) 100%
-  );
-  border-color: color-mix(in srgb, var(--border-light) 52%, transparent);
+  background: var(--surface-card, #ffffff);
+  border-color: color-mix(in srgb, var(--border-light) 65%, transparent);
   box-shadow:
-    0 22px 48px -16px rgba(15, 23, 42, 0.14),
-    0 12px 28px -12px rgba(15, 23, 42, 0.1),
-    0 4px 12px -4px rgba(15, 23, 42, 0.06),
-    -6px 0 24px -14px rgba(15, 23, 42, 0.05),
-    6px 0 24px -14px rgba(15, 23, 42, 0.05),
-    0 0 0 1px rgba(255, 255, 255, 0.45) inset;
-  backdrop-filter: blur(26px) saturate(1.06);
-  -webkit-backdrop-filter: blur(26px) saturate(1.06);
+    0 -4px 20px -6px rgba(15, 23, 42, 0.12),
+    0 0 0 1px rgba(255, 255, 255, 0.6) inset;
 }
 
 :root[data-theme="light"] .sandbox-dock__body {
-  border-color: color-mix(in srgb, var(--border-light) 48%, transparent);
-  background: linear-gradient(
-    175deg,
-    rgba(255, 255, 255, 0.42) 0%,
-    color-mix(in srgb, var(--surface-ground, #f8fafc) 40%, rgba(255, 255, 255, 0.25)) 100%
-  );
-  box-shadow:
-    0 -12px 32px -14px rgba(15, 23, 42, 0.1),
-    0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+  border-color: color-mix(in srgb, var(--border-light) 55%, transparent);
+  background: var(--surface-ground, #f8fafc);
+  box-shadow: 0 -6px 24px -10px rgba(15, 23, 42, 0.12);
 }
 
 :root[data-theme="light"] .sandbox-dock__pin:hover {
@@ -657,10 +702,20 @@
     width: 100%;
   }
 
+  /* Full-bleed main column on small screens; collapsed rail is drawer-only */
+  .app-container.app-sidebar-collapsed .app-content {
+    margin-left: 0;
+  }
+
   .main-content {
     padding: var(--space-4);
     overflow-x: hidden;
     min-width: 0;
+  }
+
+  .app-container.app-workspace-view .main-content {
+    padding-top: calc(var(--header-height) + var(--space-4));
+    padding-bottom: var(--app-sandbox-main-pad-bottom);
   }
 
   .sidebar-overlay.visible {
