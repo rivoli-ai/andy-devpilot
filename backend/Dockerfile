@@ -1,3 +1,7 @@
+# Local stage — certs/ is copied from the *build context* (repo root), not docker.io/library/certs
+FROM scratch AS certs
+COPY certs/ /
+
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
@@ -6,7 +10,7 @@ WORKDIR /src
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates openssl && \
     rm -rf /var/lib/apt/lists/*
 
-COPY --from=certs . /usr/local/share/ca-certificates/corporate/
+COPY --from=certs / /usr/local/share/ca-certificates/corporate/
 RUN echo "=== Backend: corporate CA files (certs/) ===" && \
     ls -la /usr/local/share/ca-certificates/corporate || echo "  (none)" && \
     find /usr/local/share/ca-certificates/corporate/ -name '.gitkeep' -delete 2>/dev/null || true && \
@@ -31,8 +35,8 @@ RUN echo "=== Backend: testing HTTPS to api.nuget.org from build container ===" 
     (dotnet nuget list source || echo \"[WARN] dotnet nuget list source failed\")
 
 # ------------------------------------------------------------------------------
-
-COPY src/ .
+# Build context must be the repository root (see docker-compose / azure-pipelines).
+COPY backend/src/ .
 
 RUN dotnet publish API/DevPilot.API.csproj -c Release -o /app/publish
 
@@ -43,7 +47,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
     rm -rf /var/lib/apt/lists/*
 
 COPY --from=build /app/publish .
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY backend/docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 # Keep the same relaxed SSL / NuGet settings at runtime for outbound calls

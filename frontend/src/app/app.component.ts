@@ -46,6 +46,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private subscriptions: Subscription[] = [];
   private lastTiledCount = 0;
   private dockResizeObserver: ResizeObserver | null = null;
+  private dockResizeRafId = 0;
 
   readonly sandboxDockRegion = viewChild<ElementRef<HTMLElement>>('sandboxDockRegion');
 
@@ -245,6 +246,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   private teardownDockResizeObserver(): void {
+    if (this.dockResizeRafId) {
+      cancelAnimationFrame(this.dockResizeRafId);
+      this.dockResizeRafId = 0;
+    }
     this.dockResizeObserver?.disconnect();
     this.dockResizeObserver = null;
     document.documentElement.style.removeProperty('--sandbox-dock-footprint-height');
@@ -256,6 +261,10 @@ export class AppComponent implements OnInit, OnDestroy {
    * (.sandbox-dock-tiled-open) so the column does not overflow the viewport.
    */
   private syncSandboxDockHeightObserver(): void {
+    if (this.dockResizeRafId) {
+      cancelAnimationFrame(this.dockResizeRafId);
+      this.dockResizeRafId = 0;
+    }
     this.dockResizeObserver?.disconnect();
     this.dockResizeObserver = null;
 
@@ -274,7 +283,17 @@ export class AppComponent implements OnInit, OnDestroy {
       document.documentElement.style.setProperty('--sandbox-dock-footprint-height', `${footprintH}px`);
     };
 
-    this.dockResizeObserver = new ResizeObserver(() => measure());
+    // Coalesce ResizeObserver callbacks to the next frame to avoid nested
+    // layout loops with noVNC/iframes (Chrome "ResizeObserver loop" warnings).
+    this.dockResizeObserver = new ResizeObserver(() => {
+      if (this.dockResizeRafId) {
+        cancelAnimationFrame(this.dockResizeRafId);
+      }
+      this.dockResizeRafId = requestAnimationFrame(() => {
+        this.dockResizeRafId = 0;
+        measure();
+      });
+    });
     this.dockResizeObserver.observe(footprintEl);
     measure();
   }

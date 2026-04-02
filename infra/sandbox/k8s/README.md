@@ -147,8 +147,10 @@ kubectl delete namespace sandboxes
 1. **Build and push images** to GHCR or ACR:
 
 ```bash
+# From repository root (required so certs/ and paths in Dockerfiles resolve).
+
 # Manager
-docker build -t ghcr.io/YOUR_ORG/devpilot-manager:latest infra/sandbox/manager/
+docker build -t ghcr.io/YOUR_ORG/devpilot-manager:latest -f infra/sandbox/manager/Dockerfile .
 docker push ghcr.io/YOUR_ORG/devpilot-manager:latest
 
 # Desktop (sandbox container)
@@ -156,7 +158,7 @@ docker build -t ghcr.io/YOUR_ORG/devpilot-desktop:latest infra/sandbox/
 docker push ghcr.io/YOUR_ORG/devpilot-desktop:latest
 
 # Backend
-docker build -t ghcr.io/YOUR_ORG/devpilot-backend:latest -f backend/Dockerfile backend/
+docker build -t ghcr.io/YOUR_ORG/devpilot-backend:latest -f backend/Dockerfile .
 docker push ghcr.io/YOUR_ORG/devpilot-backend:latest
 ```
 

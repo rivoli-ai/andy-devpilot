@@ -125,7 +125,7 @@ fi
 # ── 4. Build manager image ─────────────────────────────────────────────────
 step "Building devpilot-manager image..."
 
-docker build -t devpilot-manager:local "$MANAGER_DIR"
+docker build -t devpilot-manager:local -f "$MANAGER_DIR/Dockerfile" "$REPO_ROOT"
 
 if [ "$CLUSTER_TYPE" = "k3d" ]; then
     CLUSTER_NAME=$(kubectl config current-context | sed 's/k3d-//')

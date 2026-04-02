@@ -40,9 +40,8 @@ stages:
               command: build
               repository: devpilot-backend
               dockerfile: backend/Dockerfile
-              # Use backend/ as context — mirrors docker-compose.yml (context: ./backend)
-              # so that COPY certs/ and COPY src/ resolve correctly inside the Dockerfile
-              buildContext: backend
+              # Repository root so COPY backend/src/, backend/docker-entrypoint.sh, certs/ work
+              buildContext: $(Build.SourcesDirectory)
               tags: latest
               arguments: "--no-cache"
 
@@ -92,7 +91,7 @@ stages:
               command: build
               repository: devpilot-manager
               dockerfile: infra/sandbox/manager/Dockerfile
-              buildContext: infra/sandbox/manager
+              buildContext: $(Build.SourcesDirectory)
               tags: latest
               arguments: "--no-cache"
 

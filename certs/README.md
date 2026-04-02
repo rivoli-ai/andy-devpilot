@@ -7,8 +7,10 @@ desktop containers, and identity server).
 Place your corporate proxy or SSL-inspection root CA `.crt` / `.pem` files
 here. They will be:
 
-1. **Baked into images at build time** — backend and sandbox-desktop
-   Dockerfiles `COPY` from this directory and run `update-ca-certificates`.
+1. **Baked into images at build time** — backend and sandbox-manager
+   Dockerfiles copy this folder (build context must be the **repository root**)
+   and run `update-ca-certificates`. Use `docker compose build` from the repo
+   root, or `docker build -f backend/Dockerfile .` (same for the manager).
 2. **Mounted into containers at runtime** — `docker-compose.yml` bind-mounts
    this directory so you can update certs without rebuilding images.
 

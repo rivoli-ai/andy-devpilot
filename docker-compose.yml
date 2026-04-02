@@ -20,10 +20,8 @@ services:
   # ── Backend (.NET API) ────────────────────────────────────────────────────────
   devpilot-backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
-      additional_contexts:
-        certs: ./certs
+      context: .
+      dockerfile: backend/Dockerfile
     depends_on:
       postgres:
         condition: service_healthy
@@ -64,10 +62,8 @@ services:
   # ── Sandbox Manager (Python Flask) ───────────────────────────────────────────
   sandbox-manager:
     build:
-      context: ./infra/sandbox/manager
-      dockerfile: Dockerfile
-      additional_contexts:
-        certs: ./certs
+      context: .
+      dockerfile: infra/sandbox/manager/Dockerfile
     environment:
       MANAGER_API_KEY: ${MANAGER_API_KEY}
       HOST_IP:         ${PUBLIC_IP:-localhost}
