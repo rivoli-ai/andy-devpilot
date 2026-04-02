@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { ThemeService } from '../../core/services/theme.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { Subscription } from 'rxjs';
+import { BreadcrumbComponent } from '../breadcrumb/breadcrumb.component';
 
 /**
  * Top header component with mobile menu toggle, sandbox indicator, and theme switcher
@@ -10,7 +11,7 @@ import { Subscription } from 'rxjs';
 @Component({
   selector: 'app-header',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, BreadcrumbComponent],
   templateUrl: './header.component.html',
   styleUrl: './header.component.css'
 })

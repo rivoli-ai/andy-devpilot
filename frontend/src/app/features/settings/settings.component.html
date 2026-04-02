@@ -1,43 +1,78 @@
 <div class="settings-page">
-  <!-- Toast notifications -->
-  @if (successMessage()) {
-    <div class="toast toast--success" role="status">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-      {{ successMessage() }}
-    </div>
-  }
-  @if (error()) {
-    <div class="toast toast--error" role="alert">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-      {{ error() }}
-    </div>
-  }
-
-  <!-- Account -->
-  <section class="card">
-    <div class="account-block">
-      <div class="account-row">
-        @if (user()) {
-          <div class="avatar">{{ (user()!.name || user()!.email).charAt(0).toUpperCase() }}</div>
-          <div class="account-meta">
-            <span class="account-name">{{ user()!.name || 'No name' }}</span>
-            <span class="account-email">{{ user()!.email }}</span>
-          </div>
-        }
+  <div class="settings-page__top">
+    <header class="settings-page__intro">
+      <div class="settings-page__intro-main">
+        <h1 class="settings-page__title">Settings</h1>
+        <p class="settings-page__lead">Configure integrations by section. Pick a tab below; lists and forms scroll inside each card.</p>
       </div>
-      <button class="btn btn--ghost btn--sm btn--danger account-signout" (click)="logout()">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" stroke-linecap="round" stroke-linejoin="round"/></svg>
-        Sign out
-      </button>
-    </div>
-  </section>
-
-  <!-- Connected Providers -->
-  <section class="card">
-    <header class="card__header">
-      <h2>Providers</h2>
-      <p>Connect accounts to sync repositories</p>
     </header>
+    <div class="settings-page__alerts" aria-live="polite">
+      @if (successMessage()) {
+        <div class="toast toast--success" role="status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          {{ successMessage() }}
+        </div>
+      }
+      @if (error()) {
+        <div class="toast toast--error" role="alert">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          {{ error() }}
+        </div>
+      }
+    </div>
+  </div>
+
+  <nav class="settings-tabs" role="tablist" aria-label="Settings sections">
+    <button type="button" class="settings-tabs__tab" role="tab" id="settings-tab-source-control"
+      [class.settings-tabs__tab--active]="settingsTab() === 'sourceControl'"
+      [attr.aria-selected]="settingsTab() === 'sourceControl'"
+      (click)="setSettingsTab('sourceControl')">
+      <svg class="settings-tabs__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <path [attr.d]="settingsTabIconSourceControl.path" fill="currentColor" />
+      </svg>
+      Source control
+    </button>
+    <button type="button" class="settings-tabs__tab" role="tab" id="settings-tab-ai"
+      [class.settings-tabs__tab--active]="settingsTab() === 'ai'"
+      [attr.aria-selected]="settingsTab() === 'ai'"
+      (click)="setSettingsTab('ai')">
+      <svg class="settings-tabs__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <path [attr.d]="settingsTabIconAi.path" fill="currentColor" />
+      </svg>
+      AI providers
+    </button>
+    <button type="button" class="settings-tabs__tab" role="tab" id="settings-tab-mcp"
+      [class.settings-tabs__tab--active]="settingsTab() === 'mcp'"
+      [attr.aria-selected]="settingsTab() === 'mcp'"
+      (click)="setSettingsTab('mcp')">
+      <svg class="settings-tabs__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <path [attr.d]="settingsTabIconMcp.path" fill="currentColor" />
+      </svg>
+      MCP servers
+    </button>
+    <button type="button" class="settings-tabs__tab" role="tab" id="settings-tab-artifacts"
+      [class.settings-tabs__tab--active]="settingsTab() === 'artifacts'"
+      [attr.aria-selected]="settingsTab() === 'artifacts'"
+      (click)="setSettingsTab('artifacts')">
+      <svg class="settings-tabs__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+        <path [attr.d]="settingsTabIconArtifacts.path" fill="currentColor" />
+      </svg>
+      Artifact feeds
+    </button>
+  </nav>
+
+  <div class="settings-page__panels">
+    @switch (settingsTab()) {
+      @case ('sourceControl') {
+        <div class="settings-panel" role="tabpanel" id="settings-panel-source-control" aria-labelledby="settings-tab-source-control">
+  <!-- Git / ADO / OAuth links for repos -->
+  <section class="card card--panel card--source-control">
+    <header class="card__header">
+      <h2>Source control</h2>
+      <p>Connect Git hosting and Azure DevOps to sync repositories.</p>
+    </header>
+    <div class="card__scroll">
+
 
     @if (loading()) {
       <div class="loading">
@@ -199,10 +234,17 @@
         </li>
       </ul>
     }
+  
+    </div>
   </section>
 
+
+        </div>
+      }
+      @case ('ai') {
+        <div class="settings-panel" role="tabpanel" id="settings-panel-ai" aria-labelledby="settings-tab-ai">
   <!-- AI providers -->
-  <section class="card card--ai">
+  <section class="card card--ai card--panel">
     <header class="card__header">
       <h2>AI providers</h2>
       @if (isAdmin()) {
@@ -211,9 +253,15 @@
         <p>Select a default AI provider from the list below. You can override the default per repository on the Repositories page.</p>
       }
     </header>
-
-    <!-- ── Shared providers (visible to all) ─────────────────────────── -->
-    @if (sharedLlmSettings().length > 0) {
+    @if (isAdmin() && adminLlmFormOpen()) {
+      <div class="card__subhead llm-form-block__head">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:6px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        {{ adminLlmFormId() ? 'Edit' : 'New' }} shared provider
+      </div>
+    }
+    <div class="card__scroll">
+    <!-- ── Shared providers (visible to all); hidden while admin add/edit form is open ── -->
+    @if (sharedLlmSettings().length > 0 && !(isAdmin() && adminLlmFormOpen())) {
       <ul class="llm-rows">
         @for (item of sharedLlmSettings(); track item.id) {
           <li
@@ -281,75 +329,82 @@
       </div>
     }
 
-    <!-- ── Admin: add/edit shared provider ───────────────────────────── -->
+    <!-- ── Admin: form fields scroll; title above scroll; actions in footer ─ -->
+    @if (isAdmin() && adminLlmFormOpen()) {
+      <div class="llm-form-block llm-form-block--admin llm-form-block--in-card-scroll">
+        <div class="llm-form-block__body">
+          <div class="field">
+            <label>Name</label>
+            <input type="text" placeholder="e.g. Company OpenAI" [ngModel]="adminLlmFormName()" (ngModelChange)="adminLlmFormName.set($event)" />
+          </div>
+          <div class="field">
+            <label>Provider</label>
+            <div class="ai-chips">
+              <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'openai'" (click)="setAdminLlmFormProvider('openai')">OpenAI</button>
+              <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'anthropic'" (click)="setAdminLlmFormProvider('anthropic')">Anthropic</button>
+              <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'ollama'" (click)="setAdminLlmFormProvider('ollama')">Ollama</button>
+              <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'custom'" (click)="setAdminLlmFormProvider('custom')">Custom</button>
+            </div>
+          </div>
+          <div class="field-row field-row--align-end">
+            <div class="field field--grow">
+              <label>API Key {{ adminLlmFormId() ? '(blank = keep)' : '' }}</label>
+              <div class="input-secret">
+                <input [type]="adminLlmFormShowApiKey() ? 'text' : 'password'" placeholder="API key" [ngModel]="adminLlmFormApiKey()" (ngModelChange)="adminLlmFormApiKey.set($event)" />
+                <button type="button" class="eye-toggle" (click)="adminLlmFormShowApiKey.set(!adminLlmFormShowApiKey())">
+                  @if (adminLlmFormShowApiKey()) {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
+                  } @else {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                  }
+                </button>
+              </div>
+            </div>
+            <div class="field field--model-col">
+              <label>Model</label>
+              <input type="text" placeholder="Model name" [ngModel]="adminLlmFormModel()" (ngModelChange)="adminLlmFormModel.set($event)" />
+            </div>
+          </div>
+          @if (adminLlmFormProvider() === 'ollama' || adminLlmFormProvider() === 'custom') {
+            <div class="field">
+              <label>Base URL</label>
+              <input type="text" [placeholder]="adminLlmFormProvider() === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'" [ngModel]="adminLlmFormBaseUrl()" (ngModelChange)="adminLlmFormBaseUrl.set($event)" />
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    </div>
     @if (isAdmin()) {
-      @if (adminLlmFormOpen()) {
-        <div class="llm-form-block llm-form-block--admin">
-          <div class="llm-form-block__head">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;margin-right:6px"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
-            {{ adminLlmFormId() ? 'Edit' : 'New' }} shared provider
+      <footer class="card__footer">
+        @if (adminLlmFormOpen()) {
+          <div class="btn-bar">
+            <button class="btn btn--primary btn--sm" (click)="saveAdminLlmSetting()" [disabled]="actionLoading() === 'admin-llm-save'">
+              @if (actionLoading() === 'admin-llm-save') { <span class="btn-spin"></span> }
+              Save
+            </button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelAdminLlmForm()">Cancel</button>
           </div>
-          <div class="llm-form-block__body">
-            <div class="field">
-              <label>Name</label>
-              <input type="text" placeholder="e.g. Company OpenAI" [ngModel]="adminLlmFormName()" (ngModelChange)="adminLlmFormName.set($event)" />
-            </div>
-            <div class="field">
-              <label>Provider</label>
-              <div class="ai-chips">
-                <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'openai'" (click)="setAdminLlmFormProvider('openai')">OpenAI</button>
-                <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'anthropic'" (click)="setAdminLlmFormProvider('anthropic')">Anthropic</button>
-                <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'ollama'" (click)="setAdminLlmFormProvider('ollama')">Ollama</button>
-                <button type="button" class="chip" [class.active]="adminLlmFormProvider() === 'custom'" (click)="setAdminLlmFormProvider('custom')">Custom</button>
-              </div>
-            </div>
-            <div class="field-row field-row--align-end">
-              <div class="field field--grow">
-                <label>API Key {{ adminLlmFormId() ? '(blank = keep)' : '' }}</label>
-                <div class="input-secret">
-                  <input [type]="adminLlmFormShowApiKey() ? 'text' : 'password'" placeholder="API key" [ngModel]="adminLlmFormApiKey()" (ngModelChange)="adminLlmFormApiKey.set($event)" />
-                  <button type="button" class="eye-toggle" (click)="adminLlmFormShowApiKey.set(!adminLlmFormShowApiKey())">
-                    @if (adminLlmFormShowApiKey()) {
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>
-                    } @else {
-                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
-                    }
-                  </button>
-                </div>
-              </div>
-              <div class="field field--model-col">
-                <label>Model</label>
-                <input type="text" placeholder="Model name" [ngModel]="adminLlmFormModel()" (ngModelChange)="adminLlmFormModel.set($event)" />
-              </div>
-            </div>
-            @if (adminLlmFormProvider() === 'ollama' || adminLlmFormProvider() === 'custom') {
-              <div class="field">
-                <label>Base URL</label>
-                <input type="text" [placeholder]="adminLlmFormProvider() === 'ollama' ? 'http://localhost:11434' : 'https://api.example.com/v1'" [ngModel]="adminLlmFormBaseUrl()" (ngModelChange)="adminLlmFormBaseUrl.set($event)" />
-              </div>
-            }
-            <div class="btn-bar">
-              <button class="btn btn--primary btn--sm" (click)="saveAdminLlmSetting()" [disabled]="actionLoading() === 'admin-llm-save'">
-                @if (actionLoading() === 'admin-llm-save') { <span class="btn-spin"></span> }
-                Save
-              </button>
-              <button class="btn btn--ghost btn--sm" (click)="cancelAdminLlmForm()">Cancel</button>
-            </div>
+        } @else {
+          <div class="llm-add-wrap">
+            <button type="button" class="btn btn--primary btn--sm" (click)="openAdminAddLlmForm()">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add provider
+            </button>
           </div>
-        </div>
-      } @else {
-        <div class="llm-add-wrap">
-          <button type="button" class="btn btn--primary btn--sm" (click)="openAdminAddLlmForm()">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add provider
-          </button>
-        </div>
-      }
+        }
+      </footer>
     }
   </section>
 
+
+        </div>
+      }
+      @case ('mcp') {
+        <div class="settings-panel" role="tabpanel" id="settings-panel-mcp" aria-labelledby="settings-tab-mcp">
   <!-- MCP Servers -->
-  <section class="card card--mcp">
+  <section class="card card--mcp card--panel">
     <header class="card__header">
       <h2>MCP Servers</h2>
       @if (isAdmin()) {
@@ -358,8 +413,13 @@
         <p>MCP servers configured by your administrator. These extend the Zed Agent with external tools during backlog generation and code analysis.</p>
       }
     </header>
-
-    @if (mcpServers().length > 0) {
+    @if (isAdmin() && mcpFormOpen()) {
+      <div class="card__subhead llm-form-block__head">
+        {{ mcpFormId() ? 'Edit' : 'New' }} MCP server
+      </div>
+    }
+    <div class="card__scroll">
+    @if (mcpServers().length > 0 && !(isAdmin() && mcpFormOpen())) {
       <ul class="llm-rows">
         @for (mcp of mcpServers(); track mcp.id) {
           <li class="llm-row llm-row--mcp-expandable" [class.llm-row--disabled]="!mcp.isEnabled">
@@ -437,73 +497,79 @@
       </div>
     }
 
+    @if (isAdmin() && mcpFormOpen()) {
+      <div class="llm-form-block llm-form-block--admin llm-form-block--in-card-scroll">
+        <div class="llm-form-block__body">
+          <div class="field">
+            <label>Name</label>
+            <input type="text" placeholder="e.g. GitHub MCP, Brave Search" [ngModel]="mcpFormName()" (ngModelChange)="mcpFormName.set($event)" />
+          </div>
+          <div class="field">
+            <label>Type</label>
+            <div class="ai-chips">
+              <button type="button" class="chip" [class.active]="mcpFormServerType() === 'stdio'" (click)="mcpFormServerType.set('stdio')">Local Command (stdio)</button>
+              <button type="button" class="chip" [class.active]="mcpFormServerType() === 'remote'" (click)="mcpFormServerType.set('remote')">Remote HTTP</button>
+            </div>
+          </div>
+
+          @if (mcpFormServerType() === 'stdio') {
+            <div class="field">
+              <label>Command</label>
+              <input type="text" placeholder="e.g. npx, uvx, node" [ngModel]="mcpFormCommand()" (ngModelChange)="mcpFormCommand.set($event)" />
+            </div>
+            <div class="field">
+              <label>Arguments (comma-separated)</label>
+              <input type="text" placeholder="e.g. -y, @modelcontextprotocol/server-github" [ngModel]="mcpFormArgsStr()" (ngModelChange)="mcpFormArgsStr.set($event)" />
+            </div>
+            <div class="field">
+              <label>Environment variables (KEY=VALUE, one per line)</label>
+              <textarea rows="3" placeholder="GITHUB_TOKEN=ghp_xxx&#10;API_KEY=abc123" [ngModel]="mcpFormEnvStr()" (ngModelChange)="mcpFormEnvStr.set($event)" class="field-textarea"></textarea>
+            </div>
+          }
+
+          @if (mcpFormServerType() === 'remote') {
+            <div class="field">
+              <label>URL</label>
+              <input type="text" placeholder="https://mcp.example.com/mcp" [ngModel]="mcpFormUrl()" (ngModelChange)="mcpFormUrl.set($event)" />
+            </div>
+            <div class="field">
+              <label>Headers (KEY=VALUE, one per line)</label>
+              <textarea rows="2" placeholder="Authorization=Bearer token123" [ngModel]="mcpFormHeadersStr()" (ngModelChange)="mcpFormHeadersStr.set($event)" class="field-textarea"></textarea>
+            </div>
+          }
+        </div>
+      </div>
+    }
+
+    </div>
     @if (isAdmin()) {
-      @if (mcpFormOpen()) {
-        <div class="llm-form-block llm-form-block--admin">
-          <div class="llm-form-block__head">
-            {{ mcpFormId() ? 'Edit' : 'New' }} MCP server
+      <footer class="card__footer">
+        @if (mcpFormOpen()) {
+          <div class="btn-bar">
+            <button class="btn btn--primary btn--sm" (click)="saveMcpServer()" [disabled]="actionLoading() === 'mcp-save'">
+              @if (actionLoading() === 'mcp-save') { <span class="btn-spin"></span> }
+              Save
+            </button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelMcpForm()">Cancel</button>
           </div>
-          <div class="llm-form-block__body">
-            <div class="field">
-              <label>Name</label>
-              <input type="text" placeholder="e.g. GitHub MCP, Brave Search" [ngModel]="mcpFormName()" (ngModelChange)="mcpFormName.set($event)" />
-            </div>
-            <div class="field">
-              <label>Type</label>
-              <div class="ai-chips">
-                <button type="button" class="chip" [class.active]="mcpFormServerType() === 'stdio'" (click)="mcpFormServerType.set('stdio')">Local Command (stdio)</button>
-                <button type="button" class="chip" [class.active]="mcpFormServerType() === 'remote'" (click)="mcpFormServerType.set('remote')">Remote HTTP</button>
-              </div>
-            </div>
-
-            @if (mcpFormServerType() === 'stdio') {
-              <div class="field">
-                <label>Command</label>
-                <input type="text" placeholder="e.g. npx, uvx, node" [ngModel]="mcpFormCommand()" (ngModelChange)="mcpFormCommand.set($event)" />
-              </div>
-              <div class="field">
-                <label>Arguments (comma-separated)</label>
-                <input type="text" placeholder="e.g. -y, @modelcontextprotocol/server-github" [ngModel]="mcpFormArgsStr()" (ngModelChange)="mcpFormArgsStr.set($event)" />
-              </div>
-              <div class="field">
-                <label>Environment variables (KEY=VALUE, one per line)</label>
-                <textarea rows="3" placeholder="GITHUB_TOKEN=ghp_xxx&#10;API_KEY=abc123" [ngModel]="mcpFormEnvStr()" (ngModelChange)="mcpFormEnvStr.set($event)" class="field-textarea"></textarea>
-              </div>
-            }
-
-            @if (mcpFormServerType() === 'remote') {
-              <div class="field">
-                <label>URL</label>
-                <input type="text" placeholder="https://mcp.example.com/mcp" [ngModel]="mcpFormUrl()" (ngModelChange)="mcpFormUrl.set($event)" />
-              </div>
-              <div class="field">
-                <label>Headers (KEY=VALUE, one per line)</label>
-                <textarea rows="2" placeholder="Authorization=Bearer token123" [ngModel]="mcpFormHeadersStr()" (ngModelChange)="mcpFormHeadersStr.set($event)" class="field-textarea"></textarea>
-              </div>
-            }
-
-            <div class="btn-bar">
-              <button class="btn btn--primary btn--sm" (click)="saveMcpServer()" [disabled]="actionLoading() === 'mcp-save'">
-                @if (actionLoading() === 'mcp-save') { <span class="btn-spin"></span> }
-                Save
-              </button>
-              <button class="btn btn--ghost btn--sm" (click)="cancelMcpForm()">Cancel</button>
-            </div>
+        } @else {
+          <div class="llm-add-wrap">
+            <button type="button" class="btn btn--primary btn--sm" (click)="openAddMcpForm(true)">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add MCP server
+            </button>
           </div>
-        </div>
-      } @else {
-        <div class="llm-add-wrap">
-          <button type="button" class="btn btn--primary btn--sm" (click)="openAddMcpForm(true)">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add MCP server
-          </button>
-        </div>
-      }
+        }
+      </footer>
     }
   </section>
 
+        </div>
+      }
+      @case ('artifacts') {
+        <div class="settings-panel" role="tabpanel" id="settings-panel-artifacts" aria-labelledby="settings-tab-artifacts">
   <!-- Artifact Feeds -->
-  <section class="card card--artifact">
+  <section class="card card--artifact card--panel">
     <header class="card__header">
       <h2>Artifact Feeds</h2>
       @if (isAdmin()) {
@@ -512,8 +578,13 @@
         <p>Private artifact feeds configured by your administrator. Your Azure DevOps PAT is used for authentication when downloading packages.</p>
       }
     </header>
-
-    @if (artifactFeeds().length > 0) {
+    @if (isAdmin() && artifactFormOpen()) {
+      <div class="card__subhead llm-form-block__head">
+        {{ artifactFormId() ? 'Edit' : 'New' }} artifact feed
+      </div>
+    }
+    <div class="card__scroll">
+    @if (artifactFeeds().length > 0 && !(isAdmin() && artifactFormOpen())) {
       <ul class="llm-rows">
         @for (feed of artifactFeeds(); track feed.id) {
           <li class="llm-row" [class.llm-row--disabled]="!feed.isEnabled">
@@ -576,13 +647,9 @@
       </div>
     }
 
-    @if (isAdmin()) {
-      @if (artifactFormOpen()) {
-        <div class="llm-form-block llm-form-block--admin">
-          <div class="llm-form-block__head">
-            {{ artifactFormId() ? 'Edit' : 'New' }} artifact feed
-          </div>
-          <div class="llm-form-block__body">
+    @if (isAdmin() && artifactFormOpen()) {
+      <div class="llm-form-block llm-form-block--admin llm-form-block--in-card-scroll">
+        <div class="llm-form-block__body">
             <div class="field">
               <label>Display Name</label>
               <input type="text" placeholder="e.g. My NuGet Feed" [ngModel]="artifactFormName()" (ngModelChange)="artifactFormName.set($event)" />
@@ -694,24 +761,34 @@
                 </button>
               </div>
             </div>
-
-            <div class="btn-bar">
-              <button class="btn btn--primary btn--sm" (click)="saveArtifactFeed()" [disabled]="actionLoading() === 'artifact-save'">
-                @if (actionLoading() === 'artifact-save') { <span class="btn-spin"></span> }
-                Save
-              </button>
-              <button class="btn btn--ghost btn--sm" (click)="cancelArtifactForm()">Cancel</button>
-            </div>
-          </div>
         </div>
-      } @else {
-        <div class="llm-add-wrap">
-          <button type="button" class="btn btn--primary btn--sm" (click)="openAddArtifactForm()">
-            <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-            Add artifact feed
-          </button>
+      </div>
+    }
+
+    </div>
+    @if (isAdmin()) {
+      <footer class="card__footer">
+        @if (artifactFormOpen()) {
+          <div class="btn-bar">
+            <button class="btn btn--primary btn--sm" (click)="saveArtifactFeed()" [disabled]="actionLoading() === 'artifact-save'">
+              @if (actionLoading() === 'artifact-save') { <span class="btn-spin"></span> }
+              Save
+            </button>
+            <button class="btn btn--ghost btn--sm" (click)="cancelArtifactForm()">Cancel</button>
+          </div>
+        } @else {
+          <div class="llm-add-wrap">
+            <button type="button" class="btn btn--primary btn--sm" (click)="openAddArtifactForm()">
+              <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+              Add artifact feed
+            </button>
+          </div>
+        }
+      </footer>
+    }
+  </section>
         </div>
       }
     }
-  </section>
+  </div>
 </div>

@@ -1,49 +1,337 @@
-/* ── Layout ──────────────────────────────────────────── */
-.settings-page {
-  max-width: 680px;
-  margin: 0 auto;
-  padding: var(--space-4) var(--space-4) var(--space-8);
+/* ── Host: fill routed main region (see app .main-content > router-outlet ~ *) ── */
+:host {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
-  font-size: 16px;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 0;
 }
 
-/* ── Cards ───────────────────────────────────────────── */
-.card {
+/* ── Layout: full-width dashboard, columns scroll independently ── */
+.settings-page {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: var(--space-3) 0 var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  font-size: 15px;
+  box-sizing: border-box;
+  flex: 1;
+  min-height: 0;
+}
+
+.settings-page__top {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-light);
+}
+
+.settings-page__intro {
+  flex: 1 1 12rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+}
+
+.settings-page__intro-main {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-5);
+}
+
+.settings-page__title {
+  font-size: clamp(1.25rem, 1.5vw, 1.5rem);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  color: var(--text-primary);
+  margin: 0;
+}
+
+.settings-page__lead {
+  margin: 0;
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-tertiary);
+  flex: 1 1 14rem;
+  max-width: 36rem;
+}
+
+.settings-page__alerts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1 1 16rem;
+  min-width: min(100%, 14rem);
+  max-width: min(100%, 24rem);
+  margin: 0;
+  z-index: 2;
+}
+
+.settings-page__alerts:empty {
+  display: none;
+}
+
+/* ── Section tabs: segmented control ───────────────────── */
+.settings-tabs {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-4);
+  padding: var(--space-1);
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
+  /* Rail must contrast with the active pill (see active tab rules below). */
+  background: var(--surface-hover);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+:host-context([data-theme="dark"]) .settings-tabs {
+  background: var(--surface-card);
+  border-color: var(--border-default);
+}
+
+.settings-tabs::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
+.settings-tabs__tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  line-height: 1.25;
+  color: var(--text-secondary);
+  padding: var(--space-2) var(--space-3);
+  margin: 0;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  transition:
+    color 0.18s ease,
+    background 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.15s ease;
+}
+
+.settings-tabs__icon {
+  width: 1.0625rem;
+  height: 1.0625rem;
+  flex-shrink: 0;
+  opacity: 0.88;
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.settings-tabs__tab:hover:not(.settings-tabs__tab--active) {
+  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+.settings-tabs__tab:active:not(.settings-tabs__tab--active) {
+  transform: scale(0.98);
+}
+
+.settings-tabs__tab--active {
+  position: relative;
+  z-index: 1;
+  color: var(--text-primary);
+  font-weight: 600;
+  /* Light: white chip on gray rail. Dark: brighter chip on darker rail (see dark override). */
+  background: var(--surface-card);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px var(--border-default);
+}
+
+:host-context([data-theme="dark"]) .settings-tabs__tab--active {
+  background: var(--surface-elevated);
+  box-shadow:
+    var(--shadow-sm),
+    0 0 0 1px var(--border-hover);
+}
+
+.settings-tabs__tab--active .settings-tabs__icon {
+  opacity: 1;
+  color: var(--brand-primary);
+}
+
+.settings-tabs__tab:focus-visible {
+  outline: 2px solid var(--brand-primary);
+  outline-offset: 2px;
+}
+
+.settings-page__panels {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.settings-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* One primary card per tab fills the available main height */
+.settings-panel > .card--panel {
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+/* ── Cards (compact for multi-column) ────────────────── */
+.settings-page .card {
   background: var(--surface-secondary);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
   padding: var(--space-4);
+  box-shadow: var(--shadow-card);
 }
 
-.card__header {
+/* Fixed split: each panel takes half of the column; scroll only inside .card__scroll */
+.settings-page .card--panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.settings-page .card--panel .card__header {
+  flex-shrink: 0;
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
+}
+
+/* Secondary title row (e.g. “New shared provider”) — fixed, does not scroll */
+.settings-page .card__subhead {
+  flex-shrink: 0;
+  margin-bottom: var(--space-2);
+}
+
+.settings-page .card__footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--border-light);
+  display: flex;
+  justify-content: flex-start;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settings-page .card__footer .btn-bar {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+.settings-page .card__footer .llm-add-wrap {
+  margin-top: 0;
+  padding-top: 0;
+}
+
+/* Form shell inside scroll: no duplicate head; body fills scroll area */
+.settings-page .llm-form-block--in-card-scroll {
+  margin-top: var(--space-2);
+  border: none;
+  box-shadow: none;
+  background: transparent;
+  margin-bottom: 0;
+}
+
+.settings-page .llm-form-block--in-card-scroll .llm-form-block__body {
+  padding: 0;
+}
+
+.settings-page .llm-form-block--in-card-scroll .llm-form-block__body > .field:first-child,
+.settings-page .llm-form-block--in-card-scroll .llm-form-block__body > .field-row:first-child {
+  margin-top: 0;
+}
+
+.settings-page .card__scroll {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding-right: var(--space-1);
+}
+
+.settings-page .card__header {
   margin-bottom: var(--space-3);
+  padding-bottom: var(--space-3);
+  border-bottom: 1px solid var(--border-light);
 }
 
-.card__header h2 {
-  font-size: 1.125rem;
+.card__header--tight {
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+}
+
+.settings-page .card__header h2 {
+  font-size: 1.0625rem;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0;
-  text-transform: uppercase;
-  letter-spacing: 0.4px;
+  letter-spacing: -0.02em;
+  text-transform: none;
 }
 
-.card__header p {
-  font-size: 0.9375rem;
+.settings-page .card__header p {
+  font-size: 0.8125rem;
   color: var(--text-tertiary);
-  margin: 4px 0 0;
+  margin: var(--space-1) 0 0;
+  line-height: 1.45;
+  max-width: none;
 }
 
 /* ── Toasts ──────────────────────────────────────────── */
 .toast {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-4);
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  font-size: 0.9375rem;
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  box-shadow: var(--shadow-sm);
 }
 
 .toast svg {
@@ -68,27 +356,28 @@
 .account-block {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-5);
 }
 
 .account-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .avatar {
-  width: 44px;
-  height: 44px;
+  width: 52px;
+  height: 52px;
   border-radius: 50%;
   background: linear-gradient(135deg, var(--brand-primary), #4f46e5);
   color: #fff;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.25rem;
+  font-size: 1.35rem;
   font-weight: 600;
   flex-shrink: 0;
+  box-shadow: var(--shadow-sm);
 }
 
 .account-meta {
@@ -114,6 +403,20 @@
   align-self: flex-start;
 }
 
+@media (min-width: 640px) {
+  .card--account .account-block {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--space-6);
+  }
+
+  .card--account .account-signout {
+    align-self: center;
+    flex-shrink: 0;
+  }
+}
+
 /* ── Provider list ───────────────────────────────────── */
 .provider-list {
   list-style: none;
@@ -121,36 +424,44 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: var(--space-4);
 }
 
 .provider-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3) 0;
-  border-bottom: 1px solid var(--border-light);
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--surface-primary);
+  box-shadow: var(--shadow-xs);
 }
 
 .provider-row:last-child {
-  border-bottom: none;
-  padding-bottom: 0;
-}
-
-.provider-row:first-child {
-  padding-top: 0;
+  margin-bottom: 0;
 }
 
 .provider-row--expandable {
   flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.provider-row--expandable > .prov-icon {
+  margin-top: 2px;
 }
 
 .github-mode-toggle {
-  display: flex;
+  display: inline-flex;
+  padding: 2px;
   gap: 0;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-default);
+  background: var(--surface-ground, rgba(0, 0, 0, 0.2));
 }
 .github-mode-toggle .btn {
-  border-radius: 0;
+  border-radius: var(--radius-sm);
+  border: none;
 }
 .github-mode-toggle .btn:first-child {
   border-radius: var(--radius-sm) 0 0 var(--radius-sm);
@@ -159,8 +470,7 @@
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 .github-mode-toggle .btn.active {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: var(--brand-primary);
+  background: rgba(99, 102, 241, 0.18);
   color: var(--brand-primary);
 }
 
@@ -214,14 +524,23 @@
 /* ── PAT inline form (Azure DevOps) ──────────────────── */
 .pat-form {
   flex: 1 1 100%;
-  padding-top: var(--space-2);
+  width: 100%;
+  margin-top: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-default);
+  background: var(--surface-ground, rgba(0, 0, 0, 0.12));
+}
+
+.provider-row .pat-form .field-row:first-of-type {
+  margin-top: var(--space-2);
 }
 
 /* ── Fields (shared) ─────────────────────────────────── */
 .field-row {
   display: flex;
-  gap: var(--space-3);
-  margin-top: var(--space-3);
+  gap: var(--space-4);
+  margin-top: var(--space-4);
 }
 
 .field {
@@ -548,10 +867,14 @@
 .loading {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-4) 0;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  justify-content: center;
   color: var(--text-tertiary);
   font-size: 0.9375rem;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-light);
+  background: var(--surface-primary);
 }
 
 .spinner {
@@ -577,8 +900,10 @@
   background: var(--surface-primary, rgba(0, 0, 0, 0.15));
   border-radius: var(--radius-md);
   border: 1px solid var(--border-light);
-  margin-bottom: var(--space-4);
+  margin-top: var(--space-5);
+  margin-bottom: 0;
   overflow: hidden;
+  box-shadow: var(--shadow-xs);
 }
 
 .llm-form-block__head {
@@ -590,12 +915,12 @@
 }
 
 .llm-form-block__body {
-  padding: var(--space-4);
+  padding: var(--space-5) var(--space-6);
 }
 
 .llm-form-block__body .field,
 .llm-form-block__body .field-row {
-  margin-top: var(--space-3);
+  margin-top: var(--space-4);
 }
 
 .llm-form-block__body .field:first-child,
@@ -629,15 +954,17 @@
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
   overflow: hidden;
+  background: var(--surface-primary);
+  box-shadow: var(--shadow-xs);
 }
 
 .llm-row {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-5);
   border-bottom: 1px solid var(--border-light);
-  min-height: 48px;
+  min-height: 52px;
 }
 
 .llm-row:last-child {
@@ -746,17 +1073,30 @@
 }
 
 .llm-add-wrap {
-  margin-top: var(--space-2);
+  margin-top: var(--space-5);
+  padding-top: var(--space-2);
+}
+
+.card .llm-rows + .llm-add-wrap,
+.card .llm-rows + .llm-form-block {
+  margin-top: var(--space-5);
 }
 
 .llm-empty {
-  padding: var(--space-4) 0;
+  padding: var(--space-6) var(--space-4);
+  text-align: center;
+  border-radius: var(--radius-md);
+  border: 1px dashed var(--border-light);
+  background: var(--surface-primary);
 }
 
 .llm-empty__p {
   font-size: 0.9375rem;
   color: var(--text-tertiary);
-  margin: 0 0 var(--space-3);
+  margin: 0;
+  line-height: 1.55;
+  max-width: 28rem;
+  margin-inline: auto;
 }
 
 /* ── MCP status dot ──────────────────────────────────── */
@@ -904,10 +1244,66 @@
   color: var(--text-tertiary);
 }
 
-/* ── Responsive ──────────────────────────────────────── */
+/* ── Responsive: stack columns on narrow screens ─────── */
+@media (max-width: 900px) {
+  .settings-page {
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
+  }
+
+  .settings-page__panels {
+    flex: none;
+    min-height: auto;
+  }
+
+  .settings-panel {
+    flex: none;
+    min-height: auto;
+  }
+
+  .settings-panel > .card--panel {
+    flex: 0 0 auto;
+    max-height: none;
+    min-height: 12rem;
+  }
+
+  .settings-page .card__scroll {
+    max-height: min(50dvh, 22rem);
+  }
+}
+
 @media (max-width: 520px) {
   .settings-page {
-    padding: var(--space-3);
+    padding: var(--space-3) var(--space-2) var(--space-8);
+  }
+
+  .settings-tabs {
+    padding: 4px;
+    gap: 4px;
+    margin-bottom: var(--space-3);
+    border-radius: var(--radius-md);
+  }
+
+  .settings-tabs__tab {
+    padding: var(--space-2) var(--space-2);
+    font-size: 0.75rem;
+    gap: 0.35rem;
+  }
+
+  .settings-tabs__icon {
+    width: 0.9375rem;
+    height: 0.9375rem;
+  }
+
+  .settings-page__top {
+    margin-bottom: var(--space-3);
+    padding-bottom: var(--space-3);
+  }
+
+  .settings-page .card {
+    padding: var(--space-4);
   }
 
   .field-row {
@@ -947,7 +1343,7 @@
 }
 
 /* ── Light theme tweaks ──────────────────────────────── */
-:host-context([data-theme="light"]) .card {
+:host-context([data-theme="light"]) .settings-page .card {
   background: #fff;
 }
 
@@ -1210,4 +1606,23 @@
 
 :host-context([data-theme="light"]) .browse-feed-project {
   color: rgba(0, 0, 0, 0.4);
+}
+
+:host-context([data-theme="light"]) .provider-row {
+  background: var(--surface-ground, #f9fafb);
+  box-shadow: none;
+}
+
+:host-context([data-theme="light"]) .pat-form {
+  background: #f3f4f6;
+  border-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .github-mode-toggle {
+  background: #fff;
+  border-color: #e5e7eb;
+}
+
+:host-context([data-theme="light"]) .loading {
+  background: #f9fafb;
 }

@@ -3,17 +3,25 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
-import { AuthService, LinkedProvider, User, ProviderSettings, LlmSettingDto } from '../../core/services/auth.service';
+import { AuthService, LinkedProvider, ProviderSettings, LlmSettingDto } from '../../core/services/auth.service';
 import { AuthProviderConfig } from '../../core/auth/oidc-config.loader';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { McpConfigService, McpServerDto, McpToolInfo } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService, ArtifactFeedDto, AzureDevOpsFeedDto } from '../../core/services/artifact-feed.service';
 import { firstValueFrom } from 'rxjs';
-import { siNuget, siNpm, siPypi } from 'simple-icons';
+import {
+  siAnthropic,
+  siGithub,
+  siModelcontextprotocol,
+  siNuget,
+  siNpm,
+  siPypi
+} from 'simple-icons';
+
+export type SettingsSectionTab = 'sourceControl' | 'ai' | 'mcp' | 'artifacts';
 
 /**
- * Settings page for managing linked providers and account settings.
- * Provider list is driven by the backend config (enabled providers).
+ * Settings page for managing source-control links, AI, MCP, and artifact feeds.
  */
 @Component({
   selector: 'app-settings',
@@ -23,7 +31,15 @@ import { siNuget, siNpm, siPypi } from 'simple-icons';
   styleUrl: './settings.component.css'
 })
 export class SettingsComponent implements OnInit {
-  user = signal<User | null>(null);
+  /** Active section in the tabbed settings layout (Google-style). */
+  settingsTab = signal<SettingsSectionTab>('sourceControl');
+
+  /** Simple Icons paths for tab labels (filled with currentColor in the template). */
+  readonly settingsTabIconSourceControl = siGithub;
+  readonly settingsTabIconAi = siAnthropic;
+  readonly settingsTabIconMcp = siModelcontextprotocol;
+  readonly settingsTabIconArtifacts = siNuget;
+
   linkedProviders = signal<LinkedProvider[]>([]);
   loading = signal<boolean>(true);
   actionLoading = signal<string | null>(null);
@@ -106,6 +122,10 @@ export class SettingsComponent implements OnInit {
     });
   });
 
+  setSettingsTab(tab: SettingsSectionTab): void {
+    this.settingsTab.set(tab);
+  }
+
   constructor(
     private authService: AuthService,
     public aiConfigService: AIConfigService,
@@ -121,8 +141,6 @@ export class SettingsComponent implements OnInit {
       this.router.navigate(['/login']);
       return;
     }
-
-    this.user.set(this.authService.getCurrentUser());
 
     // Load provider config from backend
     await this.authService.loadProviderConfig();
@@ -925,11 +943,6 @@ export class SettingsComponent implements OnInit {
   }
 
   // ---- Misc ----
-
-  logout(): void {
-    this.authService.logout();
-    this.router.navigate(['/login']);
-  }
 
   /**
    * Map config provider names to the ProviderTypes constants used in the DB.

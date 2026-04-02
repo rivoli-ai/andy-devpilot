@@ -569,24 +569,26 @@
 
 .detail-actions {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-top: 0.75rem;
-  padding-top: 0.75rem;
-  border-top: 1px solid var(--border-default);
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--border-light);
 }
 
 .add-item-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  padding: 0.5rem 1rem;
+  gap: 0.3rem;
+  padding: 0.34rem 0.65rem;
   background: rgba(99, 102, 241, 0.1);
   color: #6366f1;
   border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 6px;
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
   transition: background 0.15s, border-color 0.15s;
@@ -1313,18 +1315,23 @@
   border-left-color: #1d4ed8;
 }
 
+/* Stronger than epic/feature % alone: base row is already slate + blue rail, so subtle tints vanish */
 .tree-row.story-row.nested-2.selected {
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(59, 130, 246, 0.22);
   border-left: 3px solid #3b82f6;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2);
 }
 
 :host-context([data-theme="light"]) .tree-row.story-row.nested-2.selected {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(37, 99, 235, 0.16);
   border-left-color: #2563eb;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.22);
 }
 
 :host-context([data-theme="dark"]) .tree-row.story-row.nested-2.selected {
+  background: rgba(96, 165, 250, 0.16);
   border-left-color: #60a5fa;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
 }
 
 /* Standalone story rows (no epic/feature parent) - same styling as nested stories */
@@ -1355,18 +1362,21 @@
 }
 
 .tree-row.story-row.standalone.selected {
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(59, 130, 246, 0.22);
   border-left: 3px solid #3b82f6;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2);
 }
 
 :host-context([data-theme="light"]) .tree-row.story-row.standalone.selected {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(37, 99, 235, 0.16);
   border-left-color: #2563eb;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.22);
 }
 
 :host-context([data-theme="dark"]) .tree-row.story-row.standalone.selected {
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(96, 165, 250, 0.16);
   border-left-color: #60a5fa;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
 }
 
 .tree-group.standalone-stories {
@@ -1870,12 +1880,12 @@ a.source-badge.gh:hover {
   background: var(--surface-elevated);
 }
 
-/* Story Row specifics */
-.story-row {
+/* Story Row specifics — exclude .selected so tree/flat selected tints always win */
+.story-row:not(.selected) {
   background: var(--surface-ground);
 }
 
-:host-context([data-theme="dark"]) .story-row {
+:host-context([data-theme="dark"]) .story-row:not(.selected) {
   background: var(--surface-elevated);
 }
 
@@ -1977,35 +1987,46 @@ a.source-badge.gh:hover {
   }
 }
 
-/* Implement Action Button (in expanded details) */
+/* Implement Story — same pattern as .add-item-btn, green variant */
 .implement-action-btn {
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  padding: 0.625rem 1rem;
-  background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%);
-  color: white;
-  border: none;
+  justify-content: center;
+  gap: 0.3rem;
+  padding: 0.34rem 0.65rem;
+  background: rgba(34, 197, 94, 0.1);
+  color: #16a34a;
+  border: 1px solid rgba(34, 197, 94, 0.28);
   border-radius: 6px;
-  font-size: 0.875rem;
+  font-size: 0.75rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
-  margin-top: 1rem;
-  width: 100%;
-  justify-content: center;
+  transition: background 0.15s, border-color 0.15s;
+  margin-top: 0;
+  width: auto;
 }
 
 .implement-action-btn:hover:not(:disabled) {
-  background: linear-gradient(135deg, #16a34a 0%, #15803d 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.42);
 }
 
 .implement-action-btn:disabled {
-  background: var(--surface-card);
-  color: var(--text-secondary);
+  background: var(--surface-hover);
+  color: var(--text-muted);
+  border: 1px solid var(--border-default);
   cursor: wait;
+}
+
+:host-context([data-theme='dark']) .implement-action-btn {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.32);
+}
+
+:host-context([data-theme='dark']) .implement-action-btn:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.22);
+  border-color: rgba(34, 197, 94, 0.48);
 }
 
 .implement-action-btn svg {
@@ -2014,16 +2035,28 @@ a.source-badge.gh:hover {
   fill: currentColor;
 }
 
-/* Sandbox Active State for Action Button */
+/* View Sandbox — outline style like add-item (indigo) */
 .implement-action-btn.sandbox-active {
-  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  background: rgba(99, 102, 241, 0.1);
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.28);
   position: relative;
 }
 
 .implement-action-btn.sandbox-active:hover {
-  background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+  background: rgba(99, 102, 241, 0.18);
+  border-color: rgba(99, 102, 241, 0.42);
+}
+
+:host-context([data-theme='dark']) .implement-action-btn.sandbox-active {
+  color: #a5b4fc;
+  background: rgba(99, 102, 241, 0.14);
+  border-color: rgba(129, 140, 248, 0.35);
+}
+
+:host-context([data-theme='dark']) .implement-action-btn.sandbox-active:hover {
+  background: rgba(99, 102, 241, 0.22);
+  border-color: rgba(129, 140, 248, 0.5);
 }
 
 .implement-action-btn.sandbox-active .monitor-icon {
@@ -2054,18 +2087,18 @@ a.source-badge.gh:hover {
 /* Acceptance Criteria – card-based display (matches modal) */
 .ac-rendered {
   border: 1px solid var(--border-default, rgba(255,255,255,0.12));
-  border-radius: 8px;
-  background: var(--bg-primary, rgba(0,0,0,0.2));
-  padding: 0.5rem;
+  border-radius: 6px;
+  background: var(--surface-ground);
+  padding: 0.35rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.3rem;
 }
 
 .ac-card {
   display: flex;
-  gap: 0.6rem;
-  padding: 0.55rem 0.7rem;
+  gap: 0.45rem;
+  padding: 0.4rem 0.5rem;
   background: var(--surface-card, rgba(255,255,255,0.04));
   border-radius: 6px;
   border-left: 3px solid rgba(99, 102, 241, 0.5);
@@ -2075,12 +2108,12 @@ a.source-badge.gh:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   background: rgba(99, 102, 241, 0.15);
   color: #818cf8;
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   font-weight: 700;
   flex-shrink: 0;
   margin-top: 1px;
@@ -2092,10 +2125,10 @@ a.source-badge.gh:hover {
 }
 
 .ac-part {
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   color: var(--text-primary);
-  line-height: 1.45;
-  margin-bottom: 0.1rem;
+  line-height: 1.42;
+  margin-bottom: 0.08rem;
 }
 
 .ac-part:last-child {
@@ -2160,14 +2193,14 @@ a.source-badge.gh:hover {
   }
   to {
     opacity: 1;
-    max-height: 500px;
+    max-height: min(2400px, 85vh);
   }
 }
 
 .inline-details-content {
-  padding: 1rem 1.5rem 1.25rem;
+  padding: 0.45rem 0.75rem 0.55rem;
   background: var(--surface-elevated);
-  border-left: 3px solid var(--brand-primary);
+  border-left: 2px solid var(--brand-primary);
 }
 
 /* Epic details */
@@ -2175,39 +2208,115 @@ a.source-badge.gh:hover {
   border-left-color: #f59e0b;
 }
 
-/* Feature details */
+/* Feature details — lighter indent under epic rail */
 .feature-details .inline-details-content {
   border-left-color: #8b5cf6;
-  margin-left: 1.5rem;
+  margin-left: 0.5rem;
 }
 
 /* Story details */
 .story-details .inline-details-content {
   border-left-color: #3b82f6;
-  margin-left: 3rem;
+  margin-left: 1rem;
 }
 
 .story-details.nested-2 .inline-details-content {
   margin-left: 0;
 }
 
-/* Detail Grid */
+/*
+ * Compact detail layout: slim top “toolbar” (meta + actions), description body below.
+ */
 .detail-grid {
-  display: grid;
-  grid-template-columns: 1fr 200px;
-  gap: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
 }
 
 .detail-main {
   min-width: 0;
+  order: 1;
 }
 
-.detail-sidebar {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  padding-left: 1.5rem;
-  border-left: 1px solid var(--border-default);
+/* Body: description + acceptance criteria inset so they read as one detail block under meta */
+.inline-details .detail-main {
+  margin-top: 0.2rem;
+  padding: 0.55rem 0.75rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  background: var(--surface-ground);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04);
+}
+
+:host-context([data-theme='light']) .inline-details .detail-main {
+  background: var(--slate-50);
+  box-shadow: inset 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+:host-context([data-theme='dark']) .inline-details .detail-main {
+  background: color-mix(in srgb, var(--surface-elevated) 88%, var(--surface-ground));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.inline-details .detail-main .detail-label--after-desc {
+  margin-top: 0.65rem;
+  padding-top: 0.55rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.inline-details .detail-main .ac-rendered {
+  margin-top: 0.35rem;
+}
+
+.inline-details .detail-sidebar {
+  order: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, auto));
+  gap: 0.2rem 0.65rem;
+  align-items: center;
+  align-content: start;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  background: var(--surface-hover);
+}
+
+:host-context([data-theme='dark']) .inline-details .detail-sidebar {
+  background: color-mix(in srgb, var(--surface-hover) 70%, transparent);
+}
+
+.inline-details .detail-sidebar .detail-meta-item {
+  flex-direction: row;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.35rem;
+  min-width: 0;
+}
+
+.inline-details .detail-sidebar .meta-label {
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.inline-details .detail-sidebar .meta-value {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.25;
+}
+
+.inline-details .detail-sidebar .detail-meta-item.pr-link-item {
+  grid-column: 1 / -1;
+}
+
+.inline-details .detail-sidebar .detail-actions {
+  grid-column: 1 / -1;
+  margin-top: 0.25rem;
+  padding-top: 0.35rem;
+  border-top-color: var(--border-light);
 }
 
 /* Detail Sections */
@@ -2222,13 +2331,17 @@ a.source-badge.gh:hover {
 .detail-label {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
-  font-size: 0.75rem;
+  gap: 0.35rem;
+  font-size: 0.6875rem;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.05em;
   color: var(--text-secondary);
-  margin: 0 0 0.5rem 0;
+  margin: 0 0 0.3rem 0;
+}
+
+.detail-label--after-desc {
+  margin-top: 0.5rem;
 }
 
 .detail-label svg {
@@ -2237,9 +2350,9 @@ a.source-badge.gh:hover {
 }
 
 .detail-text {
-  font-size: 0.875rem;
+  font-size: 0.8125rem;
   color: var(--text-primary);
-  line-height: 1.6;
+  line-height: 1.52;
   margin: 0;
   white-space: pre-wrap;
 }
@@ -2251,15 +2364,15 @@ a.source-badge.gh:hover {
 
 /* ====== Markdown rendering inside backlog detail panels ====== */
 :host ::ng-deep .detail-text.markdown-content {
-  font-size: 0.85rem;
-  line-height: 1.65;
+  font-size: 0.8125rem;
+  line-height: 1.55;
   color: var(--text-primary);
   word-wrap: break-word;
   overflow-wrap: break-word;
 }
 
 :host ::ng-deep .detail-text.markdown-content p {
-  margin: 0.35rem 0;
+  margin: 0.28rem 0;
 }
 
 :host ::ng-deep .detail-text.markdown-content p:first-child {
@@ -2554,19 +2667,8 @@ a.source-badge.gh:hover {
 
 /* Responsive */
 @media (max-width: 1024px) {
-  .detail-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .detail-sidebar {
-    flex-direction: row;
-    flex-wrap: wrap;
-    gap: 1rem 2rem;
-    padding-left: 0;
-    padding-top: 1rem;
-    margin-top: 1rem;
-    border-left: none;
-    border-top: 1px solid var(--border-default);
+  .inline-details .detail-sidebar {
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
   }
 }
 
@@ -2598,12 +2700,26 @@ a.source-badge.gh:hover {
   }
 
   .inline-details-content {
-    padding: 1rem;
+    padding: 0.4rem 0.55rem 0.5rem;
   }
 
   .feature-details .inline-details-content,
   .story-details .inline-details-content {
     margin-left: 0;
+  }
+
+  .inline-details .detail-sidebar {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .inline-details .detail-sidebar .detail-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inline-details .implement-action-btn {
+    width: 100%;
+    justify-content: center;
   }
 }
 
@@ -2684,17 +2800,21 @@ a.source-badge.gh:hover {
 }
 
 .flat-row.selected {
-  background: rgba(59, 130, 246, 0.12);
+  background: rgba(59, 130, 246, 0.22);
   border-left: 3px solid #3b82f6;
+  box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2);
 }
 
 :host-context([data-theme="light"]) .flat-row.selected {
-  background: rgba(59, 130, 246, 0.1);
+  background: rgba(37, 99, 235, 0.16);
   border-left-color: #2563eb;
+  box-shadow: inset 0 0 0 1px rgba(37, 99, 235, 0.22);
 }
 
 :host-context([data-theme="dark"]) .flat-row.selected {
+  background: rgba(96, 165, 250, 0.16);
   border-left-color: #60a5fa;
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
 }
 
 .flat-row .row-content {

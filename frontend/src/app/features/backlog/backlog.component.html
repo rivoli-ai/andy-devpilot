@@ -932,7 +932,7 @@
                                 <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(story.description, 'No description provided')"></div>
                                 
                                 @if (story.acceptanceCriteria) {
-                                  <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
+                                  <h4 class="detail-label detail-label--after-desc">Acceptance Criteria</h4>
                                   <div class="ac-rendered">
                                     @for (criterion of parseCriteria(story.acceptanceCriteria); track $index) {
                                       <div class="ac-card">
@@ -1209,7 +1209,7 @@
                             <h4 class="detail-label">Description</h4>
                             <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(story.description, 'No description provided')"></div>
                             @if (story.acceptanceCriteria) {
-                              <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
+                              <h4 class="detail-label detail-label--after-desc">Acceptance Criteria</h4>
                               <div class="ac-rendered">
                                 @for (criterion of parseCriteria(story.acceptanceCriteria); track $index) {
                                   <div class="ac-card">
@@ -1329,7 +1329,7 @@
                       <h4 class="detail-label">Description</h4>
                       <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(item.story.description, 'No description provided')"></div>
                       @if (item.story.acceptanceCriteria) {
-                        <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
+                        <h4 class="detail-label detail-label--after-desc">Acceptance Criteria</h4>
                         <div class="ac-rendered">
                           @for (criterion of parseCriteria(item.story.acceptanceCriteria); track $index) {
                             <div class="ac-card">
@@ -1513,7 +1513,7 @@
                       <div class="detail-text markdown-content ado-rich-text" [innerHTML]="richDescriptionHtml(item.story.description, 'No description provided')"></div>
                       
                       @if (item.story.acceptanceCriteria) {
-                        <h4 class="detail-label" style="margin-top: 1rem;">Acceptance Criteria</h4>
+                        <h4 class="detail-label detail-label--after-desc">Acceptance Criteria</h4>
                         @if (isAdoRichText(item.story.acceptanceCriteria)) {
                           <div class="detail-text markdown-content ado-rich-text ac-ado-html" [innerHTML]="richAcceptanceCriteriaHtml(item.story.acceptanceCriteria)"></div>
                         } @else {

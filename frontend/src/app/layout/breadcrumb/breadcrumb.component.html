@@ -1,0 +1,17 @@
+@if (segments().length) {
+  <nav class="breadcrumb" aria-label="Breadcrumb">
+    <ol class="breadcrumb-list">
+      @for (seg of segments(); track $index; let last = $last) {
+        <li class="breadcrumb-item">
+          @if (!last && seg.link) {
+            <a [routerLink]="seg.link" class="breadcrumb-link">{{ seg.label }}</a>
+          } @else if (last) {
+            <span class="breadcrumb-leaf" aria-current="page">{{ seg.label }}</span>
+          } @else {
+            <span class="breadcrumb-static">{{ seg.label }}</span>
+          }
+        </li>
+      }
+    </ol>
+  </nav>
+}
