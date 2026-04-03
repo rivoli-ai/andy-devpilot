@@ -2,7 +2,6 @@ namespace DevPilot.Infrastructure.Auth;
 
 using DevPilot.Application.Options;
 using DevPilot.Application.Services;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -18,7 +17,6 @@ public class AuthProviderRegistry
     public AuthProviderRegistry(
         IOptions<AuthProvidersOptions> options,
         IHttpClientFactory httpClientFactory,
-        IHostEnvironment hostEnvironment,
         ILogger<AuthProviderRegistry> logger)
     {
         _options = options.Value;
@@ -31,11 +29,19 @@ public class AuthProviderRegistry
                 continue;
             }
 
+            if (config.DangerousAcceptAnyServerCertificate)
+            {
+                logger.LogWarning(
+                    "Auth provider '{Provider}': DangerousAcceptAnyServerCertificate is ignored. " +
+                    "Use http:// authority for local OIDC without TLS, or trust HTTPS with: dotnet dev-certs https --trust.",
+                    name);
+            }
+
             IAuthProvider provider = config.Type?.ToLowerInvariant() switch
             {
                 "local" or null or "" => new LocalAuthProvider(),
                 "backendoauth" => CreateBackendOAuthProvider(name, config, httpClientFactory),
-                "frontendoidc" => new OidcAuthProvider(name, config, httpClientFactory, hostEnvironment),
+                "frontendoidc" => new OidcAuthProvider(name, config, httpClientFactory),
                 _ => throw new InvalidOperationException($"Unknown auth provider type '{config.Type}' for provider '{name}'.")
             };
 

@@ -49,7 +49,7 @@ type GenerationState = 'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sendin
       <div class="modal-container">
         <div class="modal-header">
           <h2>Generate Backlog</h2>
-          <button class="close-btn" (click)="close.emit()">
+          <button class="close-btn" (click)="modalClosed.emit()">
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
@@ -174,7 +174,7 @@ type GenerationState = 'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sendin
         
         <div class="modal-footer">
           @if (state() === 'idle') {
-            <app-button variant="secondary" (click)="close.emit()">Cancel</app-button>
+            <app-button variant="secondary" (click)="modalClosed.emit()">Cancel</app-button>
             <app-button 
               variant="primary" 
               (click)="generateBacklog()">
@@ -185,7 +185,7 @@ type GenerationState = 'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sendin
               Generate Backlog
             </app-button>
           } @else if (state() === 'complete' || state() === 'error') {
-            <app-button variant="primary" (click)="close.emit()">Close</app-button>
+            <app-button variant="primary" (click)="modalClosed.emit()">Close</app-button>
           }
         </div>
       </div>
@@ -394,7 +394,7 @@ type GenerationState = 'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sendin
 export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
   repositoryId = input.required<string>();
   repositoryName = input.required<string>();
-  close = output<void>();
+  modalClosed = output<void>();
   generated = output<void>();
 
   state = signal<GenerationState>('idle');
@@ -461,7 +461,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
 
   onBackdropClick(event: MouseEvent): void {
     if ((event.target as HTMLElement).classList.contains('modal-backdrop')) {
-      this.close.emit();
+      this.modalClosed.emit();
     }
   }
 

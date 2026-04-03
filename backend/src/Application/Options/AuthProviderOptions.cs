@@ -71,8 +71,8 @@ public class ProviderConfig
     public string? ProfileEndpoint { get; set; }
 
     /// <summary>
-    /// When true, skips SSL certificate validation for this provider's authority
-    /// and profile endpoints. Use only for local development with self-signed certs.
+    /// Ignored at runtime (TLS validation is never disabled). If present in config, a warning is logged.
+    /// Use an <c>http://</c> authority for local OIDC without TLS, or trust the ASP.NET dev HTTPS certificate.
     /// </summary>
     public bool DangerousAcceptAnyServerCertificate { get; set; }
 }

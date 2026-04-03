@@ -37,7 +37,7 @@ export interface EditItemData {
             <span class="type-badge" [class]="itemType()">{{ itemType() === 'epic' ? 'E' : itemType() === 'feature' ? 'F' : 'S' }}</span>
             <h3>{{ isEditMode() ? 'Edit' : 'Add' }} {{ typeLabel() }}</h3>
           </div>
-          <button type="button" class="close-btn" (click)="cancel.emit()" title="Close">
+          <button type="button" class="close-btn" (click)="modalCancelled.emit()" title="Close">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="20" height="20">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
@@ -190,7 +190,7 @@ export interface EditItemData {
 
         </form>
         <div class="modal-actions">
-          <button type="button" class="btn-secondary" (click)="cancel.emit()">Cancel</button>
+          <button type="button" class="btn-secondary" (click)="modalCancelled.emit()">Cancel</button>
           <button type="button" class="btn-primary" [disabled]="!canSubmit()" (click)="onSubmit()">
             {{ isEditMode() ? 'Save changes' : 'Add ' + typeLabel() }}
           </button>
@@ -757,7 +757,7 @@ export class AddBacklogItemModalComponent implements OnInit {
     storyPoints?: number;
     parentId?: string; // epicId for feature, featureId for story (when user selected from dropdown)
   }>();
-  cancel = output<void>();
+  modalCancelled = output<void>();
 
   title = '';
   description = '';
