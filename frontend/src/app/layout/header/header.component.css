@@ -162,15 +162,72 @@
 }
 
 @media (max-width: 768px) {
+  /* Sidebar is off-canvas; collapsed desktop rail must not inset the bar (higher-specificity rule below). */
   .header {
     left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+  }
+
+  :host-context(.app-container.app-sidebar-collapsed) .header {
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100vw;
+  }
+
+  .header-content {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    gap: var(--space-2);
+    padding-left: max(var(--space-4), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--space-4), env(safe-area-inset-right, 0px));
   }
 
   .menu-toggle {
     display: flex;
   }
 
-  .header-title h1 {
-    display: block;
+  /* Breadcrumb hidden on mobile; don’t reserve flex space */
+  .header-title {
+    display: none;
+  }
+
+  .header-sandbox {
+    padding: 4px 8px;
+    gap: 6px;
+    max-width: min(100%, 11.5rem);
+  }
+
+  .header-sandbox-count {
+    font-size: 11px;
+  }
+
+  .header-sandbox-icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .theme-toggle {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .header-sandbox-close-text {
+    display: none;
+  }
+
+  .header-sandbox-close {
+    padding: 6px 8px;
+  }
+
+  .header-sandbox {
+    max-width: min(100%, 10rem);
   }
 }

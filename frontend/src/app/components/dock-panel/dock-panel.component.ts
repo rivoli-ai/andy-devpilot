@@ -273,13 +273,65 @@ import { VncViewerComponent } from '../vnc-viewer/vnc-viewer.component';
       background: var(--surface-card, #ffffff);
     }
     
-    /* Responsive */
+    /* Responsive — full width; tab bar stacks so name + actions are not crushed */
     @media (max-width: 768px) {
       .dock-panel.dock-right,
       .dock-panel.dock-bottom {
         width: 100%;
-        height: 50vh;
-        left: 0;
+        max-width: 100vw;
+        left: 0 !important;
+        right: 0;
+        height: min(50vh, 100dvh - env(safe-area-inset-bottom, 0px));
+      }
+
+      .dock-tabs {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 6px max(8px, env(safe-area-inset-left, 0px)) 8px max(8px, env(safe-area-inset-right, 0px));
+        gap: 6px;
+      }
+
+      .tabs-list {
+        width: 100%;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        padding-bottom: 2px;
+      }
+
+      .tabs-list::-webkit-scrollbar {
+        display: none;
+      }
+
+      .tabs-actions {
+        width: 100%;
+        justify-content: flex-end;
+        border-left: none;
+        padding-left: 0;
+        padding-top: 6px;
+        margin-top: 2px;
+        border-top: 1px solid var(--border-light);
+        gap: 4px;
+      }
+
+      .dock-tab {
+        padding: 6px 10px;
+        font-size: 12px;
+        gap: 6px;
+        flex-shrink: 0;
+      }
+
+      .tab-title {
+        max-width: min(200px, 55vw);
+      }
+
+      .tab-close {
+        opacity: 1;
+      }
+
+      .action-btn {
+        width: 36px;
+        height: 36px;
       }
     }
   `]

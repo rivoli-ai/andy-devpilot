@@ -110,10 +110,20 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   private bridgeWaitIntervalId: ReturnType<typeof setInterval> | null = null;
   private static readonly BRIDGE_POLL_INTERVAL_MS = 1500;  // Poll bridge health every 1.5s
   private static readonly BRIDGE_MAX_WAIT_MS = 25000;      // Stop waiting after 25s and load iframe anyway
+  /** Match backlog / VNC mobile breakpoint — agent chat sidebar is not shown on narrow viewports */
+  private static readonly AGENT_CHAT_SIDEBAR_MEDIA = '(max-width: 768px)';
 
   // Conversations state
   conversations = signal<ZedConversation[]>([]);
   showConversations = signal<boolean>(false); // Collapsed until user opens chat
+  /** False when viewport matches {@link AGENT_CHAT_SIDEBAR_MEDIA} — hide AI chat UI (desktop only) */
+  agentChatSidebarAllowed = signal<boolean>(
+    typeof matchMedia === 'undefined'
+      ? true
+      : !matchMedia(VncViewerComponent.AGENT_CHAT_SIDEBAR_MEDIA).matches
+  );
+  private chatSidebarMql?: MediaQueryList;
+  private readonly onChatSidebarMediaChange = (): void => this.applyAgentChatSidebarAllowedFromMedia();
   chatPanelWidth = signal<number>(350);
   private chatResizing = false;
   private chatResizeStartX = 0;
@@ -379,6 +389,26 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     ).subscribe(() => {
       this.syncReadyForPrFromService();
     });
+
+    this.initAgentChatSidebarMediaQuery();
+  }
+
+  private initAgentChatSidebarMediaQuery(): void {
+    if (typeof matchMedia === 'undefined') return;
+    const mql = matchMedia(VncViewerComponent.AGENT_CHAT_SIDEBAR_MEDIA);
+    this.chatSidebarMql = mql;
+    this.applyAgentChatSidebarAllowedFromMedia();
+    mql.addEventListener('change', this.onChatSidebarMediaChange);
+  }
+
+  private applyAgentChatSidebarAllowedFromMedia(): void {
+    const mql = this.chatSidebarMql;
+    if (!mql) return;
+    const allowed = !mql.matches;
+    this.agentChatSidebarAllowed.set(allowed);
+    if (!allowed) {
+      this.showConversations.set(false);
+    }
   }
 
   /**
@@ -479,6 +509,9 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
    * Toggle conversations panel visibility
    */
   toggleConversations(): void {
+    if (!this.agentChatSidebarAllowed()) {
+      return;
+    }
     this.showConversations.set(!this.showConversations());
   }
 
@@ -680,6 +713,11 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     // Stop polling
     this.destroy$.next();
     this.destroy$.complete();
+
+    if (this.chatSidebarMql) {
+      this.chatSidebarMql.removeEventListener('change', this.onChatSidebarMediaChange);
+      this.chatSidebarMql = undefined;
+    }
   }
 
   private onFullscreenChange(): void {

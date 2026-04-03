@@ -8,6 +8,14 @@
   flex: 1 1 0;
 }
 
+/* Narrow viewports: don’t stretch host to fill viewport (avoids dead flex gap above panels) */
+@media (max-width: 900px) {
+  :host {
+    flex: 0 0 auto;
+    align-self: stretch;
+  }
+}
+
 /* ── Layout: full-width dashboard, columns scroll independently ── */
 .settings-page {
   width: 100%;
@@ -29,9 +37,9 @@
   flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
-  gap: var(--space-3) var(--space-5);
-  margin-bottom: var(--space-3);
-  padding-bottom: var(--space-3);
+  gap: var(--space-2) var(--space-5);
+  margin-bottom: var(--space-2);
+  padding-bottom: var(--space-2);
   border-bottom: 1px solid var(--border-light);
 }
 
@@ -90,7 +98,7 @@
   align-items: center;
   flex-shrink: 0;
   gap: var(--space-1);
-  margin: 0 0 var(--space-4);
+  margin: 0 0 var(--space-3);
   padding: var(--space-1);
   min-width: 0;
   width: 100%;
@@ -1245,38 +1253,361 @@
 }
 
 /* ── Responsive: stack columns on narrow screens ─────── */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: var(--space-2) 0 calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+    padding-left: max(var(--space-2), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--space-2), env(safe-area-inset-right, 0px));
+    /* Let the page scroll as one column; don’t reserve a huge flex gap above the card */
+    flex: 0 0 auto;
+    min-height: 0;
+  }
+
+  .settings-page__top {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    margin-bottom: var(--space-1);
+    padding-bottom: var(--space-2);
+  }
+
+  .settings-tabs {
+    margin-bottom: var(--space-2);
+  }
+
+  .settings-page__intro {
+    flex: 0 0 auto;
+  }
+
+  .settings-page__intro-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-2);
+  }
+
+  .settings-page__lead {
+    max-width: none;
+    font-size: 0.8125rem;
+    flex: 0 0 auto;
+  }
+
+  .settings-page__alerts {
+    flex: 0 0 auto;
+    max-width: none;
+    width: 100%;
+  }
+
+  .settings-tabs {
+    flex-wrap: wrap;
+    row-gap: var(--space-1);
+    padding: 6px;
+  }
+
+  .settings-tabs__tab {
+    flex: 1 1 calc(50% - 6px);
+    min-width: min(100%, 9.5rem);
+    justify-content: center;
+    padding: 10px var(--space-2);
+    font-size: 0.8125rem;
+  }
+
+  .settings-page .card {
+    padding: var(--space-4);
+    border-radius: var(--radius-md);
+  }
+
+  .settings-page .card__header h2 {
+    font-size: 1.125rem;
+  }
+
+  .provider-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+
+  .provider-row .btn,
+  .provider-row .github-mode-toggle {
+    align-self: stretch;
+    width: 100%;
+    justify-content: center;
+  }
+
+  .github-mode-toggle {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .github-mode-toggle .btn {
+    flex: 1;
+  }
+
+  .prov-meta {
+    width: 100%;
+  }
+
+  .pat-form {
+    margin-top: 0;
+    padding: var(--space-3);
+  }
+
+  .field-row {
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  /* ── AI providers, MCP servers, Artifact feeds (shared list + forms) ── */
+  .llm-rows {
+    border-radius: var(--radius-md);
+  }
+
+  .llm-row {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    gap: var(--space-2) var(--space-3);
+    padding: var(--space-4);
+    min-height: 0;
+  }
+
+  .llm-row--mcp-expandable {
+    flex-wrap: wrap;
+  }
+
+  .llm-row > .mcp-status-dot,
+  .llm-row > .llm-row__dot {
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 0.35rem;
+  }
+
+  .llm-row > .feed-badge {
+    flex-shrink: 0;
+    align-self: flex-start;
+    margin-top: 0.25rem;
+  }
+
+  .llm-row__main {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+  }
+
+  .llm-row__detail {
+    word-break: break-word;
+    overflow-wrap: anywhere;
+    line-height: 1.4;
+  }
+
+  .llm-row__default-tag {
+    flex: 0 1 auto;
+    align-self: flex-start;
+    margin-top: 0.35rem;
+  }
+
+  .llm-row__actions {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding-top: var(--space-2);
+    margin-top: var(--space-1);
+    border-top: 1px solid color-mix(in srgb, var(--border-light) 85%, transparent);
+  }
+
+  .llm-row__btn {
+    flex: 0 0 auto;
+    min-width: 40px;
+    min-height: 40px;
+  }
+
+  .mcp-tools-panel {
+    flex: 1 1 100%;
+    width: 100%;
+    margin-top: var(--space-2);
+    padding-top: var(--space-3);
+  }
+
+  .mcp-tools-header {
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: flex-start;
+  }
+
+  .mcp-tools-error {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .mcp-tools-error .btn {
+    align-self: flex-start;
+  }
+
+  .llm-form-block__body {
+    padding: var(--space-4);
+  }
+
+  .llm-form-block__head {
+    padding: var(--space-2) var(--space-3);
+    font-size: 0.8125rem;
+  }
+
+  .llm-empty {
+    padding: var(--space-5) var(--space-3);
+  }
+
+  .llm-empty__p {
+    max-width: none;
+    font-size: 0.875rem;
+  }
+
+  .ai-chips {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .ai-chips .chip {
+    width: 100%;
+    min-height: 44px;
+    padding: 8px 10px;
+    font-size: 0.8125rem;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+
+  .btn-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+  }
+
+  .btn-bar .btn {
+    width: 100%;
+    justify-content: center;
+    white-space: normal;
+    min-height: 44px;
+  }
+
+  .llm-add-wrap {
+    margin-top: var(--space-4);
+  }
+
+  .llm-add-wrap .btn {
+    width: 100%;
+    min-height: 44px;
+    justify-content: center;
+  }
+
+  /* Artifact feed type selector: stack as a list instead of cramped 3-up grid */
+  .artifact-type-toggle {
+    grid-template-columns: 1fr;
+    gap: 6px;
+    padding: 6px;
+  }
+
+  .artifact-type-toggle__btn {
+    flex-direction: row;
+    justify-content: flex-start;
+    align-items: center;
+    min-height: 52px;
+    padding: 10px 14px;
+    gap: 12px;
+  }
+
+  .artifact-type-toggle__name {
+    text-align: left;
+    font-size: 0.875rem;
+  }
+
+  .artifact-type-toggle__icon {
+    width: 24px;
+    height: 24px;
+  }
+
+  .settings-page .card__footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .settings-page .card__footer .btn-bar {
+    width: 100%;
+    margin-top: 0;
+  }
+
+  .browse-feed-list,
+  .browse-feed-list--scroll {
+    max-height: min(52dvh, 20rem);
+  }
+
+  .browse-feed-item {
+    flex-wrap: wrap;
+    align-items: flex-start;
+  }
+}
+
 @media (max-width: 900px) {
   .settings-page {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
-    padding-left: var(--space-2);
-    padding-right: var(--space-2);
+    flex: 0 0 auto;
+    min-height: 0;
   }
 
   .settings-page__panels {
-    flex: none;
-    min-height: auto;
+    flex: 0 0 auto;
+    min-height: 0;
   }
 
   .settings-panel {
-    flex: none;
-    min-height: auto;
+    flex: 0 0 auto;
+    min-height: 0;
   }
 
   .settings-panel > .card--panel {
     flex: 0 0 auto;
     max-height: none;
-    min-height: 12rem;
+    min-height: 0;
+    overflow: visible;
   }
 
+  /* Scroll the whole settings page — not a ~22rem-tall inner pane */
   .settings-page .card__scroll {
-    max-height: min(50dvh, 22rem);
+    flex: 0 0 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: visible;
+    overscroll-behavior: auto;
+  }
+
+  .settings-page .card--panel .card__header {
+    margin-bottom: var(--space-2);
+    padding-bottom: var(--space-2);
+  }
+}
+
+/* Tablet only: horizontal inset (mobile uses safe-area in 768px block) */
+@media (max-width: 900px) and (min-width: 769px) {
+  .settings-page {
+    padding-left: var(--space-2);
+    padding-right: var(--space-2);
   }
 }
 
 @media (max-width: 520px) {
   .settings-page {
     padding: var(--space-3) var(--space-2) var(--space-8);
+    padding-left: max(var(--space-2), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--space-2), env(safe-area-inset-right, 0px));
+    padding-bottom: max(var(--space-8), env(safe-area-inset-bottom, 0px));
   }
 
   .settings-tabs {
@@ -1298,8 +1629,12 @@
   }
 
   .settings-page__top {
-    margin-bottom: var(--space-3);
-    padding-bottom: var(--space-3);
+    margin-bottom: var(--space-1);
+    padding-bottom: var(--space-2);
+  }
+
+  .settings-tabs {
+    margin-bottom: var(--space-2);
   }
 
   .settings-page .card {
@@ -1338,7 +1673,7 @@
   }
 
   .llm-row__actions {
-    margin-left: auto;
+    margin-left: 0;
   }
 }
 

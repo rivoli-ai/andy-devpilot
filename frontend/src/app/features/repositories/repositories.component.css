@@ -627,6 +627,18 @@
   overflow-y: auto;
   overflow-x: hidden;
   padding-right: var(--space-2);
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+  /* Hide scrollbars; list still scrolls (wheel / touch / trackpad) */
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.repositories-scroll-area::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .project-section {
@@ -1303,6 +1315,11 @@
 }
 
 @media (max-width: 768px) {
+  .repositories-container {
+    padding-left: max(var(--space-2), env(safe-area-inset-left, 0px));
+    padding-right: max(var(--space-2), env(safe-area-inset-right, 0px));
+  }
+
   .repositories-grid {
     grid-template-columns: 1fr;
     gap: 1rem;
@@ -1346,6 +1363,80 @@
 
   .sync-section {
     margin-bottom: var(--space-3);
+  }
+
+  /* Search + meta: full-width stack */
+  .search-section {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+
+  .search-input-wrapper {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: none;
+  }
+
+  .search-meta {
+    width: 100%;
+  }
+
+  /*
+   * Provider / visibility tabs: one compact row, equal flex, smaller type — no horizontal scroll.
+   */
+  .provider-tabs {
+    flex-wrap: nowrap;
+    justify-content: flex-start;
+    align-items: stretch;
+    overflow: visible;
+    gap: 2px;
+    padding: 4px;
+  }
+
+  .visibility-filter-sep {
+    flex: 0 0 1px;
+    width: 1px;
+    min-width: 1px;
+    margin: 3px 2px;
+    align-self: stretch;
+    min-height: 1rem;
+  }
+
+  .provider-tab {
+    flex: 1 1 0;
+    min-width: 0;
+    justify-content: center;
+    padding: 5px 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    gap: 3px;
+    white-space: nowrap;
+  }
+
+  .provider-tab svg {
+    width: 14px;
+    height: 14px;
+  }
+
+  .provider-tab span:not(.tab-count) {
+    display: inline;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  .provider-tabs .tab-count {
+    min-width: 17px;
+    height: 15px;
+    padding: 0 3px;
+    font-size: 10px;
+    font-weight: 700;
+  }
+
+  .repositories-scroll-area {
+    padding-right: max(var(--space-2), env(safe-area-inset-right, 0px));
   }
 }
 
@@ -2884,21 +2975,30 @@
   color: #4f46e5;
 }
 
-/* Responsive */
+/* Narrow phones: tighter row so All / GitHub / Azure / Shared stay on one line without scroll */
 @media (max-width: 640px) {
   .provider-tabs {
-    flex-wrap: wrap;
+    gap: 1px;
+    padding: 3px;
   }
-  
+
   .provider-tab {
-    flex: 1;
-    justify-content: center;
-    min-width: calc(50% - 4px);
-    padding: 8px 12px;
+    padding: 4px 2px;
+    font-size: 10px;
+    gap: 2px;
   }
-  
-  .provider-tab span:not(.tab-count) {
-    display: none;
+
+  .provider-tab svg {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+  }
+
+  .provider-tabs .tab-count {
+    min-width: 15px;
+    height: 14px;
+    padding: 0 2px;
+    font-size: 9px;
   }
 }
 

@@ -110,35 +110,44 @@
   <!-- Tabs -->
   <div class="repo-tabs">
     <button 
+      type="button"
       class="tab-btn" 
       [class.active]="activeTab() === 'code'"
-      (click)="switchTab('code')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      (click)="switchTab('code')"
+      title="Code">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <polyline points="16 18 22 12 16 6"/>
         <polyline points="8 6 2 12 8 18"/>
       </svg>
-      <span>Code</span>
+      <span class="tab-label tab-label-static">Code</span>
     </button>
     <button 
+      type="button"
       class="tab-btn" 
       [class.active]="activeTab() === 'pullRequests'"
-      (click)="switchTab('pullRequests')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      (click)="switchTab('pullRequests')"
+      title="Pull requests">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <circle cx="18" cy="18" r="3"/>
         <circle cx="6" cy="6" r="3"/>
         <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
         <line x1="6" y1="9" x2="6" y2="21"/>
       </svg>
-      <span>Pull Requests</span>
+      <span class="tab-label">
+        <span class="tab-label-full">Pull Requests</span>
+        <span class="tab-label-compact">PRs</span>
+      </span>
       @if (openPrCount() > 0) {
         <span class="tab-badge">{{ openPrCount() }}</span>
       }
     </button>
     <button 
+      type="button"
       class="tab-btn" 
       [class.active]="activeTab() === 'analysis'"
-      (click)="switchTab('analysis')">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      (click)="switchTab('analysis')"
+      title="Analysis">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
         <polyline points="7.5 4.21 12 6.81 16.5 4.21"/>
         <polyline points="7.5 19.79 7.5 14.6 3 12"/>
@@ -146,7 +155,10 @@
         <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
         <line x1="12" y1="22.08" x2="12" y2="12"/>
       </svg>
-      <span>Analysis</span>
+      <span class="tab-label">
+        <span class="tab-label-full">Analysis</span>
+        <span class="tab-label-compact">Scan</span>
+      </span>
       @if (analysisResult()) {
         <span class="tab-badge analysis-badge">AI</span>
       }
@@ -154,14 +166,14 @@
     <a 
       [routerLink]="['/backlog', repositoryId()]" 
       class="tab-btn tab-btn-link"
-      title="View backlog">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      title="Backlog">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <rect x="3" y="3" width="7" height="7"/>
         <rect x="14" y="3" width="7" height="7"/>
         <rect x="14" y="14" width="7" height="7"/>
         <rect x="3" y="14" width="7" height="7"/>
       </svg>
-      <span>Backlog</span>
+      <span class="tab-label tab-label-static">Backlog</span>
     </a>
   </div>
 
@@ -189,7 +201,35 @@
 
     <!-- Main content -->
     @if (!loading() && !error()) {
-      <div class="code-content">
+      <div
+        class="code-content"
+        [class.code-mobile-pane--explorer]="codeMobilePane() === 'explorer'"
+        [class.code-mobile-pane--code]="codeMobilePane() === 'code'">
+      <div class="code-mobile-switch" role="tablist" aria-label="Files and code">
+        <button
+          type="button"
+          class="code-mobile-switch-btn"
+          role="tab"
+          [attr.aria-selected]="codeMobilePane() === 'explorer'"
+          (click)="setCodeMobilePane('explorer')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+          </svg>
+          <span>Explorer</span>
+        </button>
+        <button
+          type="button"
+          class="code-mobile-switch-btn"
+          role="tab"
+          [attr.aria-selected]="codeMobilePane() === 'code'"
+          (click)="setCodeMobilePane('code')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+          </svg>
+          <span>File</span>
+        </button>
+      </div>
       <!-- File tree panel -->
       <div class="file-tree-panel">
         <div class="tree-header">

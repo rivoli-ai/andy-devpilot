@@ -183,14 +183,17 @@
       </button>
       
       <button 
+        type="button"
         class="provider-tab azure" 
         [class.active]="activeProviderTab() === 'AzureDevOps'"
         (click)="setProviderTab('AzureDevOps')"
-        [disabled]="azureDevOpsCount() === 0">
-        <svg viewBox="0 0 24 24" fill="currentColor">
+        [disabled]="azureDevOpsCount() === 0"
+        title="Azure DevOps"
+        aria-label="Azure DevOps">
+        <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
           <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
         </svg>
-        <span>Azure DevOps</span>
+        <span>Azure</span>
         <span class="tab-count">{{ azureDevOpsCount() }}</span>
       </button>
 

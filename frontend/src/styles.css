@@ -230,6 +230,9 @@
   --z-overlay: 300;
   --z-modal: 400;
   --z-toast: 500;
+  /* Mobile nav drawer + dimmer: above sandbox tray / side dock (≈999), below app toasts if needed */
+  --z-mobile-sidebar-overlay: 10000;
+  --z-mobile-sidebar-drawer: 10001;
 }
 
 /* Base Reset */

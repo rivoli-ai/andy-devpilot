@@ -210,9 +210,9 @@
     </div>
 
     <!-- Content Area with Split View -->
-    <div class="popup-content" [class.with-conversations]="showConversations() && bridgePort()">
-      <!-- AI Conversations Panel (Left Side) -->
-      @if (bridgePort()) {
+    <div class="popup-content" [class.with-conversations]="showConversations() && bridgePort() && agentChatSidebarAllowed()">
+      <!-- AI Conversations Panel (Left Side) — hidden on mobile (narrow viewport) -->
+      @if (bridgePort() && agentChatSidebarAllowed()) {
         <div class="conversations-panel" [class.collapsed]="!showConversations()" [style.width.px]="showConversations() ? chatPanelWidth() : null" [style.min-width.px]="showConversations() ? chatPanelWidth() : null">
           @if (showConversations()) {
             <div class="chat-resize-handle" (mousedown)="onChatResizeStart($event)"></div>

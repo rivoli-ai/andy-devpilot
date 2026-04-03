@@ -40,6 +40,10 @@ interface ExpandedState {
   styleUrl: './backlog.component.css'
 })
 export class BacklogComponent implements OnInit, OnDestroy {
+  /** Add/edit epic/feature/story modals are desktop-only (same breakpoint as flat view / VNC mobile) */
+  private static readonly BACKLOG_CRUD_FORMS_MEDIA = '(max-width: 768px)';
+  private static readonly AZURE_IDENTITY_WARNING_DISMISS_STORAGE_PREFIX = 'devpilot.dismissAzureIdentityWarning:';
+
   epics = signal<Epic[]>([]);
   loading = signal<boolean>(false);
   error = signal<string | null>(null);
@@ -68,6 +72,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
   azureIdentityVerifying = signal<boolean>(false);
   azureIdentityVerifySuccess = signal<string | null>(null);
   azureIdentityVerifyError = signal<string | null>(null);
+  /** Session dismiss for “configure Azure Identity” banner (per repository). */
+  azureIdentityWarningDismissed = signal<boolean>(false);
 
   // Lightbox
   lightboxImageSrc: string | null = null;
@@ -85,6 +91,14 @@ export class BacklogComponent implements OnInit, OnDestroy {
   addModalType = signal<AddItemType | null>(null);
   addModalParentId = signal<string | null>(null); // epicId for feature, featureId for story
   editModalData = signal<EditItemData | null>(null); // For edit mode
+  /** False on narrow viewports — do not open add/edit backlog item UI */
+  backlogCrudFormsAllowed = signal<boolean>(
+    typeof matchMedia === 'undefined'
+      ? true
+      : !matchMedia(BacklogComponent.BACKLOG_CRUD_FORMS_MEDIA).matches
+  );
+  private backlogCrudMql?: MediaQueryList;
+  private readonly onBacklogCrudMediaChange = (): void => this.applyBacklogCrudFormsAllowedFromMedia();
 
   // Delete confirmation modal state
   deleteConfirmation = signal<{ type: 'epic' | 'feature' | 'story'; id: string; parentId?: string; title: string } | null>(null);
@@ -143,6 +157,10 @@ export class BacklogComponent implements OnInit, OnDestroy {
   searchQuery = signal<string>('');
   statusFilter = signal<string>('all');
   viewMode = signal<ViewMode>('tree');
+  /** Narrow screens only show the flat list; tree is desktop-only. */
+  effectiveViewMode = computed<ViewMode>(() =>
+    this.backlogCrudFormsAllowed() ? this.viewMode() : 'flat'
+  );
   selectedItemId = signal<string | null>(null);
   
   // Sandbox state
@@ -439,11 +457,19 @@ export class BacklogComponent implements OnInit, OnDestroy {
       this.repositoryId.set(repoId);
       this.loadBacklog(repoId);
       this.loadRepository(repoId);
+      this.refreshAzureIdentityWarningDismissedFromStorage(repoId);
       // Reconnect to existing backlog generation sandbox after page refresh (like code analysis)
       this.checkForExistingBacklogSandbox();
     } else {
       this.error.set('Repository ID is required');
     }
+
+    this.route.paramMap.pipe(takeUntil(this.destroy$)).subscribe((params) => {
+      const id = params.get('repositoryId');
+      if (id) {
+        this.refreshAzureIdentityWarningDismissedFromStorage(id);
+      }
+    });
 
     // Track which stories have open sandboxes
     this.vncViewerService.viewers$.pipe(
@@ -471,6 +497,26 @@ export class BacklogComponent implements OnInit, OnDestroy {
       // When viewers are restored after refresh, try to reconnect to backlog sandbox
       this.checkForExistingBacklogSandbox();
     });
+
+    this.initBacklogCrudMediaQuery();
+  }
+
+  private initBacklogCrudMediaQuery(): void {
+    if (typeof matchMedia === 'undefined') return;
+    const mql = matchMedia(BacklogComponent.BACKLOG_CRUD_FORMS_MEDIA);
+    this.backlogCrudMql = mql;
+    this.applyBacklogCrudFormsAllowedFromMedia();
+    mql.addEventListener('change', this.onBacklogCrudMediaChange);
+  }
+
+  private applyBacklogCrudFormsAllowedFromMedia(): void {
+    const mql = this.backlogCrudMql;
+    if (!mql) return;
+    const allowed = !mql.matches;
+    this.backlogCrudFormsAllowed.set(allowed);
+    if (!allowed) {
+      this.closeAddModal();
+    }
   }
 
   /**
@@ -679,6 +725,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   // Edit item methods
   openEditEpic(epic: Epic): void {
+    if (!this.backlogCrudFormsAllowed()) return;
     this.addModalType.set('epic');
     this.addModalParentId.set(null);
     this.editModalData.set({
@@ -690,6 +737,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   }
 
   openEditFeature(feature: Feature): void {
+    if (!this.backlogCrudFormsAllowed()) return;
     this.addModalType.set('feature');
     this.addModalParentId.set(feature.epicId);
     this.editModalData.set({
@@ -701,6 +749,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   }
 
   openEditStory(story: UserStory): void {
+    if (!this.backlogCrudFormsAllowed()) return;
     this.addModalType.set('story');
     this.addModalParentId.set(story.featureId);
     this.editModalData.set({
@@ -1262,6 +1311,10 @@ ${story.acceptanceCriteria}
 
   // Modal
   ngOnDestroy(): void {
+    if (this.backlogCrudMql) {
+      this.backlogCrudMql.removeEventListener('change', this.onBacklogCrudMediaChange);
+      this.backlogCrudMql = undefined;
+    }
     this.destroy$.next();
     this.destroy$.complete();
   }
@@ -1663,13 +1716,33 @@ ${jsonFormatRequirement}`;
     return 'status-new';
   }
 
-  getStatusIcon(status: string): string {
-    const s = status.toLowerCase();
-    if (s === 'done' || s === 'completed' || s === 'closed') return '✓';
-    if (s === 'pendingreview' || s === 'pending review' || s === 'review') return '⟳';
-    if (s === 'inprogress' || s === 'in progress' || s === 'active') return '►';
-    if (s === 'blocked') return '⊘';
-    return '○';
+  /**
+   * Compact status label: two letters for composite (spaces, underscores, camelCase),
+   * otherwise one letter — except known pipeline states use stable abbreviations
+   * (`PR`, `IP`, `D`, `BL`). Backlog / new / todo show `B`; other backlog-style
+   * unknowns use the first letter of the display word.
+   */
+  getStatusAbbreviation(status: string): string {
+    const raw = (status || '').trim();
+    if (!raw) return '?';
+
+    const expanded = raw.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
+    const words = expanded.split(/\s+/).filter(w => w.length > 0);
+    if (words.length >= 2) {
+      return (words[0][0] + words[1][0]).toUpperCase();
+    }
+
+    const norm = this.normalizeStatus(status);
+    if (norm === 'done') return 'D';
+    if (norm === 'pendingreview') return 'PR';
+    if (norm === 'inprogress') return 'IP';
+    if (norm === 'blocked') return 'BL';
+    if (norm === 'new') {
+      const w = words[0].toLowerCase();
+      if (w === 'backlog' || w === 'new' || w === 'todo') return 'B';
+      return words[0][0].toUpperCase();
+    }
+    return words[0]?.[0]?.toUpperCase() ?? '?';
   }
 
   getStatusPercentage(status: string): number {
@@ -2854,6 +2927,45 @@ ${jsonFormatRequirement}`;
     });
   }
 
+  private azureIdentityWarningDismissStorageKey(repositoryId: string): string {
+    return `${BacklogComponent.AZURE_IDENTITY_WARNING_DISMISS_STORAGE_PREFIX}${repositoryId}`;
+  }
+
+  private readAzureIdentityWarningDismissedFromStorage(repositoryId: string): boolean {
+    if (typeof sessionStorage === 'undefined') return false;
+    try {
+      return sessionStorage.getItem(this.azureIdentityWarningDismissStorageKey(repositoryId)) === '1';
+    } catch {
+      return false;
+    }
+  }
+
+  refreshAzureIdentityWarningDismissedFromStorage(repositoryId: string): void {
+    this.azureIdentityWarningDismissed.set(this.readAzureIdentityWarningDismissedFromStorage(repositoryId));
+  }
+
+  dismissAzureIdentityWarning(): void {
+    const id = this.repositoryId();
+    if (!id) return;
+    try {
+      sessionStorage.setItem(this.azureIdentityWarningDismissStorageKey(id), '1');
+    } catch {
+      /* storage unavailable */
+    }
+    this.azureIdentityWarningDismissed.set(true);
+  }
+
+  private clearAzureIdentityWarningDismissalForRepo(repositoryId: string): void {
+    try {
+      sessionStorage.removeItem(this.azureIdentityWarningDismissStorageKey(repositoryId));
+    } catch {
+      /* ignore */
+    }
+    if (this.repositoryId() === repositoryId) {
+      this.azureIdentityWarningDismissed.set(false);
+    }
+  }
+
   openAzureIdentityModal(): void {
     const repo = this.repository();
     if (!repo) return;
@@ -2970,6 +3082,7 @@ ${jsonFormatRequirement}`;
               ? { ...r, azureIdentityClientId: null, azureIdentityTenantId: null, hasAzureIdentity: false }
               : r
           );
+          this.clearAzureIdentityWarningDismissalForRepo(repo.id);
           this.closeAzureIdentityModal();
         },
         error: (err) => {
@@ -3015,6 +3128,7 @@ ${jsonFormatRequirement}`;
             ? { ...r, azureIdentityClientId: null, azureIdentityTenantId: null, hasAzureIdentity: false }
             : r
         );
+        this.clearAzureIdentityWarningDismissalForRepo(repo.id);
         this.closeAzureIdentityModal();
       },
       error: (err) => {

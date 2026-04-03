@@ -6,20 +6,22 @@
         <p class="settings-page__lead">Configure integrations by section. Pick a tab below; lists and forms scroll inside each card.</p>
       </div>
     </header>
-    <div class="settings-page__alerts" aria-live="polite">
-      @if (successMessage()) {
-        <div class="toast toast--success" role="status">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          {{ successMessage() }}
-        </div>
-      }
-      @if (error()) {
-        <div class="toast toast--error" role="alert">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          {{ error() }}
-        </div>
-      }
-    </div>
+    @if (successMessage() || error()) {
+      <div class="settings-page__alerts" aria-live="polite">
+        @if (successMessage()) {
+          <div class="toast toast--success" role="status">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            {{ successMessage() }}
+          </div>
+        }
+        @if (error()) {
+          <div class="toast toast--error" role="alert">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            {{ error() }}
+          </div>
+        }
+      </div>
+    }
   </div>
 
   <nav class="settings-tabs" role="tablist" aria-label="Settings sections">

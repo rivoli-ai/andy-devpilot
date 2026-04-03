@@ -1,3 +1,10 @@
+:host {
+  display: block;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: 100%;
+}
+
 /* Path strip: compact pill that fits the glass header */
 .breadcrumb {
   min-width: 0;

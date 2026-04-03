@@ -20,6 +20,8 @@ export class SidebarComponent {
   mobileOpen = input(false);
 
   collapseToggled = output<void>();
+  /** Close the mobile drawer after choosing a destination */
+  mobileDrawerClose = output<void>();
 
   constructor(
     public authService: AuthService,
@@ -28,6 +30,12 @@ export class SidebarComponent {
 
   onToggleCollapse(): void {
     this.collapseToggled.emit();
+  }
+
+  onMobileNavLinkClick(): void {
+    if (this.mobileOpen()) {
+      this.mobileDrawerClose.emit();
+    }
   }
 
   logout(): void {

@@ -2196,50 +2196,176 @@
 }
 
 @media (max-width: 768px) {
+  /* Agent chat sidebar is desktop-only — TS omits panel; guard in CSS */
+  .conversations-panel,
+  .conversations-toggle {
+    display: none !important;
+  }
+
+  .popup-content.with-conversations .vnc-section {
+    flex: 1 1 100%;
+    max-width: 100%;
+  }
+
   .vnc-popup.floating {
-    left: 10px !important;
-    right: 10px !important;
-    top: 10px !important;
-    bottom: 10px !important;
+    left: max(8px, env(safe-area-inset-left, 0px)) !important;
+    right: max(8px, env(safe-area-inset-right, 0px)) !important;
+    top: max(8px, env(safe-area-inset-top, 0px)) !important;
+    bottom: max(8px, env(safe-area-inset-bottom, 0px)) !important;
     width: auto !important;
     height: auto !important;
   }
-  
+
+  .vnc-popup.docked-right {
+    width: 100% !important;
+    max-width: 100vw !important;
+    left: 0 !important;
+    right: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .vnc-popup.docked-bottom {
+    height: min(50vh, 100dvh - env(safe-area-inset-bottom, 0px)) !important;
+    left: 0 !important;
+    right: 0 !important;
+    border-radius: 12px 12px 0 0 !important;
+  }
+
+  /* Title bar: stack — story row + full-width tool strip (no horizontal squeeze) */
+  .popup-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+    padding: 8px max(10px, env(safe-area-inset-right, 0px)) 8px max(10px, env(safe-area-inset-left, 0px));
+    cursor: default;
+  }
+
+  .header-left {
+    flex-wrap: nowrap;
+    gap: 8px;
+    min-width: 0;
+    width: 100%;
+  }
+
+  .app-icon {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    flex-shrink: 0;
+  }
+
+  .app-icon svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .title {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.8125rem;
+    line-height: 1.25;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .paste-host-hint {
+    display: none;
+  }
+
+  .connection-badge {
+    flex-shrink: 0;
+    padding: 3px 8px;
+    gap: 4px;
+    font-size: 10px;
+  }
+
   .connection-badge .badge-text {
     display: none;
   }
-  
-  .title {
-    font-size: 13px;
+
+  .header-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 2px;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding: 6px 0 2px;
+    margin-top: 2px;
+    border-top: 1px solid var(--border-light);
+    box-sizing: border-box;
+    touch-action: pan-x;
   }
-  
+
+  .header-actions::-webkit-scrollbar {
+    display: none;
+  }
+
+  .header-actions .action-btn {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    flex-shrink: 0;
+  }
+
+  .header-actions .action-divider {
+    flex-shrink: 0;
+    margin: 0 2px;
+  }
+
+  .header-actions--layout .action-btn {
+    min-width: 36px;
+    min-height: 36px;
+    padding: 6px;
+  }
+
   .vnc-minimized {
-    bottom: 10px;
-    min-height: 70px;
-    padding: 11px 12px;
+    width: min(320px, calc(100vw - max(20px, env(safe-area-inset-left, 0px) + env(safe-area-inset-right, 0px))));
+    max-width: calc(100vw - 16px);
+    min-height: 64px;
+    padding: 10px 12px;
     gap: 10px;
+    box-sizing: border-box;
   }
 
   .minimized-icon {
     width: 36px;
     height: 36px;
+    border-radius: 10px;
   }
-  
+
   .minimized-info {
-    min-width: 100px;
-    min-height: 46px;
+    min-width: 0;
+    flex: 1;
+    min-height: 44px;
   }
-  
+
   .minimized-title {
-    font-size: 13px;
+    font-size: 0.8125rem;
+    line-height: 1.2;
   }
-  
+
+  .minimized-story {
+    font-size: 0.8125rem;
+  }
+
+  .minimized-repo {
+    font-size: 9px;
+  }
+
   .minimized-status {
-    font-size: 11px;
+    font-size: 10px;
   }
-  
-  .conversations-panel {
-    width: 100%;
-    min-width: 100%;
+}
+
+@media (max-width: 480px) {
+  .popup-header {
+    padding: 6px max(8px, env(safe-area-inset-right, 0px)) 6px max(8px, env(safe-area-inset-left, 0px));
   }
 }

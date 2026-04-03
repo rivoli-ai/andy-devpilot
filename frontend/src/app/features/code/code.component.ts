@@ -82,6 +82,9 @@ export class CodeComponent implements OnInit, OnDestroy {
   repoLlmUpdating = signal<boolean>(false);
   showLlmDropdown = signal<boolean>(false);
 
+  /** On narrow viewports, either full-height explorer or full-height file viewer (see CSS). */
+  codeMobilePane = signal<'explorer' | 'code'>('explorer');
+
   // Subscriptions for cleanup
   private analysisSubscription?: Subscription;
   private destroy$ = new Subject<void>();
@@ -432,10 +435,15 @@ export class CodeComponent implements OnInit, OnDestroy {
     }
   }
 
+  setCodeMobilePane(pane: 'explorer' | 'code'): void {
+    this.codeMobilePane.set(pane);
+  }
+
   loadFileContent(path: string): void {
     const repoId = this.repositoryId();
     const branch = this.currentBranch();
 
+    this.codeMobilePane.set('code');
     this.fileLoading.set(true);
     this.selectedFilePath.set(path);
 
@@ -465,6 +473,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.fileAnalysisResult.set(null);
     this.fileAnalysisError.set(null);
     this.showFileExplanation.set(false);
+    this.codeMobilePane.set('explorer');
   }
 
   copyFileContent(): void {
@@ -485,6 +494,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.showBranchDropdown.set(false);
     this.selectedFile.set(null);
     this.selectedFilePath.set(null);
+    this.codeMobilePane.set('explorer');
     this.loadRootTree();
   }
 

@@ -348,6 +348,10 @@ export class AppComponent implements OnInit, OnDestroy {
     this.sidebarOpen.update(open => !open);
   }
 
+  closeMobileSidebar(): void {
+    this.sidebarOpen.set(false);
+  }
+
   toggleSidebarCollapsed(): void {
     this.sidebarCollapsed.update(collapsed => {
       const next = !collapsed;

@@ -5,8 +5,8 @@
 #
 # Run: curl -sSL <url> | sudo bash
 #
-# Version: 2.1.0 - Fixed Zed launch (no script wrapper, USER sandbox)
-SETUP_VERSION="2.2.0"
+# Version: 2.2.1 - Taskbar centered icons (expand separators); Zed maximize by window id
+SETUP_VERSION="2.2.1"
 
 set -e
 
@@ -1877,11 +1877,11 @@ def find_zed_window():
     return None
 
 def open_agent_panel(window_id, env, max_attempts=3):
-    """Open Zed's agent panel via the command palette.
+    """Ensure Zed's agent panel is visible and focused via the command palette.
 
-    Direct shortcuts (ctrl+shift+slash / ctrl+shift+question) are unreliable
-    across Zed versions and X11 keyboard configurations.  The command palette
-    (Ctrl+Shift+P -> "agent: toggle") works consistently.
+    Use "agent: toggle focus" (agent::ToggleFocus), not "agent: toggle"
+    (agent::Toggle).  Toggle can call close_panel when the panel is already
+    open/focused, which hides the chat DevPilot is trying to paste into.
     """
     import time
 
@@ -1897,12 +1897,12 @@ def open_agent_panel(window_id, env, max_attempts=3):
         time.sleep(1.5)
 
         # Type the command and execute it
-        subprocess.run(['xdotool', 'type', '--delay', '30', 'agent: toggle'], env=env)
+        subprocess.run(['xdotool', 'type', '--delay', '30', 'agent: toggle focus'], env=env)
         time.sleep(0.5)
         subprocess.run(['xdotool', 'key', 'Return'], env=env)
         time.sleep(1.5)
 
-        logger.info(f"Agent panel toggle sent (attempt {attempt + 1})")
+        logger.info(f"Agent toggle-focus sent (attempt {attempt + 1})")
         break
 
     return True
@@ -2607,14 +2607,14 @@ cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 
       </property>
     </property>
     <property name="panel-2" type="empty">
-      <property name="autohide-behavior" type="uint" value="1"/>
+      <property name="autohide-behavior" type="uint" value="0"/>
       <property name="position" type="string" value="p=10;x=0;y=0"/>
-      <property name="length" type="uint" value="1"/>
+      <property name="length" type="uint" value="100"/>
       <property name="position-locked" type="bool" value="true"/>
       <property name="size" type="uint" value="48"/>
       <property name="plugin-ids" type="array">
-        <value type="int" value="15"/>
         <value type="int" value="16"/>
+        <value type="int" value="15"/>
         <value type="int" value="17"/>
         <value type="int" value="19"/>
         <value type="int" value="21"/>
@@ -2651,7 +2651,10 @@ cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 
     </property>
     <property name="plugin-14" type="string" value="actions"/>
     <property name="plugin-15" type="string" value="showdesktop"/>
-    <property name="plugin-16" type="string" value="separator"/>
+    <property name="plugin-16" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
     <property name="plugin-17" type="string" value="launcher">
       <property name="items" type="array">
         <value type="string" value="xfce4-terminal-emulator.desktop"/>
@@ -2667,7 +2670,10 @@ cat > /home/sandbox/.config/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml << 
         <value type="string" value="zed.desktop"/>
       </property>
     </property>
-    <property name="plugin-22" type="string" value="separator"/>
+    <property name="plugin-22" type="string" value="separator">
+      <property name="expand" type="bool" value="true"/>
+      <property name="style" type="uint" value="0"/>
+    </property>
   </property>
 </channel>
 PANELCONFIG
@@ -3180,6 +3186,44 @@ chmod +x /tmp/launch-zed.sh
 /tmp/launch-zed.sh &
 ZED_LAUNCHER_PID=\$!
 echo "Zed launcher started as sandbox user with PID \$ZED_LAUNCHER_PID" >> /tmp/sandbox-debug.log
+
+# Maximize Zed when its window appears (fills workspace; taskbar stays visible — not F11 fullscreen).
+# Title substring "Zed" often fails (title is path-only or wmctrl mismatch). Resolve X11 window id
+# via xdotool --pid and wmctrl -lx (WM_CLASS), then wmctrl -i -r <decimal id>.
+(
+  export DISPLAY=:0
+  sleep 4
+  for attempt in $(seq 1 45); do
+    _ok=0
+    for _pid in $( (pgrep -f "zed-editor" || true; pgrep -f "/home/sandbox/.local/bin/zed" || true; pgrep -f "zed.app" || true) | sort -u ); do
+      [ -z "$_pid" ] && continue
+      for _wid in $(xdotool search --pid "$_pid" 2>/dev/null); do
+        [ -z "$_wid" ] && continue
+        xdotool windowactivate --sync "$_wid" 2>/dev/null || true
+        if DISPLAY=:0 wmctrl -i -r "$_wid" -b add,maximized_vert,maximized_horz 2>/dev/null; then
+          echo "Zed window id $_wid maximized (attempt $attempt, pid $_pid)" >> /tmp/sandbox-debug.log
+          _ok=1
+          break 2
+        fi
+      done
+    done
+    if [ "$_ok" != 1 ]; then
+      _hex=$(DISPLAY=:0 wmctrl -lx 2>/dev/null | awk 'tolower($0) ~ /zed/ && tolower($0) !~ /crash/ {print $1; exit}')
+      if [ -n "$_hex" ]; then
+        _dec=$((_hex))
+        if DISPLAY=:0 wmctrl -i -r "$_dec" -b add,maximized_vert,maximized_horz 2>/dev/null; then
+          echo "Zed window id $_dec maximized via wmctrl -lx (attempt $attempt)" >> /tmp/sandbox-debug.log
+          _ok=1
+        fi
+      fi
+    fi
+    if [ "$_ok" = 1 ]; then
+      exit 0
+    fi
+    sleep 2
+  done
+  echo "WARNING: could not maximize Zed via wmctrl (window not found in time?)" >> /tmp/sandbox-debug.log
+) &
 
 # NOTE: Auto dialog handling disabled - user handles dialogs manually if needed
 echo "Zed launched, ready for prompts via Bridge API" >> /tmp/sandbox-debug.log

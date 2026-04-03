@@ -3,7 +3,8 @@
     <app-sidebar
       [isCollapsed]="sidebarCollapsed()"
       [mobileOpen]="sidebarOpen()"
-      (collapseToggled)="toggleSidebarCollapsed()" />
+      (collapseToggled)="toggleSidebarCollapsed()"
+      (mobileDrawerClose)="closeMobileSidebar()" />
     <div class="app-content">
       <app-header (toggleSidebar)="toggleSidebar()" />
       <main class="main-content">

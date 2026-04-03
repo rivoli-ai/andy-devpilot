@@ -28,12 +28,17 @@
               <span class="header-sandbox-warning" title="At capacity">!</span>
             }
           </div>
-          <button type="button" class="header-sandbox-close" (click)="closeAllSandboxes()" title="Close all sandboxes">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <button
+            type="button"
+            class="header-sandbox-close"
+            (click)="closeAllSandboxes()"
+            title="Close all sandboxes"
+            aria-label="Close all sandboxes">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
               <line x1="18" y1="6" x2="6" y2="18"/>
               <line x1="6" y1="6" x2="18" y2="18"/>
             </svg>
-            Close all
+            <span class="header-sandbox-close-text">Close all</span>
           </button>
         </div>
       }
