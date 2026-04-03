@@ -6,5 +6,8 @@ backend/src/API/appsettings.Development.json
 **/bin/
 **/obj/
 
+# .NET test and coverage output
+**/TestResults/
+
 # OS files
 .DS_Store
