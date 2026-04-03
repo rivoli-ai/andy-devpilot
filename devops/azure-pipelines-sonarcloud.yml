@@ -7,8 +7,11 @@
 #    (token from SonarCloud: My Account → Security — never commit it).
 # 3) Create this pipeline pointing at devops/azure-pipelines-sonarcloud.yml
 #
-# Matches Sonar wizard: organization benamaraissam86, project key
-# benamaraissam86_DevPilot, scanner MSBuild, analysis after build.
+# Task versions (e.g. SonarCloudPrepare@4) must match the major version shipped
+# by the "SonarQube Cloud" Azure DevOps extension. Update the @N suffix if Azure
+# says the task is missing — see Sonar docs or Organization Settings → Extensions.
+#
+# Project: benamaraissam86 / benamaraissam86_DevPilot, scannerMode dotnet (.NET SDK).
 #
 # Angular/TS: this job analyzes the backend solution. Add a second job with
 # scannerMode Other / CLI + Node if you want frontend in the same project
@@ -56,12 +59,12 @@ steps:
       jdkArchitectureOption: 'x64'
       jdkSourceOption: 'PreInstalled'
 
-  - task: SonarCloudPrepare@2
+  - task: SonarCloudPrepare@4
     displayName: 'Prepare SonarCloud analysis'
     inputs:
       SonarCloud: '$(SonarQube)'
       organization: 'benamaraissam86'
-      scannerMode: 'MSBuild'
+      scannerMode: 'dotnet'
       projectKey: 'benamaraissam86_DevPilot'
       projectName: 'DevPilot'
       extraProperties: |
@@ -80,10 +83,10 @@ steps:
       projects: '$(solution)'
       arguments: '--configuration $(buildConfiguration) --no-restore'
 
-  - task: SonarCloudAnalyze@2
+  - task: SonarCloudAnalyze@4
     displayName: 'Run SonarCloud analysis'
 
-  - task: SonarCloudPublish@2
+  - task: SonarCloudPublish@4
     displayName: 'Publish quality gate result'
     inputs:
       pollingTimeoutSec: '300'
