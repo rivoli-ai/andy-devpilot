@@ -34,8 +34,8 @@ variables:
   - name: buildConfiguration
     value: 'Release'
   # Must match the Service connection name you created (Step 3).
-  - name: SonarQube
-    value: 'SonarCloud'
+  - name: SonarQubeConnection
+    value: 'SonarQube'
 
 pool:
   vmImage: 'ubuntu-latest'
@@ -62,7 +62,7 @@ steps:
   - task: SonarCloudPrepare@4
     displayName: 'Prepare SonarCloud analysis'
     inputs:
-      SonarCloud: '$(SonarQube)'
+      SonarCloud: '$(SonarQubeConnection)'
       organization: 'benamaraissam86'
       scannerMode: 'dotnet'
       projectKey: 'benamaraissam86_DevPilot'
