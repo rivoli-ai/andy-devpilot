@@ -1,0 +1,89 @@
+# ============================================================
+# SonarCloud — static analysis (security + quality) for .NET
+#
+# Prereqs in Azure DevOps:
+# 1) Install "SonarCloud" from Marketplace on the organization/collection.
+# 2) Project settings → Service connections → New → SonarCloud
+#    (token from SonarCloud: My Account → Security — never commit it).
+# 3) Create this pipeline pointing at devops/azure-pipelines-sonarcloud.yml
+#
+# Matches Sonar wizard: organization benamaraissam86, project key
+# benamaraissam86_DevPilot, scanner MSBuild, analysis after build.
+#
+# Angular/TS: this job analyzes the backend solution. Add a second job with
+# scannerMode Other / CLI + Node if you want frontend in the same project
+# (see SonarCloud docs for monorepos).
+# ============================================================
+
+trigger:
+  branches:
+    include:
+      - main
+
+pr:
+  branches:
+    include:
+      - main
+
+variables:
+  - name: solution
+    value: 'backend/DevPilot.sln'
+  - name: buildConfiguration
+    value: 'Release'
+  # Must match the Service connection name you created (Step 3).
+  - name: SonarQube
+    value: 'SonarCloud'
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+steps:
+  - checkout: self
+    displayName: 'Checkout (full history for blame)'
+    fetchDepth: 0
+
+  - task: UseDotNet@2
+    displayName: 'Use .NET 9 SDK'
+    inputs:
+      packageType: sdk
+      version: 9.x
+
+  # Scanner for .NET expects JDK 17+ on the PATH (hosted agents often have it).
+  - task: JavaToolInstaller@0
+    displayName: 'Use Java 17 for Sonar'
+    inputs:
+      versionSpec: '17'
+      jdkArchitectureOption: 'x64'
+      jdkSourceOption: 'PreInstalled'
+
+  - task: SonarCloudPrepare@2
+    displayName: 'Prepare SonarCloud analysis'
+    inputs:
+      SonarCloud: '$(SonarQube)'
+      organization: 'benamaraissam86'
+      scannerMode: 'MSBuild'
+      projectKey: 'benamaraissam86_DevPilot'
+      projectName: 'DevPilot'
+      extraProperties: |
+        sonar.exclusions=**/bin/**,**/obj/**,**/node_modules/**,**/dist/**,**/*.min.js
+
+  - task: DotNetCoreCLI@2
+    displayName: 'Restore'
+    inputs:
+      command: 'restore'
+      projects: '$(solution)'
+
+  - task: DotNetCoreCLI@2
+    displayName: 'Build (required before Sonar analyze)'
+    inputs:
+      command: 'build'
+      projects: '$(solution)'
+      arguments: '--configuration $(buildConfiguration) --no-restore'
+
+  - task: SonarCloudAnalyze@2
+    displayName: 'Run SonarCloud analysis'
+
+  - task: SonarCloudPublish@2
+    displayName: 'Publish quality gate result'
+    inputs:
+      pollingTimeoutSec: '300'
