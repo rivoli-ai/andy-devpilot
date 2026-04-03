@@ -54,8 +54,8 @@ export class DataGridComponent<T = any> implements OnInit {
   @Input() emptyMessage = 'No data available';
   @Input() height?: string; // Optional height (e.g., '500px', '100%', 'calc(100vh - 200px)')
   
-  @Output() rowClick = new EventEmitter<T>();
-  @Output() rowDoubleClick = new EventEmitter<T>();
+  @Output() gridRowSelect = new EventEmitter<T>();
+  @Output() gridRowSelectDouble = new EventEmitter<T>();
   @Output() sortChange = new EventEmitter<GridSort[]>();
   @Output() filterChange = new EventEmitter<Record<string, string>>();
 
@@ -509,11 +509,11 @@ export class DataGridComponent<T = any> implements OnInit {
 
   // Row events
   onRowClick(row: T): void {
-    this.rowClick.emit(row);
+    this.gridRowSelect.emit(row);
   }
 
   onRowDoubleClick(row: T): void {
-    this.rowDoubleClick.emit(row);
+    this.gridRowSelectDouble.emit(row);
   }
 
   onCellClick(event: MouseEvent): void {

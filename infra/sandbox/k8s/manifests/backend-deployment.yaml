@@ -15,6 +15,7 @@ spec:
       labels:
         app: devpilot-backend
     spec:
+      automountServiceAccountToken: false
       containers:
       - name: backend
         image: ghcr.io/YOUR_ORG/devpilot-backend:latest

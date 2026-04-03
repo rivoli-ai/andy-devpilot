@@ -15,7 +15,8 @@ RUN find /usr/local/share/ca-certificates/corporate/ \( -name '.gitkeep' -o -nam
     update-ca-certificates
 ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
-    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    MANAGER_BIND_HOST=0.0.0.0
 
 # Build context must be the repository root (see docker-compose / azure-pipelines).
 COPY infra/sandbox/manager/requirements.txt .

@@ -2,6 +2,7 @@ namespace DevPilot.Infrastructure.Auth;
 
 using DevPilot.Application.Options;
 using DevPilot.Application.Services;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 
@@ -17,6 +18,7 @@ public class AuthProviderRegistry
     public AuthProviderRegistry(
         IOptions<AuthProvidersOptions> options,
         IHttpClientFactory httpClientFactory,
+        IHostEnvironment hostEnvironment,
         ILogger<AuthProviderRegistry> logger)
     {
         _options = options.Value;
@@ -33,7 +35,7 @@ public class AuthProviderRegistry
             {
                 "local" or null or "" => new LocalAuthProvider(),
                 "backendoauth" => CreateBackendOAuthProvider(name, config, httpClientFactory),
-                "frontendoidc" => new OidcAuthProvider(name, config, httpClientFactory),
+                "frontendoidc" => new OidcAuthProvider(name, config, httpClientFactory, hostEnvironment),
                 _ => throw new InvalidOperationException($"Unknown auth provider type '{config.Type}' for provider '{name}'.")
             };
 

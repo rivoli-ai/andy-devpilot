@@ -19,8 +19,15 @@ builder.Services.AddOpenApi();
 // Add SignalR for real-time communication
 builder.Services.AddSignalR();
 
-// Configure JWT Authentication
-var secretKey = builder.Configuration["JWT:SecretKey"] ?? "dev-secret-key-min-32-characters-long-for-security";
+// Configure JWT Authentication — require explicit secret outside Development
+var secretKey = builder.Configuration["JWT:SecretKey"];
+if (string.IsNullOrWhiteSpace(secretKey))
+{
+    if (!builder.Environment.IsDevelopment())
+        throw new InvalidOperationException("JWT:SecretKey must be configured via configuration or environment variables.");
+    secretKey = "dev-secret-key-min-32-characters-long-for-security";
+}
+
 var key = Encoding.ASCII.GetBytes(secretKey);
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)

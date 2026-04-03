@@ -16,6 +16,7 @@ using DevPilot.Infrastructure.Sandbox;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 /// <summary>
 /// Extension methods for configuring Infrastructure layer services
@@ -29,8 +30,16 @@ public static class InfrastructureServiceCollectionExtensions
         {
             var config = configuration ?? serviceProvider.GetRequiredService<IConfiguration>();
             var connectionString = config.GetConnectionString("Postgres")
-                ?? config["ConnectionStrings:Postgres"]
-                ?? "Host=localhost;Port=5432;Database=devpilot;Username=postgres;Password=postgres";
+                ?? config["ConnectionStrings:Postgres"];
+            if (string.IsNullOrWhiteSpace(connectionString))
+            {
+                var env = serviceProvider.GetService<IHostEnvironment>();
+                if (env?.IsDevelopment() == true)
+                    connectionString = "Host=localhost;Port=5432;Database=devpilot;Username=postgres;Password=postgres";
+                else
+                    throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
+            }
+
             options.UseNpgsql(connectionString);
         });
 

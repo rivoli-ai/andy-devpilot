@@ -8,7 +8,7 @@ import { AIConfigService, AIProviderConfig } from '../../core/services/ai-config
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <div class="modal-backdrop" (click)="close.emit()"></div>
+    <div class="modal-backdrop" (click)="modalClosed.emit()"></div>
     <div class="modal-container">
       <div class="modal-header">
         <div class="header-title">
@@ -18,7 +18,7 @@ import { AIConfigService, AIProviderConfig } from '../../core/services/ai-config
           </svg>
           <h2>AI Configuration</h2>
         </div>
-        <button class="close-btn" (click)="close.emit()">
+        <button class="close-btn" (click)="modalClosed.emit()">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <line x1="18" y1="6" x2="6" y2="18"/>
             <line x1="6" y1="6" x2="18" y2="18"/>
@@ -205,7 +205,7 @@ import { AIConfigService, AIProviderConfig } from '../../core/services/ai-config
       </div>
 
       <div class="modal-footer">
-        <button class="btn btn-secondary" (click)="close.emit()">Cancel</button>
+        <button class="btn btn-secondary" (click)="modalClosed.emit()">Cancel</button>
         <button class="btn btn-primary" (click)="saveConfig()" [disabled]="!canSave()">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
@@ -540,8 +540,8 @@ import { AIConfigService, AIProviderConfig } from '../../core/services/ai-config
   `]
 })
 export class AISettingsModalComponent implements OnInit {
-  @Output() close = new EventEmitter<void>();
-  @Output() saved = new EventEmitter<void>();
+  @Output() modalClosed = new EventEmitter<void>();
+  @Output() settingsSaved = new EventEmitter<void>();
 
   provider = signal<'openai' | 'anthropic' | 'ollama' | 'custom'>('openai');
   apiKey = signal<string>('');
@@ -603,7 +603,7 @@ export class AISettingsModalComponent implements OnInit {
     });
     // Save GitHub token separately
     this.aiConfigService.setGithubToken(this.githubToken());
-    this.saved.emit();
-    this.close.emit();
+    this.settingsSaved.emit();
+    this.modalClosed.emit();
   }
 }

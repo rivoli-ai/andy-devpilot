@@ -11,7 +11,7 @@ using System.Text.Json;
 /// ACP client implementation using WebSocket for communication with Zed containers
 /// Handles ACP protocol messages (JSON-over-WebSocket)
 /// </summary>
-public class ACPClient : IACPClient
+public class ACPClient : IACPClient, IDisposable
 {
     private readonly ILogger<ACPClient> _logger;
     private ClientWebSocket? _webSocket;

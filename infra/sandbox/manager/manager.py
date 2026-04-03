@@ -527,5 +527,6 @@ if __name__ == "__main__":
     if BACKEND == "docker":
         threading.Thread(target=_cleanup_old_sandboxes_docker, daemon=True).start()
 
+    bind_host = os.environ.get("MANAGER_BIND_HOST", "127.0.0.1")
     print(f"DevPilot Sandbox Manager v{SANDBOX_MANAGER_VERSION} starting (BACKEND={BACKEND})...")
-    app.run(host="0.0.0.0", port=8090)
+    app.run(host=bind_host, port=8090)

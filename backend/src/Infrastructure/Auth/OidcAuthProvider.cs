@@ -4,6 +4,7 @@ using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using DevPilot.Application.Options;
 using DevPilot.Application.Services;
+using Microsoft.Extensions.Hosting;
 using Microsoft.IdentityModel.Protocols;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
@@ -20,20 +21,25 @@ public class OidcAuthProvider : IAuthProvider
     private readonly IConfigurationManager<OpenIdConnectConfiguration> _configManager;
     private readonly string[] _validAudiences;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly bool _allowInsecureTls;
 
     public string Name => _name;
     public string Type => "FrontendOidc";
 
-    public OidcAuthProvider(string name, ProviderConfig config, IHttpClientFactory httpClientFactory)
+    public OidcAuthProvider(string name, ProviderConfig config, IHttpClientFactory httpClientFactory, IHostEnvironment hostEnvironment)
     {
         _name = name ?? throw new ArgumentNullException(nameof(name));
         _config = config ?? throw new ArgumentNullException(nameof(config));
         _httpClientFactory = httpClientFactory ?? throw new ArgumentNullException(nameof(httpClientFactory));
+        ArgumentNullException.ThrowIfNull(hostEnvironment);
+
+        // Certificate bypass is dev-only; never honor in Production (Sonar S4830).
+        _allowInsecureTls = hostEnvironment.IsDevelopment() && config.DangerousAcceptAnyServerCertificate;
 
         var authority = config.Authority ?? throw new InvalidOperationException($"Authority is required for OIDC provider '{name}'");
         var metadataAddress = authority.TrimEnd('/') + "/.well-known/openid-configuration";
 
-        if (config.DangerousAcceptAnyServerCertificate)
+        if (_allowInsecureTls)
         {
             // Use a custom HttpClient that ignores SSL certificate errors (dev-only)
             var handler = new HttpClientHandler
@@ -120,7 +126,7 @@ public class OidcAuthProvider : IAuthProvider
     private async Task<ExternalUserProfile> FetchProfileFromEndpoint(string accessToken, CancellationToken ct)
     {
         HttpClient httpClient;
-        if (_config.DangerousAcceptAnyServerCertificate)
+        if (_allowInsecureTls)
         {
             var handler = new HttpClientHandler
             {
