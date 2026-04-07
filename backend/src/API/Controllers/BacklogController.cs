@@ -211,7 +211,13 @@ public class BacklogController : ControllerBase
         var featureIds = request?.FeatureIds ?? Array.Empty<Guid>();
         var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
 
-        var command = new SyncBacklogToAzureDevOpsCommand(repositoryId, userId, epicIds, featureIds, storyIds);
+        var command = new SyncBacklogToAzureDevOpsCommand(
+            repositoryId,
+            userId,
+            epicIds,
+            featureIds,
+            storyIds,
+            string.IsNullOrWhiteSpace(request?.ProjectName) ? null : request!.ProjectName!.Trim());
         var result = await _mediator.Send(command, cancellationToken);
 
         if (!result.Success && result.SyncedCount == 0 && result.FailedCount == 0)
@@ -223,6 +229,134 @@ public class BacklogController : ControllerBase
         {
             success = result.Success,
             syncedCount = result.SyncedCount,
+            failedCount = result.FailedCount,
+            errors = result.Errors
+        });
+    }
+
+    /// <summary>
+    /// Create selected backlog items as new work items in an Azure DevOps project/team backlog.
+    /// Organization must match the user's Settings. Use GET /api/repositories/azure-devops/projects and .../teams for picks.
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/push-to-azure-devops")]
+    [Authorize]
+    public async Task<IActionResult> PushManualItemsToAzureDevOps(Guid repositoryId, [FromBody] PushManualToAzureDevOpsRequest? request, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
+        if (request == null || string.IsNullOrWhiteSpace(request.ProjectName) || string.IsNullOrWhiteSpace(request.TeamId))
+            return BadRequest(new { message = "projectName and teamId are required." });
+
+        var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+        var org = user?.AzureDevOpsOrganization?.Trim();
+        if (string.IsNullOrEmpty(org))
+            return BadRequest(new { message = "Configure Azure DevOps organization in Settings." });
+
+        var command = new PushManualBacklogToAzureDevOpsCommand(
+            repositoryId,
+            userId,
+            org,
+            request.ProjectName.Trim(),
+            request.TeamId.Trim(),
+            request.EpicIds ?? Array.Empty<Guid>(),
+            request.FeatureIds ?? Array.Empty<Guid>(),
+            request.StoryIds ?? Array.Empty<Guid>());
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.CreatedCount == 0 && result.FailedCount == 0)
+            return BadRequest(new { success = false, message = result.Errors.FirstOrDefault() ?? "Nothing created.", errors = result.Errors });
+
+        return Ok(new
+        {
+            success = result.Success,
+            createdCount = result.CreatedCount,
+            failedCount = result.FailedCount,
+            errors = result.Errors
+        });
+    }
+
+    /// <summary>
+    /// Preview Azure sync for selected items: suggested create / push to Azure / pull from Azure per row.
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/azure-sync/plan")]
+    [Authorize]
+    public async Task<IActionResult> PlanAzureBacklogSync(Guid repositoryId, [FromBody] AzureSyncPlanRequest? request, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
+        var epicIds = request?.EpicIds ?? Array.Empty<Guid>();
+        var featureIds = request?.FeatureIds ?? Array.Empty<Guid>();
+        var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
+
+        var plan = await _mediator.Send(
+            new PlanAzureBacklogSyncQuery(repositoryId, userId, epicIds, featureIds, storyIds),
+            cancellationToken);
+        return Ok(plan);
+    }
+
+    /// <summary>
+    /// Apply unified Azure sync: create new work items, pull from Azure into DevPilot, push DevPilot to Azure.
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/azure-sync/apply")]
+    [Authorize]
+    public async Task<IActionResult> ApplyAzureBacklogSync(Guid repositoryId, [FromBody] ApplyAzureSyncRequest? request, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
+        if (request == null || string.IsNullOrWhiteSpace(request.ProjectName))
+            return BadRequest(new { message = "projectName is required." });
+
+        var createN = (request.CreateEpicIds?.Length ?? 0) + (request.CreateFeatureIds?.Length ?? 0) + (request.CreateStoryIds?.Length ?? 0);
+        var pullN = (request.PullEpicIds?.Length ?? 0) + (request.PullFeatureIds?.Length ?? 0) + (request.PullStoryIds?.Length ?? 0);
+        var pushN = (request.PushEpicIds?.Length ?? 0) + (request.PushFeatureIds?.Length ?? 0) + (request.PushStoryIds?.Length ?? 0);
+        if (createN + pullN + pushN == 0)
+            return BadRequest(new { message = "Nothing to sync: assign at least one item to create, pull, or push." });
+
+        if (createN > 0 && string.IsNullOrWhiteSpace(request.TeamId))
+            return BadRequest(new { message = "teamId is required when creating work items in Azure DevOps." });
+
+        var command = new ApplyAzureBacklogSyncCommand(
+            repositoryId,
+            userId,
+            request.ProjectName.Trim(),
+            request.TeamId?.Trim(),
+            request.PullEpicIds ?? Array.Empty<Guid>(),
+            request.PullFeatureIds ?? Array.Empty<Guid>(),
+            request.PullStoryIds ?? Array.Empty<Guid>(),
+            request.PushEpicIds ?? Array.Empty<Guid>(),
+            request.PushFeatureIds ?? Array.Empty<Guid>(),
+            request.PushStoryIds ?? Array.Empty<Guid>(),
+            request.CreateEpicIds ?? Array.Empty<Guid>(),
+            request.CreateFeatureIds ?? Array.Empty<Guid>(),
+            request.CreateStoryIds ?? Array.Empty<Guid>());
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.CreatedCount == 0 && result.PulledCount == 0 && result.PushedCount == 0 && result.FailedCount == 0)
+            return BadRequest(new { success = false, message = result.Errors.FirstOrDefault() ?? "No changes applied.", errors = result.Errors });
+
+        return Ok(new
+        {
+            success = result.Success,
+            createdCount = result.CreatedCount,
+            pulledCount = result.PulledCount,
+            pushedCount = result.PushedCount,
             failedCount = result.FailedCount,
             errors = result.Errors
         });
@@ -965,6 +1099,39 @@ public class SyncPrStatusRequest
 
 public class SyncToAzureDevOpsRequest
 {
+    public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();
+    /// <summary>Optional. When set (with org from Settings), pushes to this project for any repo provider.</summary>
+    public string? ProjectName { get; set; }
+}
+
+public class AzureSyncPlanRequest
+{
+    public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();
+}
+
+public class ApplyAzureSyncRequest
+{
+    public required string ProjectName { get; set; }
+    public string? TeamId { get; set; }
+    public Guid[] PullEpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PullFeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PullStoryIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PushEpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PushFeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PushStoryIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] CreateEpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] CreateFeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] CreateStoryIds { get; set; } = Array.Empty<Guid>();
+}
+
+public class PushManualToAzureDevOpsRequest
+{
+    public required string ProjectName { get; set; }
+    public required string TeamId { get; set; }
     public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
     public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
     public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();

@@ -100,4 +100,12 @@ public class UserStory : Entity
         GitHubIssueNumber = number;
         MarkAsUpdated();
     }
+
+    public void SetSource(string source)
+    {
+        if (string.IsNullOrWhiteSpace(source))
+            throw new ArgumentException("Source cannot be empty", nameof(source));
+        Source = source;
+        MarkAsUpdated();
+    }
 }

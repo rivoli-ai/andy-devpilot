@@ -274,27 +274,88 @@ export class BacklogService {
   }
 
   /**
-   * Sync backlog items imported from Azure DevOps back to Azure DevOps
-   * Updates title, description, status, story points, acceptance criteria
-   * When epicIds, featureIds, storyIds are provided, only those items are synced.
+   * Preview unified Azure sync: per-item suggested create / push / pull.
    */
+  planAzureSync(
+    repositoryId: string,
+    body: { epicIds: string[]; featureIds: string[]; storyIds: string[] }
+  ): Observable<AzureSyncPlanResponse> {
+    return this.apiService.post<AzureSyncPlanResponse>(
+      `/backlog/repository/${repositoryId}/azure-sync/plan`,
+      body
+    );
+  }
+
+  /**
+   * Apply unified Azure sync (create in ADO, pull from ADO into backlog, push backlog to ADO).
+   */
+  applyAzureSync(repositoryId: string, body: ApplyAzureSyncRequest): Observable<ApplyAzureSyncResponse> {
+    return this.apiService
+      .post<ApplyAzureSyncResponse>(`/backlog/repository/${repositoryId}/azure-sync/apply`, body)
+      .pipe(
+        tap(res => {
+          if (res.createdCount > 0 || res.pulledCount > 0 || res.pushedCount > 0) {
+            this.getBacklog(repositoryId).subscribe();
+          }
+        })
+      );
+  }
+
+  /**
+   * Create selected backlog items as new work items in an Azure DevOps project/team.
+   * Items that already have azureDevOpsWorkItemId are skipped. Organization comes from Settings.
+   */
+  pushManualToAzureDevOps(
+    repositoryId: string,
+    body: {
+      projectName: string;
+      teamId: string;
+      epicIds: string[];
+      featureIds: string[];
+      storyIds: string[];
+    }
+  ): Observable<PushToAzureDevOpsResponse> {
+    return this.apiService
+      .post<PushToAzureDevOpsResponse>(`/backlog/repository/${repositoryId}/push-to-azure-devops`, {
+        projectName: body.projectName,
+        teamId: body.teamId,
+        epicIds: body.epicIds,
+        featureIds: body.featureIds,
+        storyIds: body.storyIds
+      })
+      .pipe(
+        tap(response => {
+          if (response.createdCount > 0) {
+            this.getBacklog(repositoryId).subscribe();
+          }
+        })
+      );
+  }
+
   syncToAzureDevOps(
     repositoryId: string,
-    options?: { epicIds?: string[]; featureIds?: string[]; storyIds?: string[] }
+    options?: {
+      epicIds?: string[];
+      featureIds?: string[];
+      storyIds?: string[];
+      /** When set with org in Settings, updates work items in this project (any linked repo). */
+      projectName?: string;
+    }
   ): Observable<SyncToAzureDevOpsResponse> {
-    const body = options
+    const body: Record<string, unknown> = options
       ? {
           epicIds: options.epicIds ?? [],
           featureIds: options.featureIds ?? [],
           storyIds: options.storyIds ?? []
         }
       : {};
+    if (options?.projectName) body['projectName'] = options.projectName;
     return this.apiService.post<SyncToAzureDevOpsResponse>(
       `/backlog/repository/${repositoryId}/sync-to-azure-devops`,
       body
     ).pipe(
       tap(response => {
-        if (response.success && response.syncedCount > 0) {
+        if (response.syncedCount > 0) {
           this.getBacklog(repositoryId).subscribe();
         }
       })
@@ -782,6 +843,52 @@ export class BacklogService {
 export interface SyncToAzureDevOpsResponse {
   success: boolean;
   syncedCount: number;
+  failedCount: number;
+  errors: string[];
+}
+
+export interface PushToAzureDevOpsResponse {
+  success: boolean;
+  createdCount: number;
+  failedCount: number;
+  errors: string[];
+}
+
+export type AzureSyncDirection = 'create' | 'push' | 'pull';
+
+export interface AzureSyncPlanItemResponse {
+  entityType: string;
+  id: string;
+  title: string;
+  source?: string;
+  azureDevOpsWorkItemId?: number;
+  suggestedDirection: AzureSyncDirection;
+}
+
+export interface AzureSyncPlanResponse {
+  items: AzureSyncPlanItemResponse[];
+  summary: { create: number; push: number; pull: number };
+}
+
+export interface ApplyAzureSyncRequest {
+  projectName: string;
+  teamId?: string;
+  pullEpicIds: string[];
+  pullFeatureIds: string[];
+  pullStoryIds: string[];
+  pushEpicIds: string[];
+  pushFeatureIds: string[];
+  pushStoryIds: string[];
+  createEpicIds: string[];
+  createFeatureIds: string[];
+  createStoryIds: string[];
+}
+
+export interface ApplyAzureSyncResponse {
+  success: boolean;
+  createdCount: number;
+  pulledCount: number;
+  pushedCount: number;
   failedCount: number;
   errors: string[];
 }

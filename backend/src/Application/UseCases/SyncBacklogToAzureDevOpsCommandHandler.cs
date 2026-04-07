@@ -11,7 +11,9 @@ public record SyncBacklogToAzureDevOpsCommand(
     Guid UserId,
     IReadOnlyList<Guid> EpicIds,
     IReadOnlyList<Guid> FeatureIds,
-    IReadOnlyList<Guid> StoryIds) : IRequest<SyncBacklogToAzureDevOpsResult>;
+    IReadOnlyList<Guid> StoryIds,
+    /// <summary>When set, sync uses Settings org + this project (any repo). When null, org/project come from an Azure DevOps-linked repo full name.</summary>
+    string? TargetProjectName = null) : IRequest<SyncBacklogToAzureDevOpsResult>;
 
 public class SyncBacklogToAzureDevOpsResult
 {
@@ -61,31 +63,48 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
             return result;
         }
 
-        if (repository.Provider != "AzureDevOps")
-        {
-            result.Success = false;
-            result.Errors.Add("Repository is not from Azure DevOps. Sync is only supported for Azure DevOps repositories.");
-            return result;
-        }
-
-        // Parse org and project from FullName: "org/project/repo"
-        var parts = repository.FullName.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2)
-        {
-            result.Success = false;
-            result.Errors.Add($"Repository full name '{repository.FullName}' is invalid. Expected format: org/project/repo");
-            return result;
-        }
-
-        var organization = parts[0];
-        var project = parts[1];
-
         var user = await _userRepository.GetByIdAsync(command.UserId, cancellationToken);
         if (user == null)
         {
             result.Success = false;
             result.Errors.Add("User not found");
             return result;
+        }
+
+        string organization;
+        string project;
+        var targetProject = command.TargetProjectName?.Trim();
+        if (!string.IsNullOrEmpty(targetProject))
+        {
+            if (string.IsNullOrWhiteSpace(user.AzureDevOpsOrganization))
+            {
+                result.Success = false;
+                result.Errors.Add("Configure Azure DevOps organization in Settings when using a target project.");
+                return result;
+            }
+
+            organization = user.AzureDevOpsOrganization.Trim();
+            project = targetProject;
+        }
+        else
+        {
+            if (repository.Provider != "AzureDevOps")
+            {
+                result.Success = false;
+                result.Errors.Add("Repository is not from Azure DevOps. Choose a target project in the sync dialog, or open an Azure DevOps repository.");
+                return result;
+            }
+
+            var parts = repository.FullName.Split('/', StringSplitOptions.RemoveEmptyEntries);
+            if (parts.Length < 2)
+            {
+                result.Success = false;
+                result.Errors.Add($"Repository full name '{repository.FullName}' is invalid. Expected format: org/project/repo");
+                return result;
+            }
+
+            organization = parts[0];
+            project = parts[1];
         }
 
         string accessToken;
@@ -113,7 +132,7 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
         var storyIdsSet = command.StoryIds.Count > 0 ? new HashSet<Guid>(command.StoryIds) : null;
         var filterBySelection = epicIdsSet != null || featureIdsSet != null || storyIdsSet != null;
 
-        foreach (var epic in epics.Where(e => e.Source == "AzureDevOps" && e.AzureDevOpsWorkItemId.HasValue))
+        foreach (var epic in epics.Where(e => e.AzureDevOpsWorkItemId.HasValue))
         {
             if (filterBySelection && (epicIdsSet == null || !epicIdsSet.Contains(epic.Id)))
                 continue;
@@ -122,7 +141,7 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
 
         foreach (var epic in epics)
         {
-            foreach (var feature in epic.Features.Where(f => f.Source == "AzureDevOps" && f.AzureDevOpsWorkItemId.HasValue))
+            foreach (var feature in epic.Features.Where(f => f.AzureDevOpsWorkItemId.HasValue))
             {
                 if (filterBySelection && (featureIdsSet == null || !featureIdsSet.Contains(feature.Id)))
                     continue;
@@ -131,7 +150,7 @@ public class SyncBacklogToAzureDevOpsCommandHandler : IRequestHandler<SyncBacklo
 
             foreach (var feature in epic.Features)
             {
-                foreach (var story in feature.UserStories.Where(s => s.Source == "AzureDevOps" && s.AzureDevOpsWorkItemId.HasValue))
+                foreach (var story in feature.UserStories.Where(s => s.AzureDevOpsWorkItemId.HasValue))
                 {
                     if (filterBySelection && (storyIdsSet == null || !storyIdsSet.Contains(story.Id)))
                         continue;

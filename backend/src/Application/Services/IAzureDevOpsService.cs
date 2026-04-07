@@ -88,6 +88,17 @@ public interface IAzureDevOpsService
         bool useBasicAuth = false);
 
     /// <summary>
+    /// Fetches work items by id with standard fields (title, description, state, story points, AC).
+    /// </summary>
+    System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsWorkItemDto>> GetWorkItemsByIdsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        IReadOnlyList<int> workItemIds,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
+    /// <summary>
     /// Updates a work item in Azure DevOps using JSON Patch
     /// </summary>
     System.Threading.Tasks.Task UpdateWorkItemAsync(
@@ -96,6 +107,40 @@ public interface IAzureDevOpsService
         string project,
         int workItemId,
         IReadOnlyList<AzureDevOpsWorkItemPatchOperation> patches,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
+    /// <summary>
+    /// Creates a work item (e.g. Epic, Feature, User Story) and optionally links it under a parent.
+    /// </summary>
+    System.Threading.Tasks.Task<int> CreateWorkItemAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string workItemTypeName,
+        IReadOnlyList<AzureDevOpsWorkItemPatchOperation> fieldPatches,
+        int? parentWorkItemId,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
+    /// <summary>
+    /// Reads team backlog settings (default area path, backlog iteration path).
+    /// </summary>
+    System.Threading.Tasks.Task<AzureDevOpsTeamSettingsDto?> GetTeamSettingsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string teamId,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
+    /// <summary>
+    /// Resolves Agile-style work item type display names available in the project (Epic, Feature, User Story / PBI).
+    /// </summary>
+    System.Threading.Tasks.Task<AzureDevOpsBacklogWorkItemTypesDto> ResolveBacklogWorkItemTypesAsync(
+        string accessToken,
+        string organization,
+        string project,
         CancellationToken cancellationToken = default,
         bool useBasicAuth = false);
 
@@ -309,4 +354,17 @@ public class AzureDevOpsFeedDto
     public string? FullyQualifiedName { get; set; }
     public string? Project { get; set; }
     public string? Url { get; set; }
+}
+
+public class AzureDevOpsTeamSettingsDto
+{
+    public string? DefaultAreaPath { get; set; }
+    public string? BacklogIterationPath { get; set; }
+}
+
+public class AzureDevOpsBacklogWorkItemTypesDto
+{
+    public string? EpicTypeName { get; set; }
+    public string? FeatureTypeName { get; set; }
+    public string? StoryTypeName { get; set; }
 }

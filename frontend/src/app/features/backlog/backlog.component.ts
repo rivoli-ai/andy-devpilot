@@ -3,7 +3,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE } from '../../core/services/backlog.service';
+import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection } from '../../core/services/backlog.service';
 import { RepositoryService, DEFAULT_AGENT_RULES } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
 import { SandboxService } from '../../core/services/sandbox.service';
@@ -125,10 +125,6 @@ export class BacklogComponent implements OnInit, OnDestroy {
   adoShowAllStatuses = signal<boolean>(false);
   adoNameFilter = signal<string>('');
 
-  // Sync to Azure DevOps state
-  syncToAzureDevOpsLoading = signal<boolean>(false);
-  syncToAzureDevOpsError = signal<string | null>(null);
-  syncToAzureDevOpsSuccess = signal<{ syncedCount: number; failedCount: number } | null>(null);
   // Sync to GitHub state
   syncToGitHubLoading = signal<boolean>(false);
   syncToGitHubError = signal<string | null>(null);
@@ -136,6 +132,32 @@ export class BacklogComponent implements OnInit, OnDestroy {
   selectedSyncToAzureEpics = signal<Set<string>>(new Set());
   selectedSyncToAzureFeatures = signal<Set<string>>(new Set());
   selectedSyncToAzureStories = signal<Set<string>>(new Set());
+
+  /** Unified Azure sync: plan per-item direction, then create / pull / push. */
+  showAzureSyncModal = signal<boolean>(false);
+  azureSyncStep = signal<'target' | 'plan' | 'loading'>('target');
+  /** True when we skipped project/team because every selected row already had an Azure work item id. */
+  azureSyncSkippedTarget = signal<boolean>(false);
+  azureSyncOrg = signal<string>('');
+  azureSyncProject = signal<string>('');
+  azureSyncTeamId = signal<string>('');
+  azureSyncProjects = signal<AzureDevOpsProject[]>([]);
+  azureSyncTeams = signal<AzureDevOpsTeam[]>([]);
+  azureSyncProjectsLoading = signal<boolean>(false);
+  azureSyncTeamsLoading = signal<boolean>(false);
+  azureSyncModalError = signal<string | null>(null);
+  azureSyncPlanLoading = signal<boolean>(false);
+  azureSyncApplyLoading = signal<boolean>(false);
+  azureSyncPlanRows = signal<Array<AzureSyncPlanItemResponse & { direction: AzureSyncDirection }>>([]);
+  /** Server-suggested counts before user changes per-row direction (plan step). */
+  azureSyncPlanSuggestedSummary = signal<{ create: number; push: number; pull: number } | null>(null);
+  azureSyncBannerError = signal<string | null>(null);
+  azureSyncBannerSuccess = signal<{
+    createdCount: number;
+    pulledCount: number;
+    pushedCount: number;
+    failedCount: number;
+  } | null>(null);
 
   // GitHub import state
   showGitHubImport = signal<boolean>(false);
@@ -195,6 +217,19 @@ export class BacklogComponent implements OnInit, OnDestroy {
       }))
     )
   );
+
+  /** Live counts in the unified Azure sync plan step (by chosen direction per row). */
+  azureSyncPlanCounts = computed(() => {
+    let create = 0;
+    let push = 0;
+    let pull = 0;
+    for (const r of this.azureSyncPlanRows()) {
+      if (r.direction === 'create') create++;
+      else if (r.direction === 'pull') pull++;
+      else push++;
+    }
+    return { create, push, pull };
+  });
 
   hasAzureDevOpsImportedItems = computed(() => {
     const epics = this.epics();
@@ -1716,33 +1751,19 @@ ${jsonFormatRequirement}`;
     return 'status-new';
   }
 
-  /**
-   * Compact status label: two letters for composite (spaces, underscores, camelCase),
-   * otherwise one letter — except known pipeline states use stable abbreviations
-   * (`PR`, `IP`, `D`, `BL`). Backlog / new / todo show `B`; other backlog-style
-   * unknowns use the first letter of the display word.
-   */
-  getStatusAbbreviation(status: string): string {
-    const raw = (status || '').trim();
-    if (!raw) return '?';
-
-    const expanded = raw.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2');
-    const words = expanded.split(/\s+/).filter(w => w.length > 0);
-    if (words.length >= 2) {
-      return (words[0][0] + words[1][0]).toUpperCase();
-    }
-
+  /** Short readable label for status pills (not raw ADO strings). */
+  getStatusLabel(status: string): string {
     const norm = this.normalizeStatus(status);
-    if (norm === 'done') return 'D';
-    if (norm === 'pendingreview') return 'PR';
-    if (norm === 'inprogress') return 'IP';
-    if (norm === 'blocked') return 'BL';
-    if (norm === 'new') {
-      const w = words[0].toLowerCase();
-      if (w === 'backlog' || w === 'new' || w === 'todo') return 'B';
-      return words[0][0].toUpperCase();
-    }
-    return words[0]?.[0]?.toUpperCase() ?? '?';
+    if (norm === 'done') return 'Done';
+    if (norm === 'pendingreview') return 'Review';
+    if (norm === 'inprogress') return 'In progress';
+    if (norm === 'blocked') return 'Blocked';
+    const raw = (status || '').trim();
+    if (!raw) return 'Backlog';
+    const expanded = raw.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').trim();
+    const words = expanded.split(/\s+/).filter(w => w.length > 0);
+    if (words.length === 0) return 'Backlog';
+    return words.map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase()).join(' ');
   }
 
   getStatusPercentage(status: string): number {
@@ -1995,48 +2016,323 @@ ${jsonFormatRequirement}`;
     return null;
   }
 
-  syncToAzureDevOps(): void {
-    const repoId = this.repositoryId();
-    if (!repoId) return;
-    this.syncToAzureDevOpsLoading.set(true);
-    this.syncToAzureDevOpsError.set(null);
-    this.syncToAzureDevOpsSuccess.set(null);
-    const epics = this.epics();
-    const epicIds = Array.from(this.selectedSyncToAzureEpics()).filter(id => {
-      const e = epics.find(x => x.id === id);
-      return e?.source === 'AzureDevOps' && e?.azureDevOpsWorkItemId;
-    });
-    const featureIds = Array.from(this.selectedSyncToAzureFeatures()).filter(id => {
-      for (const e of epics) {
-        const f = e.features?.find(x => x.id === id);
-        if (f) return f.source === 'AzureDevOps' && f.azureDevOpsWorkItemId;
+  openAzureSyncModal(): void {
+    if (!this.hasSyncSelection()) return;
+    this.showAzureSyncModal.set(true);
+    this.azureSyncModalError.set(null);
+    this.azureSyncPlanRows.set([]);
+    this.azureSyncPlanSuggestedSummary.set(null);
+    this.azureSyncProject.set('');
+    this.azureSyncTeamId.set('');
+    this.azureSyncTeams.set([]);
+    this.azureSyncProjects.set([]);
+    this.azureSyncOrg.set('');
+    this.azureSyncSkippedTarget.set(false);
+
+    const repo = this.repository();
+    if (repo?.provider === 'AzureDevOps' && repo.fullName) {
+      const parts = repo.fullName.split('/');
+      if (parts.length >= 2) {
+        this.azureSyncProject.set(parts[1]);
       }
-      return false;
-    });
-    const storyIds = Array.from(this.selectedSyncToAzureStories()).filter(id => {
-      for (const e of epics) {
-        for (const f of e.features || []) {
-          const s = f.userStories?.find(x => x.id === id);
-          if (s) return s.source === 'AzureDevOps' && s.azureDevOpsWorkItemId;
-        }
-      }
-      return false;
-    });
-    this.backlogService.syncToAzureDevOps(repoId, { epicIds, featureIds, storyIds }).subscribe({
-      next: (res) => {
-        this.syncToAzureDevOpsLoading.set(false);
-        if (res.success) {
-          this.syncToAzureDevOpsSuccess.set({ syncedCount: res.syncedCount, failedCount: res.failedCount });
-        } else {
-          this.syncToAzureDevOpsError.set(res.errors?.[0] || 'Sync failed');
-          this.syncToAzureDevOpsSuccess.set(res.syncedCount > 0 ? { syncedCount: res.syncedCount, failedCount: res.failedCount } : null);
+    }
+
+    const skipTarget = this.allSelectedItemsLinkedToAzure();
+    this.azureSyncSkippedTarget.set(skipTarget);
+
+    this.authService.getProviderSettings().subscribe({
+      next: (settings) => {
+        this.azureSyncOrg.set(settings.azureDevOpsOrganization ?? '');
+        if (settings.azureDevOpsOrganization) {
+          this.loadAzureSyncProjects();
         }
       },
-      error: (err) => {
-        this.syncToAzureDevOpsLoading.set(false);
-        this.syncToAzureDevOpsError.set(err.error?.message || err.message || 'Failed to sync to Azure DevOps');
+      error: (err) => console.error('Failed to load provider settings:', err)
+    });
+
+    if (skipTarget) {
+      this.azureSyncStep.set('loading');
+      this.fetchAzureSyncPlan();
+    } else {
+      this.azureSyncStep.set('target');
+    }
+  }
+
+  closeAzureSyncModal(): void {
+    this.showAzureSyncModal.set(false);
+    this.azureSyncModalError.set(null);
+    this.azureSyncStep.set('target');
+    this.azureSyncPlanSuggestedSummary.set(null);
+    this.azureSyncSkippedTarget.set(false);
+  }
+
+  /** Every selected backlog row already has an Azure DevOps work item id — no “create in Azure” step. */
+  private allSelectedItemsLinkedToAzure(): boolean {
+    const epics = this.epics();
+    const epicSel = this.selectedSyncToAzureEpics();
+    const featureSel = this.selectedSyncToAzureFeatures();
+    const storySel = this.selectedSyncToAzureStories();
+    if (epicSel.size + featureSel.size + storySel.size === 0) return false;
+
+    for (const id of epicSel) {
+      const e = epics.find((x) => x.id === id);
+      if (!e?.azureDevOpsWorkItemId) return false;
+    }
+    for (const id of featureSel) {
+      let f: Feature | undefined;
+      for (const epic of epics) {
+        f = epic.features?.find((x) => x.id === id);
+        if (f) break;
+      }
+      if (!f?.azureDevOpsWorkItemId) return false;
+    }
+    for (const id of storySel) {
+      let s: UserStory | undefined;
+      outer: for (const epic of epics) {
+        for (const feat of epic.features || []) {
+          s = feat.userStories?.find((x) => x.id === id);
+          if (s) break outer;
+        }
+      }
+      if (!s?.azureDevOpsWorkItemId) return false;
+    }
+    return true;
+  }
+
+  /** Show project picker on plan step (non–Azure DevOps repo or project not inferred). */
+  azureSyncShowProjectOnPlanStep(): boolean {
+    const repo = this.repository();
+    if (repo?.provider !== 'AzureDevOps') return true;
+    return !this.azureSyncProject().trim();
+  }
+
+  loadAzureSyncProjects(): void {
+    this.azureSyncProjectsLoading.set(true);
+    this.backlogService.getAzureDevOpsProjects().subscribe({
+      next: (projects) => {
+        this.azureSyncProjects.set(projects);
+        this.azureSyncProjectsLoading.set(false);
+        const project = this.azureSyncProject();
+        if (project) {
+          this.loadAzureSyncTeams(project);
+        }
+      },
+      error: () => {
+        this.azureSyncProjectsLoading.set(false);
       }
     });
+  }
+
+  onAzureSyncProjectChange(): void {
+    this.azureSyncTeamId.set('');
+    this.azureSyncTeams.set([]);
+    const project = this.azureSyncProject();
+    if (project) {
+      this.loadAzureSyncTeams(project);
+    }
+  }
+
+  loadAzureSyncTeams(projectName: string): void {
+    this.azureSyncTeamsLoading.set(true);
+    this.backlogService.getAzureDevOpsTeams(projectName).subscribe({
+      next: (teams) => {
+        this.azureSyncTeams.set(teams);
+        this.azureSyncTeamsLoading.set(false);
+      },
+      error: () => {
+        this.azureSyncTeamsLoading.set(false);
+      }
+    });
+  }
+
+  continueAzureSyncToPlan(): void {
+    if (!this.azureSyncOrg()) {
+      this.azureSyncModalError.set('Configure your Azure organization in Settings.');
+      return;
+    }
+    const project = this.azureSyncProject().trim();
+    if (!project) {
+      this.azureSyncModalError.set('Select a project.');
+      return;
+    }
+    this.azureSyncModalError.set(null);
+    this.fetchAzureSyncPlan();
+  }
+
+  private fetchAzureSyncPlan(): void {
+    const repoId = this.repositoryId();
+    if (!repoId) return;
+    this.azureSyncPlanLoading.set(true);
+    const epicIds = Array.from(this.selectedSyncToAzureEpics());
+    const featureIds = Array.from(this.selectedSyncToAzureFeatures());
+    const storyIds = Array.from(this.selectedSyncToAzureStories());
+
+    this.backlogService
+      .planAzureSync(repoId, { epicIds, featureIds, storyIds })
+      .subscribe({
+        next: (plan) => {
+          this.azureSyncPlanLoading.set(false);
+          if (!plan.items?.length) {
+            this.azureSyncModalError.set('No matching backlog rows for the current selection.');
+            if (this.azureSyncSkippedTarget()) {
+              this.azureSyncSkippedTarget.set(false);
+              this.azureSyncStep.set('target');
+            }
+            return;
+          }
+          const createCount = plan.summary?.create ?? 0;
+          if (createCount > 0 && this.azureSyncSkippedTarget()) {
+            this.azureSyncSkippedTarget.set(false);
+            this.azureSyncStep.set('target');
+            this.azureSyncModalError.set(
+              'Some selected items are not linked to Azure yet. Choose a project and team, then continue to plan.'
+            );
+            return;
+          }
+          this.azureSyncPlanRows.set(
+            plan.items.map((it) => ({
+              ...it,
+              direction: it.suggestedDirection
+            }))
+          );
+          this.azureSyncPlanSuggestedSummary.set(plan.summary ?? null);
+          this.azureSyncStep.set('plan');
+        },
+        error: (err) => {
+          this.azureSyncPlanLoading.set(false);
+          this.azureSyncModalError.set(err.error?.message || err.message || 'Could not build sync plan.');
+          if (this.azureSyncSkippedTarget()) {
+            this.azureSyncSkippedTarget.set(false);
+            this.azureSyncStep.set('target');
+          }
+        }
+      });
+  }
+
+  setAzureSyncRowDirection(
+    row: AzureSyncPlanItemResponse & { direction: AzureSyncDirection },
+    direction: AzureSyncDirection | string
+  ): void {
+    const d = direction as AzureSyncDirection;
+    if (!row.azureDevOpsWorkItemId && d !== 'create') return;
+    if (row.azureDevOpsWorkItemId && d === 'create') return;
+    const rows = this.azureSyncPlanRows().map((r) =>
+      r.id === row.id && r.entityType === row.entityType ? { ...r, direction: d } : r
+    );
+    this.azureSyncPlanRows.set(rows);
+  }
+
+  backToAzureSyncTarget(): void {
+    if (this.azureSyncSkippedTarget()) {
+      this.closeAzureSyncModal();
+      return;
+    }
+    this.azureSyncStep.set('target');
+    this.azureSyncModalError.set(null);
+  }
+
+  submitAzureSyncApply(): void {
+    const repoId = this.repositoryId();
+    if (!repoId) return;
+    const project = this.azureSyncProject().trim();
+    if (!project) {
+      this.azureSyncModalError.set('Select an Azure project.');
+      return;
+    }
+    const teamId = this.azureSyncTeamId().trim();
+    const rows = this.azureSyncPlanRows();
+    const createEpicIds: string[] = [];
+    const createFeatureIds: string[] = [];
+    const createStoryIds: string[] = [];
+    const pullEpicIds: string[] = [];
+    const pullFeatureIds: string[] = [];
+    const pullStoryIds: string[] = [];
+    const pushEpicIds: string[] = [];
+    const pushFeatureIds: string[] = [];
+    const pushStoryIds: string[] = [];
+
+    for (const r of rows) {
+      const id = r.id;
+      if (r.direction === 'create') {
+        if (r.entityType === 'epic') createEpicIds.push(id);
+        else if (r.entityType === 'feature') createFeatureIds.push(id);
+        else createStoryIds.push(id);
+      } else if (r.direction === 'pull') {
+        if (r.entityType === 'epic') pullEpicIds.push(id);
+        else if (r.entityType === 'feature') pullFeatureIds.push(id);
+        else pullStoryIds.push(id);
+      } else {
+        if (r.entityType === 'epic') pushEpicIds.push(id);
+        else if (r.entityType === 'feature') pushFeatureIds.push(id);
+        else pushStoryIds.push(id);
+      }
+    }
+
+    const anyCreate = createEpicIds.length + createFeatureIds.length + createStoryIds.length > 0;
+    if (anyCreate && !teamId) {
+      this.azureSyncModalError.set('Select a team — it is required to create new work items.');
+      return;
+    }
+
+    this.azureSyncModalError.set(null);
+    this.azureSyncApplyLoading.set(true);
+
+    this.backlogService
+      .applyAzureSync(repoId, {
+        projectName: project,
+        teamId: anyCreate ? teamId : undefined,
+        pullEpicIds,
+        pullFeatureIds,
+        pullStoryIds,
+        pushEpicIds,
+        pushFeatureIds,
+        pushStoryIds,
+        createEpicIds,
+        createFeatureIds,
+        createStoryIds
+      })
+      .subscribe({
+        next: (res) => {
+          this.azureSyncApplyLoading.set(false);
+          this.closeAzureSyncModal();
+          this.azureSyncBannerError.set(null);
+          const touched =
+            res.createdCount + res.pulledCount + res.pushedCount > 0;
+          if (touched) {
+            this.loadBacklog(repoId);
+          }
+          if (res.success) {
+            this.azureSyncBannerSuccess.set({
+              createdCount: res.createdCount,
+              pulledCount: res.pulledCount,
+              pushedCount: res.pushedCount,
+              failedCount: res.failedCount
+            });
+          } else {
+            this.azureSyncBannerError.set(res.errors?.[0] || 'Some sync operations failed.');
+            this.azureSyncBannerSuccess.set(
+              touched
+                ? {
+                    createdCount: res.createdCount,
+                    pulledCount: res.pulledCount,
+                    pushedCount: res.pushedCount,
+                    failedCount: res.failedCount
+                  }
+                : null
+            );
+          }
+        },
+        error: (err) => {
+          this.azureSyncApplyLoading.set(false);
+          const msg =
+            err.error?.message ||
+            err.error?.errors?.[0] ||
+            (Array.isArray(err.error?.errors) ? err.error.errors.join(' ') : null) ||
+            err.message ||
+            'Request failed';
+          this.azureSyncModalError.set(msg);
+        }
+      });
   }
 
   syncToGitHub(): void {
@@ -2187,7 +2483,7 @@ ${jsonFormatRequirement}`;
     }
 
     if (!org) {
-      this.azureDevOpsError.set('Please configure your Azure DevOps organization in Settings first');
+      this.azureDevOpsError.set('Please configure your Azure organization in Settings first');
       return;
     }
 

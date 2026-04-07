@@ -708,6 +708,52 @@ public class AzureDevOpsService : IAzureDevOpsService
         return result;
     }
 
+    public async System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsWorkItemDto>> GetWorkItemsByIdsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        IReadOnlyList<int> workItemIds,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        if (workItemIds == null || workItemIds.Count == 0)
+            return Array.Empty<AzureDevOpsWorkItemDto>();
+
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        const int chunkSize = 200;
+        var result = new List<AzureDevOpsWorkItemDto>();
+
+        for (var offset = 0; offset < workItemIds.Count; offset += chunkSize)
+        {
+            var chunk = workItemIds.Skip(offset).Take(chunkSize).Distinct().ToList();
+            if (chunk.Count == 0) continue;
+            var idsParam = string.Join(",", chunk);
+            var url =
+                $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/_apis/wit/workitems?ids={idsParam}&api-version={AzureDevOpsApiVersion}";
+
+            var response = await httpClient.GetAsync(url, cancellationToken);
+            var content = await response.Content.ReadAsStringAsync(cancellationToken);
+            if (!response.IsSuccessStatusCode || content.TrimStart().StartsWith("<"))
+            {
+                _logger.LogWarning("Get work items by ids failed {Status}: {Body}", response.StatusCode, content);
+                continue;
+            }
+
+            var doc = JsonDocument.Parse(content);
+            if (doc.RootElement.TryGetProperty("value", out var valueArray))
+            {
+                foreach (var item in valueArray.EnumerateArray())
+                {
+                    var dto = ParseWorkItem(item, organization, project);
+                    if (dto != null)
+                        result.Add(dto);
+                }
+            }
+        }
+
+        return result;
+    }
+
     public async System.Threading.Tasks.Task UpdateWorkItemAsync(
         string accessToken,
         string organization,
@@ -742,6 +788,198 @@ public class AzureDevOpsService : IAzureDevOpsService
         }
 
         _logger.LogInformation("Updated Azure DevOps work item {WorkItemId}", workItemId);
+    }
+
+    public async System.Threading.Tasks.Task<int> CreateWorkItemAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string workItemTypeName,
+        IReadOnlyList<AzureDevOpsWorkItemPatchOperation> fieldPatches,
+        int? parentWorkItemId,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(workItemTypeName);
+        if (fieldPatches == null || fieldPatches.Count == 0)
+            throw new ArgumentException("At least one patch is required", nameof(fieldPatches));
+
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var typeSegment = "$" + Uri.EscapeDataString(workItemTypeName);
+        var url =
+            $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/_apis/wit/workitems/{typeSegment}?api-version={AzureDevOpsApiVersion}";
+
+        var patchArray = fieldPatches.Select(p => new Dictionary<string, object?>
+        {
+            ["op"] = p.Op,
+            ["path"] = p.Path,
+            ["value"] = p.Value
+        }).ToList();
+
+        if (parentWorkItemId.HasValue)
+        {
+            var parentUrl =
+                $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/_apis/wit/workitems/{parentWorkItemId.Value}";
+            patchArray.Add(new Dictionary<string, object?>
+            {
+                ["op"] = "add",
+                ["path"] = "/relations/-",
+                ["value"] = new Dictionary<string, object?>
+                {
+                    ["rel"] = "System.LinkTypes.Hierarchy-Reverse",
+                    ["url"] = parentUrl
+                }
+            });
+        }
+
+        var json = JsonSerializer.Serialize(patchArray);
+        var content = new StringContent(json, Encoding.UTF8, "application/json-patch+json");
+
+        var response = await httpClient.PostAsync(url, content, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogError("Azure DevOps create work item failed: {StatusCode} - {Content}", response.StatusCode, body);
+            throw new HttpRequestException($"Azure DevOps API returned {response.StatusCode}: {body}");
+        }
+
+        var doc = JsonDocument.Parse(body);
+        var id = doc.RootElement.GetProperty("id").GetInt32();
+        _logger.LogInformation("Created Azure DevOps work item {WorkItemId} type {Type}", id, workItemTypeName);
+        return id;
+    }
+
+    public async System.Threading.Tasks.Task<AzureDevOpsTeamSettingsDto?> GetTeamSettingsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string teamId,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var url =
+            $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/{AzureDevOpsPathSegment(teamId, nameof(teamId))}/_apis/work/teamsettings?api-version={AzureDevOpsApiVersion}";
+
+        var response = await httpClient.GetAsync(url, cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (content.TrimStart().StartsWith("<"))
+        {
+            _logger.LogError("Azure DevOps team settings returned HTML");
+            throw new InvalidOperationException("Azure DevOps authentication failed when reading team settings.");
+        }
+
+        if (!response.IsSuccessStatusCode)
+        {
+            _logger.LogWarning("Team settings failed {Status}: {Body}", response.StatusCode, content);
+            return null;
+        }
+
+        var doc = JsonDocument.Parse(content);
+        var root = doc.RootElement;
+        // REST 7.x TeamSettings often omits teamField; default area lives on teamfieldvalues (same as boards / WIQL).
+        string? area = null;
+        if (root.TryGetProperty("teamField", out var tf) && tf.TryGetProperty("defaultValue", out var dv))
+            area = NonEmptyPath(dv.GetString());
+
+        string? iteration = null;
+        if (root.TryGetProperty("backlogIteration", out var bi) && bi.ValueKind == JsonValueKind.Object &&
+            bi.TryGetProperty("path", out var bip))
+            iteration = NonEmptyPath(bip.GetString());
+        if (iteration == null && root.TryGetProperty("defaultIteration", out var di) && di.ValueKind == JsonValueKind.Object &&
+            di.TryGetProperty("path", out var dip))
+            iteration = NonEmptyPath(dip.GetString());
+
+        if (string.IsNullOrEmpty(area))
+        {
+            var teamFieldValuesUrl =
+                $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/{AzureDevOpsPathSegment(teamId, nameof(teamId))}/_apis/work/teamsettings/teamfieldvalues?api-version={AzureDevOpsApiVersion}";
+            var tfvResponse = await httpClient.GetAsync(teamFieldValuesUrl, cancellationToken);
+            var tfvContent = await tfvResponse.Content.ReadAsStringAsync(cancellationToken);
+            if (tfvResponse.IsSuccessStatusCode && !tfvContent.TrimStart().StartsWith("<"))
+            {
+                try
+                {
+                    var tfvDoc = JsonDocument.Parse(tfvContent);
+                    var tfvRoot = tfvDoc.RootElement;
+                    if (tfvRoot.TryGetProperty("defaultValue", out var defVal))
+                        area = NonEmptyPath(defVal.GetString());
+                    if (string.IsNullOrEmpty(area) && tfvRoot.TryGetProperty("values", out var valuesArr))
+                    {
+                        foreach (var v in valuesArr.EnumerateArray())
+                        {
+                            if (!v.TryGetProperty("value", out var valProp)) continue;
+                            area = NonEmptyPath(valProp.GetString());
+                            if (!string.IsNullOrEmpty(area)) break;
+                        }
+                    }
+                }
+                catch (JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Could not parse teamfieldvalues for team {TeamId}", teamId);
+                }
+            }
+            else
+                _logger.LogWarning("Team field values failed {Status} for team {TeamId}: {Body}", tfvResponse.StatusCode, teamId, tfvContent);
+        }
+
+        return new AzureDevOpsTeamSettingsDto
+        {
+            DefaultAreaPath = area,
+            BacklogIterationPath = iteration
+        };
+    }
+
+    /// <summary>Azure often returns whitespace/empty for unset paths; treat as missing.</summary>
+    private static string? NonEmptyPath(string? value) =>
+        string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+
+    public async System.Threading.Tasks.Task<AzureDevOpsBacklogWorkItemTypesDto> ResolveBacklogWorkItemTypesAsync(
+        string accessToken,
+        string organization,
+        string project,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var url =
+            $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/_apis/wit/workitemtypes?api-version={AzureDevOpsApiVersion}";
+
+        var response = await httpClient.GetAsync(url, cancellationToken);
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode || content.TrimStart().StartsWith("<"))
+        {
+            _logger.LogWarning("Work item types list failed");
+            return new AzureDevOpsBacklogWorkItemTypesDto();
+        }
+
+        var doc = JsonDocument.Parse(content);
+        var names = new List<string>();
+        if (doc.RootElement.TryGetProperty("value", out var arr))
+        {
+            foreach (var el in arr.EnumerateArray())
+            {
+                if (el.TryGetProperty("name", out var n))
+                    names.Add(n.GetString() ?? "");
+            }
+        }
+
+        string? Pick(params string[] candidates)
+        {
+            foreach (var c in candidates)
+            {
+                var m = names.Find(x => x.Equals(c, StringComparison.OrdinalIgnoreCase));
+                if (m != null) return m;
+            }
+            return null;
+        }
+
+        return new AzureDevOpsBacklogWorkItemTypesDto
+        {
+            EpicTypeName = Pick("Epic"),
+            FeatureTypeName = Pick("Feature"),
+            StoryTypeName = Pick("User Story", "Product Backlog Item")
+        };
     }
 
     private AzureDevOpsWorkItemDto? ParseWorkItem(JsonElement item, string organization, string project)

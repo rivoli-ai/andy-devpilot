@@ -71,10 +71,13 @@ public class OidcAuthProvider : IAuthProvider
         var oidcConfig = await _configManager.GetConfigurationAsync(ct).ConfigureAwait(false);
         var handler = new JwtSecurityTokenHandler();
 
+        // Azure AD: discovery metadata often advertises issuer https://sts.windows.net/{tenant}/
+        // while v2 access tokens use https://login.microsoftonline.com/{tenant}/v2.0 (IDX10205).
+        var validIssuers = BuildValidIssuers(oidcConfig, _config);
         var parameters = new TokenValidationParameters
         {
-            ValidateIssuer = true,
-            ValidIssuer = oidcConfig.Issuer,
+            ValidateIssuer = validIssuers.Count > 0,
+            ValidIssuers = validIssuers,
             ValidateAudience = _validAudiences.Length > 0,
             ValidAudiences = _validAudiences,
             ValidateLifetime = true,
@@ -84,6 +87,46 @@ public class OidcAuthProvider : IAuthProvider
         };
 
         return handler.ValidateToken(accessToken, parameters, out _);
+    }
+
+    /// <summary>
+    /// Issuers that may appear on tokens while still matching OIDC metadata signing keys.
+    /// Primarily covers Azure AD v1 vs v2 issuer string differences.
+    /// </summary>
+    private static List<string> BuildValidIssuers(OpenIdConnectConfiguration oidcConfig, ProviderConfig config)
+    {
+        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        if (!string.IsNullOrWhiteSpace(oidcConfig.Issuer))
+            set.Add(oidcConfig.Issuer);
+
+        var tenantId = !string.IsNullOrWhiteSpace(config.TenantId)
+            ? config.TenantId.Trim()
+            : TryGetAzureAdTenantGuidFromAuthority(config.Authority);
+
+        if (!string.IsNullOrEmpty(tenantId)
+            && !tenantId.Equals("common", StringComparison.OrdinalIgnoreCase)
+            && !tenantId.Equals("organizations", StringComparison.OrdinalIgnoreCase)
+            && !tenantId.Equals("consumers", StringComparison.OrdinalIgnoreCase))
+        {
+            set.Add($"https://login.microsoftonline.com/{tenantId}/v2.0");
+            set.Add($"https://login.microsoftonline.com/{tenantId}/");
+            set.Add($"https://sts.windows.net/{tenantId}/");
+        }
+
+        return set.ToList();
+    }
+
+    private static string? TryGetAzureAdTenantGuidFromAuthority(string? authority)
+    {
+        if (string.IsNullOrWhiteSpace(authority) || !Uri.TryCreate(authority, UriKind.Absolute, out var uri))
+            return null;
+        if (!uri.Host.Contains("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase))
+            return null;
+
+        var parts = uri.AbsolutePath.Trim('/').Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length == 0)
+            return null;
+        return Guid.TryParse(parts[0], out _) ? parts[0] : null;
     }
 
     public async Task<ExternalUserProfile> GetUserProfileAsync(string accessToken, CancellationToken ct)
