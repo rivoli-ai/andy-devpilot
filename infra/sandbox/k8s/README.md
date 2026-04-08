@@ -190,7 +190,7 @@ kubectl create secret generic manager-secrets -n sandboxes \
   --from-literal=SANDBOX_IMAGE="ghcr.io/YOUR_ORG/devpilot-desktop:latest"
 
 kubectl create secret generic backend-secrets -n devpilot \
-  --from-literal=ConnectionStrings__Postgres="Host=...;Username=...;Password=...;Database=analyzer" \
+  --from-literal=ConnectionStrings__DefaultConnection="Host=...;Username=...;Password=...;Database=analyzer" \
   --from-literal=JWT__SecretKey="YOUR_STRONG_SECRET" \
   --from-literal=AI__ApiKey="YOUR_AI_KEY" \
   --from-literal=VPS__GatewayUrl="http://sandbox-manager.sandboxes.svc.cluster.local:8090" \

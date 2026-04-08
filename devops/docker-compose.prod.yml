@@ -26,7 +26,7 @@ services:
     env_file: .env
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Username=${DB_USER};Password=${DB_PASSWORD};Database=${DB_NAME}"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Username=${DB_USER};Password=${DB_PASSWORD};Database=${DB_NAME}"
       JWT__SecretKey:        ${JWT_SECRET_KEY}
       VPS__GatewayUrl:       ${VPS__GatewayUrl:-http://sandbox-manager:8090}
       VPS__ManagerApiKey:    ${MANAGER_API_KEY}

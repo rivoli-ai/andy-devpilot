@@ -144,7 +144,7 @@ docker run -d \
   --name devpilot-backend \
   -p 8080:8080 \
   -e ASPNETCORE_ENVIRONMENT=Development \
-  -e ConnectionStrings__Postgres="Host=host.docker.internal;Port=5432;Username=analyser;Password=analyser_password;Database=analyzer" \
+  -e ConnectionStrings__DefaultConnection="Host=host.docker.internal;Port=5432;Username=analyser;Password=analyser_password;Database=analyzer" \
   -e JWT__SecretKey="your-32-char-secret" \
   -e VPS__GatewayUrl="http://host.docker.internal:30090" \
   -e VPS__ManagerApiKey="your_manager_api_key" \
@@ -196,7 +196,7 @@ kubectl apply -f infra/sandbox/k8s/manifests/backend-secret.yaml
 Or directly via `kubectl`:
 ```bash
 kubectl create secret generic backend-secrets -n devpilot \
-  --from-literal=ConnectionStrings__Postgres="Host=YOUR_DB;Username=...;Password=...;Database=analyzer" \
+  --from-literal=ConnectionStrings__DefaultConnection="Host=YOUR_DB;Username=...;Password=...;Database=analyzer" \
   --from-literal=JWT__SecretKey="YOUR_STRONG_SECRET" \
   --from-literal=AuthProviders__GitHub__ClientSecret="YOUR_GITHUB_SECRET" \
   --from-literal=AI__ApiKey="YOUR_AI_KEY" \
