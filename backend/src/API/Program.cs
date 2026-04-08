@@ -86,6 +86,7 @@ if (app.Environment.IsDevelopment())
 
 // Used by infra/local/setup.ps1 and setup.sh (docker compose readiness). No auth; JSON body so Invoke-RestMethod succeeds.
 app.MapGet("/health", () => Results.Json(new { status = "ok" }));
+app.MapGet("/api/health", () => Results.Json(new { status = "ok" }));
 
 app.UseHttpsRedirection();
 

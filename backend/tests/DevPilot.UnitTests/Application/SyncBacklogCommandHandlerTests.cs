@@ -240,10 +240,12 @@ public class SyncBacklogToAzureDevOpsCommandHandlerTests
     [Fact]
     public async System.Threading.Tasks.Task Handle_NotAzureDevOps_ReturnsError()
     {
-        var h = CreateHandler(out _, out var repoMock, out _, out _);
+        var h = CreateHandler(out _, out var repoMock, out var userMock, out _);
         var repo = new Repository("n", "o/r", "c", "GitHub", "o", Guid.NewGuid());
         repoMock.Setup(x => x.GetByIdAsync(repo.Id, It.IsAny<CancellationToken>())).ReturnsAsync(repo);
-        var r = await h.Handle(new SyncBacklogToAzureDevOpsCommand(repo.Id, Guid.NewGuid(), [], [], []), default);
+        var uid = Guid.NewGuid();
+        userMock.Setup(x => x.GetByIdAsync(uid, It.IsAny<CancellationToken>())).ReturnsAsync(new User("a@b.c"));
+        var r = await h.Handle(new SyncBacklogToAzureDevOpsCommand(repo.Id, uid, [], [], []), default);
         r.Success.Should().BeFalse();
         r.Errors.Should().Contain(e => e.Contains("Azure DevOps", StringComparison.OrdinalIgnoreCase));
     }
@@ -251,10 +253,12 @@ public class SyncBacklogToAzureDevOpsCommandHandlerTests
     [Fact]
     public async System.Threading.Tasks.Task Handle_InvalidFullName_ReturnsError()
     {
-        var h = CreateHandler(out _, out var repoMock, out _, out _);
+        var h = CreateHandler(out _, out var repoMock, out var userMock, out _);
         var repo = new Repository("n", "onlyone", "c", "AzureDevOps", "o", Guid.NewGuid());
         repoMock.Setup(x => x.GetByIdAsync(repo.Id, It.IsAny<CancellationToken>())).ReturnsAsync(repo);
-        var r = await h.Handle(new SyncBacklogToAzureDevOpsCommand(repo.Id, Guid.NewGuid(), [], [], []), default);
+        var uid = Guid.NewGuid();
+        userMock.Setup(x => x.GetByIdAsync(uid, It.IsAny<CancellationToken>())).ReturnsAsync(new User("a@b.c"));
+        var r = await h.Handle(new SyncBacklogToAzureDevOpsCommand(repo.Id, uid, [], [], []), default);
         r.Success.Should().BeFalse();
         r.Errors.Should().Contain(e => e.Contains("full name", StringComparison.OrdinalIgnoreCase));
     }
