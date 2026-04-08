@@ -8,6 +8,8 @@ describe('SandboxService', () => {
   let http: HttpTestingController;
 
   beforeEach(() => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
+    jest.spyOn(console, 'error').mockImplementation(() => {});
     TestBed.configureTestingModule({
       imports: [HttpClientTestingModule],
       providers: [
@@ -19,7 +21,10 @@ describe('SandboxService', () => {
     http = TestBed.inject(HttpTestingController);
   });
 
-  afterEach(() => http.verify());
+  afterEach(() => {
+    http.verify();
+    jest.restoreAllMocks();
+  });
 
   it('createSandbox posts to sandboxes URL with default resolution', () => {
     svc.createSandbox({ repo_url: 'https://git/repo' }).subscribe((res) => {

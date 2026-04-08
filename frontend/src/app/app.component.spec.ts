@@ -13,6 +13,7 @@ describe('AppComponent', () => {
   let viewerClosed$: Subject<string>;
 
   beforeEach(async () => {
+    jest.spyOn(console, 'log').mockImplementation(() => {});
     viewers$ = new BehaviorSubject<unknown[]>([]);
     viewerClosed$ = new Subject<string>();
 
@@ -42,6 +43,10 @@ describe('AppComponent', () => {
         }
       ]
     }).compileComponents();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
   });
 
   it('should create', () => {

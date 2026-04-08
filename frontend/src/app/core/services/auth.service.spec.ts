@@ -86,12 +86,17 @@ describe('AuthService', () => {
   });
 
   it('loadProviderConfig returns empty array on error', async () => {
-    api.get.mockReturnValue(throwError(() => new Error('network')));
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      api.get.mockReturnValue(throwError(() => new Error('network')));
 
-    const svc = TestBed.inject(AuthService);
-    const result = await svc.loadProviderConfig();
+      const svc = TestBed.inject(AuthService);
+      const result = await svc.loadProviderConfig();
 
-    expect(result).toEqual([]);
+      expect(result).toEqual([]);
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 
   it('getProviderConfig resolves by name case-insensitively', async () => {
