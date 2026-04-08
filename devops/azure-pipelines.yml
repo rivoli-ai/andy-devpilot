@@ -287,14 +287,14 @@ stages:
 
                       echo "==> Stopping any existing stack..."
                       docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env down --remove-orphans 2>&1 || true
-                      echo "==> Killing any Docker container holding ports 80/8080/8090..."
-                      docker ps -q | xargs -r docker inspect --format='{{.Id}} {{range $p,$conf := .NetworkSettings.Ports}}{{$p}} {{end}}' | grep -E '80/tcp|8080/tcp|8090/tcp' | awk '{print $1}' | xargs -r docker stop 2>/dev/null || true
-                      docker ps -q | xargs -r docker inspect --format='{{.Id}} {{range $p,$conf := .NetworkSettings.Ports}}{{$p}} {{end}}' | grep -E '80/tcp|8080/tcp|8090/tcp' | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+                      echo "==> Killing any Docker container holding ports 80/5000/8090..."
+                      docker ps -q | xargs -r docker inspect --format='{{.Id}} {{range $p,$conf := .NetworkSettings.Ports}}{{$p}} {{end}}' | grep -E '80/tcp|5000/tcp|8090/tcp' | awk '{print $1}' | xargs -r docker stop 2>/dev/null || true
+                      docker ps -q | xargs -r docker inspect --format='{{.Id}} {{range $p,$conf := .NetworkSettings.Ports}}{{$p}} {{end}}' | grep -E '80/tcp|5000/tcp|8090/tcp' | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
                       echo "==> Killing any native process holding port 8090 (old Python manager)..."
                       fuser -k 8090/tcp 2>/dev/null || true
                       sleep 2
                       echo "==> Ports after cleanup:"
-                      ss -tlnp | grep -E ':80 |:8080 |:8090 ' || echo "  All clear"
+                      ss -tlnp | grep -E ':80 |:5000 |:8090 ' || echo "  All clear"
 
                       echo "==> Restarting stack..."
                       docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans 2>&1

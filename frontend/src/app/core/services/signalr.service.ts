@@ -25,7 +25,7 @@ export class SignalRService {
     }
 
     this.connection = new signalR.HubConnectionBuilder()
-      .withUrl('http://localhost:8080/hubs/board') // Using port 8080 per user preference
+      .withUrl('http://localhost:5000/hubs/board')
       .withAutomaticReconnect()
       .build();
 

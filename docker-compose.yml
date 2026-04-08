@@ -42,7 +42,7 @@ services:
     volumes:
       - ./certs:/usr/local/share/ca-certificates/custom:ro
     ports:
-      - "8080:8080"
+      - "5000:5000"
 
   # ── Frontend (Angular + nginx) ────────────────────────────────────────────────
   devpilot-frontend:
@@ -53,7 +53,7 @@ services:
       - devpilot-backend
     environment:
       # Relative URL works when the frontend is served from the same host as the backend
-      # (nginx proxies /api → devpilot-backend:8080).
+      # (nginx proxies /api → devpilot-backend:5000).
       # Override with a full URL (e.g. https://api.example.com/api) for split-host setups.
       API_URL: ${API_URL:-/api}
     ports:

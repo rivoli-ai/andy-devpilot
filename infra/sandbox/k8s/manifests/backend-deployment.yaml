@@ -21,7 +21,7 @@ spec:
         image: ghcr.io/YOUR_ORG/devpilot-backend:latest
         imagePullPolicy: Always
         ports:
-        - containerPort: 8080
+        - containerPort: 5000
         # All secrets injected as environment variables from K8s Secret.
         # ASP.NET Core reads VPS__ManagerApiKey as VPS:ManagerApiKey automatically.
         envFrom:
@@ -42,13 +42,13 @@ spec:
         readinessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 5000
           initialDelaySeconds: 10
           periodSeconds: 15
         livenessProbe:
           httpGet:
             path: /health
-            port: 8080
+            port: 5000
           initialDelaySeconds: 20
           periodSeconds: 30
 ---
@@ -65,5 +65,5 @@ spec:
     app: devpilot-backend
   ports:
   - name: http
-    port: 8080
-    targetPort: 8080
+    port: 5000
+    targetPort: 5000

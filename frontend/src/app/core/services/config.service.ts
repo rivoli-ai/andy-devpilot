@@ -11,5 +11,5 @@ export interface AppConfig {
 export const APP_CONFIG = new InjectionToken<AppConfig>('APP_CONFIG');
 
 export const DEFAULT_CONFIG: AppConfig = {
-  apiUrl: 'http://localhost:8080/api',
+  apiUrl: 'http://localhost:5000/api',
 };

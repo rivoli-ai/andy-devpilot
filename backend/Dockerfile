@@ -58,7 +58,7 @@ ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
     DOTNET_CLI_TELEMETRY_OPTOUT=1 \
     DOTNET_NUGET_SIGNATURE_VERIFICATION=false
 
-EXPOSE 8080
+EXPOSE 5000
 
 ENTRYPOINT ["/docker-entrypoint.sh"]
 CMD ["dotnet", "DevPilot.API.dll"]

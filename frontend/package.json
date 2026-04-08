@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "scripts": {
     "ng": "ng",
-    "start": "ng serve",
+    "start": "sh -c 'PIDS=$(lsof -tiTCP:4200 -sTCP:LISTEN 2>/dev/null); [ -n \"$PIDS\" ] && kill -9 $PIDS 2>/dev/null || true; exec ng serve'",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
     "test": "jest",

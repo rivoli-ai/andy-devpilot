@@ -100,7 +100,7 @@ docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d --force-recreate
 # ── 5. Wait for backend to be ready ──────────────────────────────────────────
 step "Waiting for backend to be ready..."
 RETRIES=60
-until curl -sf http://localhost:8080/health &>/dev/null || [ $RETRIES -eq 0 ]; do
+until curl -sf http://localhost:5000/health &>/dev/null || [ $RETRIES -eq 0 ]; do
     sleep 3
     RETRIES=$((RETRIES - 1))
 done
@@ -117,7 +117,7 @@ echo -e "${GREEN}  DevPilot local stack is running!        ${NC}"
 echo -e "${GREEN}==========================================${NC}"
 echo ""
 echo -e "  Frontend        : ${CYAN}http://localhost${NC}"
-echo -e "  Backend API     : ${CYAN}http://localhost:8080/api${NC}"
+echo -e "  Backend API     : ${CYAN}http://localhost:5000/api${NC}"
 echo -e "  Sandbox Manager : ${CYAN}http://localhost:8090/health${NC}"
 echo -e "  PostgreSQL      : ${CYAN}localhost:5432${NC}"
 echo ""

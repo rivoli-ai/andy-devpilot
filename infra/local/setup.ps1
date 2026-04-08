@@ -136,7 +136,7 @@ $ready   = $false
 while ($retries -gt 0 -and -not $ready) {
     Start-Sleep -Seconds 3
     try {
-        Invoke-RestMethod -Uri "http://localhost:8080/health" -TimeoutSec 10 | Out-Null
+        Invoke-RestMethod -Uri "http://localhost:5000/health" -TimeoutSec 10 | Out-Null
         $ready = $true
     } catch { $retries-- }
 }
@@ -150,7 +150,7 @@ Write-Host "  DevPilot local stack is running!" -ForegroundColor Green
 Write-Host "==========================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "  Frontend        : http://localhost" -ForegroundColor Cyan
-Write-Host "  Backend API     : http://localhost:8080/api" -ForegroundColor Cyan
+Write-Host "  Backend API     : http://localhost:5000/api" -ForegroundColor Cyan
 Write-Host "  Sandbox Manager : http://localhost:8090/health" -ForegroundColor Cyan
 Write-Host "  PostgreSQL      : localhost:5432" -ForegroundColor Cyan
 Write-Host ""

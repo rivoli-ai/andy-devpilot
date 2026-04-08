@@ -17,7 +17,7 @@ window.addEventListener(
   true
 );
 
-fetch('/assets/config.json')
+fetch('/assets/config/config.json')
   .then((res) => res.json())
   .catch(() => DEFAULT_CONFIG)
   .then((config: AppConfig) => {

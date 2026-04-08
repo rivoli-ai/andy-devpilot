@@ -9,101 +9,136 @@ using Microsoft.IdentityModel.Tokens;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Add services to the container.
-builder.Services.AddControllers();
-builder.Services.AddHttpClient();
-builder.Services.AddMemoryCache();
-// Learn more about configuring OpenAPI at https://aka.ms/aspnet/openapi
-builder.Services.AddOpenApi();
-
-// Add SignalR for real-time communication
-builder.Services.AddSignalR();
-
-// Configure JWT Authentication — require explicit secret outside Development
-var secretKey = builder.Configuration["JWT:SecretKey"];
-if (string.IsNullOrWhiteSpace(secretKey))
-{
-    if (!builder.Environment.IsDevelopment())
-        throw new InvalidOperationException("JWT:SecretKey must be configured via configuration or environment variables.");
-    secretKey = "dev-secret-key-min-32-characters-long-for-security";
-}
-
-var key = Encoding.ASCII.GetBytes(secretKey);
-
-builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
-    .AddJwtBearer(options =>
-    {
-        options.TokenValidationParameters = new TokenValidationParameters
-        {
-            ValidateIssuerSigningKey = true,
-            IssuerSigningKey = new SymmetricSecurityKey(key),
-            ValidateIssuer = true,
-            ValidIssuer = builder.Configuration["JWT:Issuer"] ?? "DevPilot",
-            ValidateAudience = true,
-            ValidAudience = builder.Configuration["JWT:Audience"] ?? "DevPilot",
-            ValidateLifetime = true,
-            ClockSkew = TimeSpan.Zero
-        };
-    });
-
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("Admin", policy => policy.RequireRole("admin"));
-});
-
-// Register Application layer services (MediatR, handlers, etc.)
-builder.Services.AddApplication();
-
-// Register Infrastructure layer services (repositories, external services, etc.)
-builder.Services.AddInfrastructure(builder.Configuration);
+ConfigureServices(builder);
 
 var app = builder.Build();
 
-// Schema bootstrap differs by provider:
-//   - PostgreSQL: apply EF migrations (committed under Persistence/Migrations/).
-//   - SQLite: use `EnsureCreated` so a fresh embedded install gets a
-//     schema generated from the current EF model. SQLite migrations
-//     are tracked separately under G2.1.
-using (var scope = app.Services.CreateScope())
-{
-    var db = scope.ServiceProvider.GetRequiredService<DevPilotDbContext>();
-    var provider = DatabaseProviderExtensions.GetDatabaseProvider(builder.Configuration);
-    if (provider == DatabaseProvider.Sqlite)
-    {
-        db.Database.EnsureCreated();
-    }
-    else
-    {
-        db.Database.Migrate();
-    }
-}
+ApplyDatabaseSchema(app);
 
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
-{
-    app.MapOpenApi();
-}
-
-// Used by infra/local/setup.ps1 and setup.sh (docker compose readiness). No auth; JSON body so Invoke-RestMethod succeeds.
-app.MapGet("/health", () => Results.Json(new { status = "ok" }));
-app.MapGet("/api/health", () => Results.Json(new { status = "ok" }));
-
-app.UseHttpsRedirection();
-
-// Configure CORS for SignalR and frontend
-app.UseCors(policy => policy
-    .WithOrigins("http://localhost:4200") // Angular dev server
-    .AllowAnyMethod()
-    .AllowAnyHeader()
-    .AllowCredentials());
-
-// Authentication must come before Authorization
-app.UseAuthentication();
-app.UseAuthorization();
-
-app.MapControllers();
-
-// Map SignalR hubs
-app.MapHub<BoardHub>("/hubs/board");
+ConfigureHttpPipeline(app);
 
 app.Run();
+
+// ---------------------------------------------------------------------------
+// Service registration
+// ---------------------------------------------------------------------------
+
+static void ConfigureServices(WebApplicationBuilder builder)
+{
+    builder.Services.AddControllers();
+    builder.Services.AddHttpClient();
+    builder.Services.AddMemoryCache();
+    builder.Services.AddOpenApi();
+    builder.Services.AddSignalR();
+
+    ConfigureJwtAuthentication(builder);
+
+    builder.Services.AddAuthorization(options =>
+        options.AddPolicy("Admin", policy => policy.RequireRole("admin")));
+
+    builder.Services.AddApplication();
+    builder.Services.AddInfrastructure(builder.Configuration);
+
+    ConfigureCors(builder);
+}
+
+static void ConfigureJwtAuthentication(WebApplicationBuilder builder)
+{
+    var secretKey = builder.Configuration["JWT:SecretKey"];
+    if (string.IsNullOrWhiteSpace(secretKey))
+    {
+        if (!builder.Environment.IsDevelopment())
+            throw new InvalidOperationException(
+                "JWT:SecretKey must be configured via configuration or environment variables.");
+        secretKey = "dev-secret-key-min-32-characters-long-for-security";
+    }
+
+    var key = Encoding.ASCII.GetBytes(secretKey);
+
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
+        .AddJwtBearer(options =>
+        {
+            options.TokenValidationParameters = new TokenValidationParameters
+            {
+                ValidateIssuerSigningKey = true,
+                IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidateIssuer = true,
+                ValidIssuer = builder.Configuration["JWT:Issuer"] ?? "DevPilot",
+                ValidateAudience = true,
+                ValidAudience = builder.Configuration["JWT:Audience"] ?? "DevPilot",
+                ValidateLifetime = true,
+                ClockSkew = TimeSpan.Zero
+            };
+        });
+}
+
+/// <summary>
+/// Allowed browser origins for SPA + SignalR (credentials). Configure via
+/// <c>Cors:AllowedOrigins</c> in appsettings or <c>Cors__AllowedOrigins__0</c> env vars.
+/// </summary>
+static void ConfigureCors(WebApplicationBuilder builder)
+{
+    var origins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+                  ?? Array.Empty<string>();
+
+    builder.Services.AddCors(options =>
+    {
+        options.AddDefaultPolicy(policy =>
+        {
+            if (origins.Length > 0)
+            {
+                policy.WithOrigins(origins)
+                    .AllowAnyMethod()
+                    .AllowAnyHeader()
+                    .AllowCredentials();
+            }
+        });
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Database
+// ---------------------------------------------------------------------------
+
+/// <summary>
+/// PostgreSQL: apply EF migrations. SQLite: EnsureCreated for embedded installs.
+/// </summary>
+static void ApplyDatabaseSchema(WebApplication app)
+{
+    using var scope = app.Services.CreateScope();
+    var db = scope.ServiceProvider.GetRequiredService<DevPilotDbContext>();
+    var provider = DatabaseProviderExtensions.GetDatabaseProvider(app.Configuration);
+    if (provider == DatabaseProvider.Sqlite)
+        db.Database.EnsureCreated();
+    else
+        db.Database.Migrate();
+}
+
+// ---------------------------------------------------------------------------
+// HTTP pipeline
+// ---------------------------------------------------------------------------
+
+static void ConfigureHttpPipeline(WebApplication app)
+{
+    if (app.Environment.IsDevelopment())
+        app.MapOpenApi();
+
+    MapHealthEndpoints(app);
+
+    app.UseHttpsRedirection();
+    app.UseCors();
+    app.UseAuthentication();
+    app.UseAuthorization();
+
+    app.MapControllers();
+    app.MapHub<BoardHub>("/hubs/board");
+}
+
+/// <summary>
+/// No auth; JSON for scripts and load balancers (see infra/local setup).
+/// </summary>
+static void MapHealthEndpoints(WebApplication app)
+{
+    app.MapGet("/health", () => Results.Json(new { status = "ok" }));
+    app.MapGet("/api/health", () => Results.Json(new { status = "ok" }));
+}
