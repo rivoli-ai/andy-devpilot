@@ -59,11 +59,23 @@ builder.Services.AddInfrastructure(builder.Configuration);
 
 var app = builder.Build();
 
-// Apply pending migrations on startup (ensures DB schema is up to date)
+// Schema bootstrap differs by provider:
+//   - PostgreSQL: apply EF migrations (committed under Persistence/Migrations/).
+//   - SQLite: use `EnsureCreated` so a fresh embedded install gets a
+//     schema generated from the current EF model. SQLite migrations
+//     are tracked separately under G2.1.
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<DevPilotDbContext>();
-    db.Database.Migrate();
+    var provider = DatabaseProviderExtensions.GetDatabaseProvider(builder.Configuration);
+    if (provider == DatabaseProvider.Sqlite)
+    {
+        db.Database.EnsureCreated();
+    }
+    else
+    {
+        db.Database.Migrate();
+    }
 }
 
 // Configure the HTTP request pipeline.

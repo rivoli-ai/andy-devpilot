@@ -24,16 +24,18 @@ public static class InfrastructureServiceCollectionExtensions
 {
     public static IServiceCollection AddInfrastructure(this IServiceCollection services, IConfiguration? configuration = null)
     {
-        // Register DbContext with PostgreSQL
+        // Register DbContext via the provider switch (PostgreSQL for
+        // hosted/Docker, SQLite for embedded Conductor). The active
+        // provider is read from `Database:Provider`. `appsettings.json`
+        // pins PostgreSql so the historic Docker / dev / Production
+        // paths are unchanged; Conductor's embedded launcher overrides
+        // via `Database__Provider=Sqlite` env var.
         services.AddDbContext<DevPilotDbContext>((serviceProvider, options) =>
         {
             var config = configuration ?? serviceProvider.GetRequiredService<IConfiguration>();
-            var connectionString = config.GetConnectionString("Postgres")
-                ?? config["ConnectionStrings:Postgres"];
-            if (string.IsNullOrWhiteSpace(connectionString))
-                throw new InvalidOperationException("ConnectionStrings:Postgres is not configured.");
-
-            options.UseNpgsql(connectionString);
+            var provider = DatabaseProviderExtensions.GetDatabaseProvider(config);
+            var connectionString = DatabaseProviderExtensions.ResolveConnectionString(config, provider);
+            DatabaseProviderExtensions.ConfigureDbContext(options, provider, connectionString);
         });
 
         // Register PostgreSQL repository implementations
