@@ -41,4 +41,27 @@ describe('ApiService', () => {
     expect(r.request.method).toBe('DELETE');
     r.flush(null);
   });
+
+  it('put sends body', () => {
+    api.put('/r', { x: 2 }).subscribe();
+    const r = http.expectOne('http://api.test/r');
+    expect(r.request.method).toBe('PUT');
+    expect(r.request.body).toEqual({ x: 2 });
+    r.flush({});
+  });
+
+  it('patch sends body', () => {
+    api.patch('/r', { y: 3 }).subscribe();
+    const r = http.expectOne('http://api.test/r');
+    expect(r.request.method).toBe('PATCH');
+    expect(r.request.body).toEqual({ y: 3 });
+    r.flush({});
+  });
+
+  it('post forwards custom headers when provided', () => {
+    api.post('/h', {}, { headers: { 'X-Test': '1' } }).subscribe();
+    const r = http.expectOne('http://api.test/h');
+    expect(r.request.headers.get('X-Test')).toBe('1');
+    r.flush({});
+  });
 });

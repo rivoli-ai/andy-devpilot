@@ -10,7 +10,9 @@ describe('ThemeService', () => {
   });
 
   it('toggle flips theme and persists', fakeAsync(() => {
-    const mermaid = jasmine.createSpyObj<MermaidDiagramService>('MermaidDiagramService', ['rerenderAllDiagrams']);
+    const mermaid: Pick<MermaidDiagramService, 'rerenderAllDiagrams'> = {
+      rerenderAllDiagrams: jest.fn(),
+    };
     TestBed.configureTestingModule({
       providers: [
         ThemeService,
@@ -27,7 +29,9 @@ describe('ThemeService', () => {
   }));
 
   it('setTheme updates document', fakeAsync(() => {
-    const mermaid = jasmine.createSpyObj<MermaidDiagramService>('MermaidDiagramService', ['rerenderAllDiagrams']);
+    const mermaid: Pick<MermaidDiagramService, 'rerenderAllDiagrams'> = {
+      rerenderAllDiagrams: jest.fn(),
+    };
     TestBed.configureTestingModule({
       providers: [
         ThemeService,

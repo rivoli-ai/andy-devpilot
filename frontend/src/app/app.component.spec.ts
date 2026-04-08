@@ -32,7 +32,7 @@ describe('AppComponent', () => {
         {
           provide: SandboxService,
           useValue: {
-            deleteSandbox: jasmine.createSpy('deleteSandbox').and.returnValue(of(true)),
+            deleteSandbox: jest.fn().mockReturnValue(of(true)),
             listSandboxes: () => of([]),
           }
         },
