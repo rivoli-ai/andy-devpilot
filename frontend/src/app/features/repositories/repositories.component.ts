@@ -15,7 +15,7 @@ import { McpConfigService } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
 import { Repository } from '../../shared/models/repository.model';
-import { ButtonComponent, CardComponent, BadgeComponent, DataGridComponent, GridColumn } from '../../shared/components';
+import { ButtonComponent, CardComponent, GridColumn } from '../../shared/components';
 import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
 
 /**
@@ -25,7 +25,7 @@ import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
 @Component({
   selector: 'app-repositories',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, ButtonComponent, CardComponent, BadgeComponent, DataGridComponent],
+  imports: [CommonModule, FormsModule, RouterLink, ButtonComponent, CardComponent],
   templateUrl: './repositories.component.html',
   styleUrl: './repositories.component.css'
 })

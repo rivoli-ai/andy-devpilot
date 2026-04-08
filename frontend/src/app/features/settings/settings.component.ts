@@ -769,8 +769,8 @@ export class SettingsComponent implements OnInit {
     this.mcpConfigService.discoverTools(id);
   }
 
-  getToolsState(id: string) {
-    return this.mcpConfigService.toolsCache()[id];
+  getToolsState(id: string): { tools: McpToolInfo[]; loading: boolean; error?: string } | undefined {
+    return this.mcpConfigService.getToolsState(id);
   }
 
   private parseArgsStr(str: string): string[] | undefined {
