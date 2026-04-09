@@ -56,6 +56,7 @@ services:
       MANAGER_API_KEY:  ${MANAGER_API_KEY}
       HOST_IP:          ${PUBLIC_IP}
       BACKEND:          docker
+      SANDBOX_IMAGE:    ${SANDBOX_IMAGE:-devpilot-desktop:latest}
       # When set, manager returns HTTPS proxy URLs (via nginx) instead of raw
       # http://<ip>:<port> URLs — required to avoid mixed-content errors when
       # the frontend is served over HTTPS.

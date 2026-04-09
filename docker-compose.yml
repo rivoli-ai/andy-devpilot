@@ -30,7 +30,7 @@ services:
     env_file: .env
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__Postgres: "Host=postgres;Port=5432;Username=${DB_USER:-analyser};Password=${DB_PASSWORD:-analyser_password};Database=${DB_NAME:-analyzer}"
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Username=${DB_USER:-analyser};Password=${DB_PASSWORD:-analyser_password};Database=${DB_NAME:-analyzer}"
       JWT__SecretKey: ${JWT_SECRET_KEY}
       # VPS__GatewayUrl comes from env_file (.env) — patched by start.sh/start.ps1
       VPS__ManagerApiKey: ${MANAGER_API_KEY}
@@ -68,6 +68,8 @@ services:
       MANAGER_API_KEY: ${MANAGER_API_KEY}
       HOST_IP:         ${PUBLIC_IP:-localhost}
       BACKEND:         docker
+      # Local default: image built by infra/sandbox/setup.sh. Override after docker push, e.g. YOUR_USER/devpilot-desktop:latest
+      SANDBOX_IMAGE:   ${SANDBOX_IMAGE:-devpilot-desktop:latest}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./certs:/certs:ro

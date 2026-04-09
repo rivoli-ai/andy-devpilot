@@ -23,6 +23,8 @@ SANDBOX_MANAGER_VERSION = "3.0.0"
 BACKEND          = os.environ.get("BACKEND", "docker").lower()  # "docker" | "k8s"
 MANAGER_API_KEY  = os.environ.get("MANAGER_API_KEY", "")
 HOST_IP          = os.environ.get("HOST_IP", "localhost")
+# Sandbox container image (Docker Hub, GHCR, etc.). Same env as K8s (k8s_utils.SANDBOX_IMAGE).
+SANDBOX_IMAGE    = os.environ.get("SANDBOX_IMAGE", "devpilot-desktop:latest")
 # When the frontend is served over HTTPS, direct HTTP sandbox URLs cause mixed-content
 # errors in the browser.  Set HTTPS_PROXY_BASE to the public HTTPS origin
 # (e.g. https://flexagent.online) and the manager will return proxy URLs that go
@@ -289,7 +291,7 @@ def _docker_create_sandbox():
 
     try:
         container = docker_client.containers.run(
-            "devpilot-desktop",
+            SANDBOX_IMAGE,
             name=f"sandbox-{sandbox_id}",
             detach=True,
             remove=False,
