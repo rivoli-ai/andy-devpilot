@@ -1,15 +1,14 @@
 #!/bin/bash
-# DevPilot — deploy local Docker Compose stack reusing existing images when possible
+# DevPilot — deploy sandbox manager only (no frontend, backend, or postgres)
 #
-# Unlike infra/local/setup.sh, this never tears down or rebuilds by default:
-#   - devpilot-desktop: runs sandbox setup only if devpilot-desktop:latest is missing
-#   - compose services: docker compose up -d (builds only what Compose considers needed; no --no-cache, no --force-recreate)
+# - Ensures devpilot-desktop image exists (or builds via sandbox setup when missing / --build-desktop)
+# - Starts only the sandbox-manager Compose service
 #
 # Usage:
 #   bash deploy.sh
-#   bash deploy.sh --build-desktop   # run infra/sandbox/setup.sh (BUILD_ONLY) even if the image exists
-#   bash deploy.sh --stop
-#   bash deploy.sh --reset           # stop + remove volumes (wipes DB)
+#   bash deploy.sh --build-desktop   # run infra/sandbox/setup.sh even if devpilot-desktop:latest exists
+#   bash deploy.sh --stop            # stop sandbox-manager only
+#   bash deploy.sh --reset           # remove sandbox-manager container (next deploy recreates it)
 
 set -e
 
@@ -18,6 +17,7 @@ ENV_FILE="$REPO_ROOT/.env"
 COMPOSE_FILE="$REPO_ROOT/docker-compose.yml"
 SANDBOX_SETUP="$REPO_ROOT/infra/sandbox/setup.sh"
 LOCAL_DIR="$REPO_ROOT/infra/local"
+MANAGER_SERVICE="sandbox-manager"
 
 GREEN='\033[0;32m'; YELLOW='\033[1;33m'; RED='\033[0;31m'; CYAN='\033[0;36m'; NC='\033[0m'
 info()  { echo -e "${GREEN}[INFO]${NC}  $1"; }
@@ -36,23 +36,25 @@ for arg in "$@"; do
     esac
 done
 
+compose() { docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" "$@"; }
+
 if [ "$STOP" = true ]; then
-    step "Stopping all services..."
-    docker compose -f "$COMPOSE_FILE" down
-    info "All services stopped."
+    step "Stopping ${MANAGER_SERVICE}..."
+    compose stop "$MANAGER_SERVICE"
+    info "${MANAGER_SERVICE} stopped (other compose services unchanged)."
     exit 0
 fi
 
 if [ "$RESET" = true ]; then
-    step "Stopping all services and removing volumes (this wipes the database)..."
-    docker compose -f "$COMPOSE_FILE" down -v
-    info "All services stopped and volumes removed."
+    step "Removing ${MANAGER_SERVICE} container..."
+    compose rm -sf "$MANAGER_SERVICE" 2>/dev/null || true
+    info "${MANAGER_SERVICE} removed. Run deploy.sh again to recreate."
     exit 0
 fi
 
 echo ""
 echo -e "${CYAN}==========================================${NC}"
-echo -e "${CYAN}   DevPilot — deploy (reuse images)       ${NC}"
+echo -e "${CYAN}   DevPilot — sandbox manager deploy        ${NC}"
 echo -e "${CYAN}==========================================${NC}"
 echo ""
 
@@ -89,31 +91,30 @@ else
     BUILD_ONLY=1 bash "$SANDBOX_SETUP"
 fi
 
-step "Starting stack (compose will build service images only if needed)..."
-docker compose -f "$COMPOSE_FILE" --env-file "$ENV_FILE" up -d
+step "Starting ${MANAGER_SERVICE} (frontend/backend/postgres are not started)..."
+compose up -d "$MANAGER_SERVICE"
 
-step "Waiting for backend health..."
+step "Waiting for sandbox manager health..."
 RETRIES=60
-until curl -sf http://localhost:5000/health &>/dev/null || [ "$RETRIES" -eq 0 ]; do
-    sleep 3
+until curl -sf http://localhost:8090/health &>/dev/null || [ "$RETRIES" -eq 0 ]; do
+    sleep 2
     RETRIES=$((RETRIES - 1))
 done
 if [ "$RETRIES" -eq 0 ]; then
-    warn "Backend did not respond. Check logs: docker compose logs devpilot-backend"
+    warn "Sandbox manager did not respond on :8090. Check logs: docker compose logs ${MANAGER_SERVICE}"
 else
-    info "Backend is ready"
+    info "Sandbox manager is ready"
 fi
 
 echo ""
 echo -e "${GREEN}==========================================${NC}"
-echo -e "${GREEN}  Stack is up                             ${NC}"
+echo -e "${GREEN}  Sandbox manager is up                    ${NC}"
 echo -e "${GREEN}==========================================${NC}"
 echo ""
-echo -e "  Frontend        : ${CYAN}http://localhost${NC}"
-echo -e "  Backend API     : ${CYAN}http://localhost:5000/api${NC}"
 echo -e "  Sandbox Manager : ${CYAN}http://localhost:8090/health${NC}"
 echo ""
-echo "  Stop:  bash deploy.sh --stop"
-echo "  Reset: bash deploy.sh --reset"
-echo "  Rebuild sandbox image: bash deploy.sh --build-desktop"
+echo "  Full stack (frontend + backend + DB): bash infra/local/setup.sh"
+echo "  Stop manager only:  bash deploy.sh --stop"
+echo "  Reset manager only: bash deploy.sh --reset"
+echo "  Rebuild desktop image: bash deploy.sh --build-desktop"
 echo ""
