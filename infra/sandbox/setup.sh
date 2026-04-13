@@ -2150,15 +2150,12 @@ def zed_send_prompt():
         time.sleep(0.5)
 
         # ── Step 2: Ensure agent panel is open ──────────────────────────
-        # Always open via Zed command palette — this is idempotent
-        # (opening an already-open panel just focuses it, never closes it).
-        logger.info("Step 2: Opening agent panel via command palette...")
-        _xdt(['key', '--clearmodifiers', 'ctrl+shift+p'], env)
-        time.sleep(0.8)
-        _xdt(['type', '--clearmodifiers', '--delay', '12', '--', 'agent: open'], env, timeout=10)
-        time.sleep(0.6)
-        _xdt(['key', 'Return'], env)
-        time.sleep(1.5 if not _agent_panel_open else 0.8)
+        if not _agent_panel_open:
+            logger.info("Step 2: Opening agent panel with Ctrl+Shift+/ ...")
+            _xdt(['key', '--clearmodifiers', 'ctrl+shift+slash'], env)
+            time.sleep(1.5)
+        else:
+            logger.info("Step 2: Agent panel already open, skipping toggle.")
 
         # ── Step 3: Paste prompt via clipboard ───────────────────────────
         _xdt(['key', '--clearmodifiers', 'ctrl+a'], env)
