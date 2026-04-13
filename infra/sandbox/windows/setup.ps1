@@ -233,13 +233,13 @@ while ($waited -lt $maxWait) {
             break
         }
     } catch { }
-    Write-Host "  Waiting... ($waited s)" -ForegroundColor Gray
+    Write-Host "  Waiting... (${waited}s)" -ForegroundColor Gray
 }
 
 if ($ready) {
     Write-Ok "Manager is up at http://localhost:8090"
 } else {
-    Write-Warn "Manager did not respond in ${maxWait}s. Check logs: docker logs devpilot-sandbox-manager"
+    Write-Warn "Manager did not respond in ${maxWait}s -- check logs: docker logs devpilot-sandbox-manager"
 }
 
 # - 6. Patch VPS__GatewayUrl in root .env so the backend points at this manager -
