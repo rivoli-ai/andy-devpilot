@@ -65,21 +65,22 @@ if ($Rebuild) {
     Write-Step "Cleaning up everything before rebuild..."
 
     # Stop and remove ALL sandbox containers (sandbox-*)
-    cmd /c "docker rm -f $(docker ps -aq --filter name=sandbox- 2>nul) 2>nul" | Out-Null
+    $sandboxIds = docker ps -aq --filter "name=sandbox-" 2>$null
+    if ($sandboxIds) { docker rm -f $sandboxIds 2>$null | Out-Null }
 
     # Stop and remove the standalone manager + build container
-    cmd /c "docker rm -f devpilot-sandbox-manager devpilot-desktop-builder 2>nul" | Out-Null
+    docker rm -f devpilot-sandbox-manager devpilot-desktop-builder 2>$null | Out-Null
 
     # Remove the standalone manager compose stack
     Push-Location $windowsDir
-    cmd /c "docker compose down --remove-orphans -v 2>nul" | Out-Null
+    docker compose down --remove-orphans -v 2>$null | Out-Null
     Pop-Location
 
     # Remove images (ignore errors if they don't exist)
-    cmd /c "docker rmi devpilot-desktop:latest devpilot-sandbox-manager:latest 2>nul" | Out-Null
+    docker rmi devpilot-desktop:latest devpilot-sandbox-manager:latest 2>$null | Out-Null
 
     # Prune dangling images
-    cmd /c "docker image prune -f 2>nul" | Out-Null
+    docker image prune -f 2>$null | Out-Null
 
     Write-Ok "Cleanup complete - starting fresh."
 }
@@ -105,7 +106,7 @@ if ($imageExists -and -not $Rebuild) {
 
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
 
-    cmd /c "docker rm -f devpilot-desktop-builder 2>nul" | Out-Null
+    docker rm -f devpilot-desktop-builder 2>$null | Out-Null
 
     # Also mount repo-root certs/ so the build container can trust corporate proxies
     $repoRoot = Split-Path $sandboxDir -Parent
@@ -132,7 +133,7 @@ if ($imageExists -and -not $Rebuild) {
 
     $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
 
-    cmd /c "docker rm -f devpilot-desktop-builder 2>nul" | Out-Null
+    docker rm -f devpilot-desktop-builder 2>$null | Out-Null
 
     if ($proc.ExitCode -ne 0) {
         Write-Fail "Desktop image build failed (exit code $($proc.ExitCode))."
@@ -187,8 +188,8 @@ $rootComposeFile = Join-Path (Split-Path $sandboxDir -Parent | Split-Path -Paren
 $mainManager = docker ps -q --filter "name=sandbox-manager" --filter "label=com.docker.compose.service=sandbox-manager" 2>$null
 if ($mainManager) {
     Write-Step "Stopping sandbox-manager from main docker-compose (port conflict)..."
-    cmd /c "docker compose -f `"$rootComposeFile`" stop sandbox-manager 2>nul" | Out-Null
-    cmd /c "docker compose -f `"$rootComposeFile`" rm -f sandbox-manager 2>nul" | Out-Null
+    docker compose -f $rootComposeFile stop sandbox-manager 2>$null | Out-Null
+    docker compose -f $rootComposeFile rm -f sandbox-manager 2>$null | Out-Null
     Write-Ok "Main docker-compose sandbox-manager stopped."
 }
 
@@ -208,7 +209,7 @@ if ($managerRunning -and -not $Rebuild) {
 
     Push-Location $windowsDir
     try {
-        cmd /c "docker compose down --remove-orphans 2>nul" | Out-Null
+        docker compose down --remove-orphans 2>$null | Out-Null
         if ($managerImage -and -not $Rebuild) {
             $proc = Start-Process -FilePath "docker" -ArgumentList @("compose", "up", "-d", "--no-build") -NoNewWindow -PassThru -Wait
         } else {
