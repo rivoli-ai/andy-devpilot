@@ -22,7 +22,7 @@ import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { Repository } from '../../shared/models/repository.model';
 import { CodeHighlightPipe } from '../../shared/pipes/code-highlight.pipe';
-import { VPS_CONFIG, getVncHtmlUrl } from '../../core/config/vps.config';
+import { VPS_CONFIG } from '../../core/config/vps.config';
 
 // Extended tree item with children and state
 export interface TreeNode extends RepositoryTreeItem {
@@ -252,28 +252,24 @@ export class CodeComponent implements OnInit, OnDestroy {
       v.implementationContext?.repositoryId === currentRepoId
     );
 
-    if (analysisViewer && analysisViewer.bridgePort) {
+    if (analysisViewer && analysisViewer.bridgeUrl) {
       console.log('Found existing analysis sandbox for this repo, reconnecting...', analysisViewer.id);
 
       this.analysisSandboxId.set(analysisViewer.id);
       this.analysisLoading.set(true);
       this.analysisStatus.set('Reconnecting to analysis...');
 
-      this.resumeAnalysisPolling(analysisViewer.bridgePort, analysisViewer.id);
+      this.resumeAnalysisPolling(analysisViewer.id);
     }
   }
 
-  /**
-   * Resume polling for analysis response after reconnecting to an existing sandbox
-   */
-  private async resumeAnalysisPolling(bridgePort: number, sandboxId: string): Promise<void> {
+  private async resumeAnalysisPolling(sandboxId: string): Promise<void> {
     const branch = this.currentBranch() || 'main';
 
     try {
       this.analysisStatus.set('Waiting for AI response...');
-      const response = await this.waitForZedResponse(bridgePort);
+      const response = await this.waitForZedResponse(sandboxId);
 
-      // Save the response
       this.analysisStatus.set('Saving results...');
       this.repositoryService.saveCodeAnalysis(this.repositoryId(), {
         branch,
@@ -688,17 +684,16 @@ export class CodeComponent implements OnInit, OnDestroy {
 
         // Open VNC viewer in minimized state after delay
         setTimeout(() => {
+          const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: vncUrl,
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
             },
             sandbox.id,
             `${repo.name} - Analysis`,
-            sandbox.bridge_port,
-            // Store repositoryId so we can reconnect after page refresh
             {
               repositoryId: this.repositoryId(),
               repositoryFullName: repo.fullName || repo.name,
@@ -724,27 +719,24 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   private async waitForZedAndAnalyze(sandbox: CreateSandboxResponse, repoName: string, branch: string): Promise<void> {
-    const bridgePort = sandbox.bridge_port;
-    if (!bridgePort) {
-      this.analysisError.set('Sandbox bridge port not available');
+    if (!sandbox.bridge_url) {
+      this.analysisError.set('Sandbox bridge URL not available');
       this.analysisLoading.set(false);
       this.cleanupAnalysisSandbox();
       return;
     }
 
+    const sid = sandbox.id;
     try {
-      // Wait for Zed to be ready (poll health endpoint)
       this.analysisStatus.set('Waiting for Zed IDE...');
-      await this.waitForZedReady(bridgePort);
+      await this.waitForZedReady(sid);
 
-      // Send analysis prompt
       this.analysisStatus.set('Analyzing repository...');
       const prompt = this.buildAnalysisPrompt(repoName);
-      await this.sendPromptToZed(bridgePort, prompt);
+      await this.sendPromptToZed(sid, prompt);
 
-      // Wait for response
       this.analysisStatus.set('Waiting for AI response...');
-      const response = await this.waitForZedResponse(bridgePort);
+      const response = await this.waitForZedResponse(sid);
 
       // Parse and save response
       this.analysisStatus.set('Saving results...');
@@ -777,11 +769,11 @@ export class CodeComponent implements OnInit, OnDestroy {
     }
   }
 
-  private async waitForZedReady(bridgePort: number, maxAttempts = 60): Promise<void> {
+  private async waitForZedReady(sandboxId: string, maxAttempts = 60): Promise<void> {
     for (let i = 0; i < maxAttempts; i++) {
       try {
         const response = await firstValueFrom(
-          this.sandboxBridgeService.health(bridgePort)
+          this.sandboxBridgeService.health(sandboxId)
         );
         if (response.status === 'ok') {
           await this.delay(3000);
@@ -795,13 +787,13 @@ export class CodeComponent implements OnInit, OnDestroy {
     throw new Error('Zed IDE did not become ready in time');
   }
 
-  private async sendPromptToZed(bridgePort: number, prompt: string): Promise<void> {
+  private async sendPromptToZed(sandboxId: string, prompt: string): Promise<void> {
     await firstValueFrom(
-      this.sandboxBridgeService.sendZedPrompt(bridgePort, prompt)
+      this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt)
     );
   }
 
-  private async waitForZedResponse(bridgePort: number, maxAttempts = 600): Promise<string> {
+  private async waitForZedResponse(sandboxId: string, maxAttempts = 600): Promise<string> {
     // 600 attempts * 2 seconds = 20 minutes max wait time for comprehensive analysis
     let lastMessageLength = 0;
     let stableCount = 0;
@@ -810,7 +802,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     // First, get the current conversation ID to detect new responses
     try {
       const initial = await firstValueFrom(
-        this.sandboxBridgeService.getLatestZedConversation(bridgePort)
+        this.sandboxBridgeService.getLatestZedConversation(sandboxId)
       );
       if (initial) {
         initialConversationId = initial.id;
@@ -825,7 +817,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     for (let i = 0; i < maxAttempts; i++) {
       try {
         const response = await firstValueFrom(
-          this.sandboxBridgeService.getLatestZedConversation(bridgePort)
+          this.sandboxBridgeService.getLatestZedConversation(sandboxId)
         );
 
         consecutiveErrors = 0;

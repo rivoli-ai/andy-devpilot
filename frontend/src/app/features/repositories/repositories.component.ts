@@ -16,7 +16,7 @@ import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
 import { Repository } from '../../shared/models/repository.model';
 import { ButtonComponent, CardComponent, GridColumn } from '../../shared/components';
-import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
+import { VPS_CONFIG } from '../../core/config/vps.config';
 
 /**
  * Component for displaying and managing repositories
@@ -859,33 +859,29 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
         setTimeout(() => {
           this.creatingSandboxFor.set(null);
           console.log('Opening VNC viewer for sandbox:', sandbox.id);
-          console.log('Bridge port:', sandbox.bridge_port);
-          
-          // Open VNC viewer with the sandbox's unique port, ID, and bridge port
-          // Always use getVncHtmlUrl to build the correct URL with proper IP
-          // (sandbox.url from API contains placeholder 'HOST_IP')
+          console.log('Bridge URL:', sandbox.bridge_url);
+
+          const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: vncUrl,
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
             },
             sandbox.id,
             `${repo.name}`,
-            sandbox.bridge_port,
             undefined,
             sandbox.sandbox_token,
             sandbox.bridge_url,
             sandbox.vnc_password
           );
-          
-          // Trigger auto-analysis via Bridge API after Zed has time to start
-          if (sandbox.bridge_port) {
+
+          if (sandbox.bridge_url) {
             setTimeout(() => {
               console.log('Triggering auto-analysis via Bridge API...');
               this.sandboxBridgeService.sendZedPrompt(
-                sandbox.bridge_port!,
+                sandbox.id,
                 'Please analyze this repository. Give me an overview of the project structure, main technologies used, and any potential improvements or issues you notice.'
               ).subscribe({
                 next: (result) => {
@@ -895,7 +891,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
                   console.warn('Failed to send analysis prompt (Zed may not be ready yet):', err);
                 }
               });
-            }, 15000); // Wait for Zed to fully initialize
+            }, 15000);
           }
         }, VPS_CONFIG.sandboxReadyDelayMs);
       },

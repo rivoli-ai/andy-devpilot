@@ -69,8 +69,6 @@ public record SandboxAiConfig
 public record SandboxCreateResult
 {
     public string Id { get; init; } = string.Empty;
-    public int Port { get; init; }
-    public int BridgePort { get; init; }
     public string Url { get; init; } = string.Empty;
     public string BridgeUrl { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
@@ -81,8 +79,6 @@ public record SandboxCreateResult
 public record SandboxListItem
 {
     public string Id { get; init; } = string.Empty;
-    public int Port { get; init; }
-    public int BridgePort { get; init; }
     public string Url { get; init; } = string.Empty;
     public string BridgeUrl { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
@@ -91,8 +87,6 @@ public record SandboxListItem
 public record SandboxStatusResult
 {
     public string Id { get; init; } = string.Empty;
-    public int Port { get; init; }
-    public int BridgePort { get; init; }
     public string Url { get; init; } = string.Empty;
     public string BridgeUrl { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;

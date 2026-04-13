@@ -310,12 +310,16 @@ RUN printf '%s\n' \
   '(function(){' \
   ' var last="",lastPush="";' \
   ' function ta(){return document.getElementById("noVNC_clipboard_text")}' \
+  ' function rfbReady(){try{return typeof UI!=="undefined"&&UI.rfb}catch(e){return false}}' \
   ' function pushToVnc(text){' \
   '  var el=ta();if(!el||text==null||text==="")return;' \
+  '  if(!rfbReady())return;' \
   '  if(text===lastPush)return;' \
   '  lastPush=text;el.value=text;' \
-  '  el.dispatchEvent(new Event("input",{bubbles:true}));' \
-  '  el.dispatchEvent(new Event("change",{bubbles:true}));' \
+  '  try{' \
+  '   el.dispatchEvent(new Event("input",{bubbles:true}));' \
+  '   el.dispatchEvent(new Event("change",{bubbles:true}));' \
+  '  }catch(e){}' \
   ' }' \
   ' function readAndPush(){' \
   '  if(navigator.clipboard&&navigator.clipboard.readText)' \
@@ -3319,7 +3323,7 @@ $PROJECT_DIR/venv/bin/pip install --upgrade pip \
 $PROJECT_DIR/venv/bin/pip install \
     --trusted-host pypi.org \
     --trusted-host files.pythonhosted.org \
-    flask flask-cors docker
+    flask flask-cors flask-sock requests websocket-client docker
 
 # ============================================================
 # Create management script (cross-platform)

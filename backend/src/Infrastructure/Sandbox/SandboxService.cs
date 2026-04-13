@@ -16,12 +16,10 @@ using Microsoft.Extensions.Logging;
 public class SandboxService : ISandboxService
 {
     private readonly HttpClient _httpClient;
-    private readonly IConfiguration _configuration;
     private readonly ILogger<SandboxService> _logger;
+    private readonly string _httpsProxyBase;
     private readonly string _publicIp;
 
-    // sandboxId → ownerUserId  (in-memory; cleared on process restart — acceptable since
-    // the manager's own state is also in-memory and lost on restart)
     private static readonly ConcurrentDictionary<string, Guid> _ownershipMap = new();
 
     private static readonly JsonSerializerOptions _jsonOptions = new()
@@ -35,39 +33,31 @@ public class SandboxService : ISandboxService
         IConfiguration configuration,
         ILogger<SandboxService> logger)
     {
-        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _httpClient = httpClientFactory.CreateClient("VPSManager");
 
-        var gatewayUrl = _configuration["VPS:GatewayUrl"]
+        var gatewayUrl = configuration["VPS:GatewayUrl"]
             ?? throw new InvalidOperationException("VPS:GatewayUrl is not configured");
         _httpClient.BaseAddress = new Uri(gatewayUrl);
 
-        var apiKey = _configuration["VPS:ManagerApiKey"] ?? string.Empty;
+        var apiKey = configuration["VPS:ManagerApiKey"] ?? string.Empty;
         if (!string.IsNullOrEmpty(apiKey))
             _httpClient.DefaultRequestHeaders.Add("X-Api-Key", apiKey);
 
-        _publicIp = _configuration["VPS:PublicIp"] ?? "localhost";
-
-        // When the frontend is served over HTTPS, direct http://<ip>:<port> sandbox URLs
-        // cause mixed-content browser errors.  Set VPS:HttpsProxyBase (e.g. https://flexagent.online)
-        // and the backend will return nginx proxy URLs instead:
-        //   VNC   → {HttpsProxyBase}/sandbox-vnc/{port}/vnc.html
-        //   Bridge→ {HttpsProxyBase}/sandbox-bridge/{bridgePort}
-        _httpsProxyBase = (_configuration["VPS:HttpsProxyBase"] ?? string.Empty).TrimEnd('/');
+        _publicIp = configuration["VPS:PublicIp"] ?? "localhost";
+        _httpsProxyBase = (configuration["VPS:HttpsProxyBase"] ?? string.Empty).TrimEnd('/');
     }
 
-    private readonly string _httpsProxyBase;
-
-    private string BuildVncUrl(int port)
-        => string.IsNullOrEmpty(_httpsProxyBase)
-            ? $"http://{_publicIp}:{port}/vnc.html"
-            : $"{_httpsProxyBase}/sandbox-vnc/{port}/vnc.html";
-
-    private string BuildBridgeUrl(int bridgePort)
-        => string.IsNullOrEmpty(_httpsProxyBase)
-            ? $"http://{_publicIp}:{bridgePort}"
-            : $"{_httpsProxyBase}/sandbox-bridge/{bridgePort}";
+    private string RewriteUrl(string managerUrl)
+    {
+        if (string.IsNullOrEmpty(managerUrl)) return managerUrl;
+        if (!string.IsNullOrEmpty(_httpsProxyBase))
+        {
+            var uri = new Uri(managerUrl, UriKind.Absolute);
+            return $"{_httpsProxyBase}{uri.PathAndQuery}";
+        }
+        return managerUrl.Replace("HOST_IP", _publicIp);
+    }
 
     public async Task<SandboxCreateResult> CreateSandboxAsync(
         Guid userId,
@@ -89,10 +79,8 @@ public class SandboxService : ISandboxService
         return new SandboxCreateResult
         {
             Id = raw.Id,
-            Port = raw.Port,
-            BridgePort = raw.BridgePort,
-            Url = BuildVncUrl(raw.Port),
-            BridgeUrl = BuildBridgeUrl(raw.BridgePort),
+            Url = RewriteUrl(raw.Url),
+            BridgeUrl = RewriteUrl(raw.BridgeUrl),
             Status = raw.Status,
             SandboxToken = raw.SandboxToken,
             VncPassword = raw.VncPassword,
@@ -114,10 +102,8 @@ public class SandboxService : ISandboxService
             .Select(s => new SandboxListItem
             {
                 Id = s.Id,
-                Port = s.Port,
-                BridgePort = s.BridgePort,
-                Url = BuildVncUrl(s.Port),
-                BridgeUrl = BuildBridgeUrl(s.BridgePort),
+                Url = RewriteUrl(s.Url),
+                BridgeUrl = RewriteUrl(s.BridgeUrl),
                 Status = s.Status,
             })
             .ToList();
@@ -145,10 +131,8 @@ public class SandboxService : ISandboxService
         return new SandboxStatusResult
         {
             Id = raw.Id,
-            Port = raw.Port,
-            BridgePort = raw.BridgePort,
-            Url = BuildVncUrl(raw.Port),
-            BridgeUrl = BuildBridgeUrl(raw.BridgePort),
+            Url = RewriteUrl(raw.Url),
+            BridgeUrl = RewriteUrl(raw.BridgeUrl),
             Status = raw.Status,
         };
     }
@@ -216,14 +200,12 @@ public class SandboxService : ISandboxService
 
     private record ManagerListItem(
         [property: JsonPropertyName("id")] string Id,
-        [property: JsonPropertyName("port")] int Port,
-        [property: JsonPropertyName("bridge_port")] int BridgePort,
+        [property: JsonPropertyName("url")] string Url,
+        [property: JsonPropertyName("bridge_url")] string BridgeUrl,
         [property: JsonPropertyName("status")] string Status);
 
     private record ManagerCreateResponse(
         [property: JsonPropertyName("id")] string Id,
-        [property: JsonPropertyName("port")] int Port,
-        [property: JsonPropertyName("bridge_port")] int BridgePort,
         [property: JsonPropertyName("url")] string Url,
         [property: JsonPropertyName("bridge_url")] string BridgeUrl,
         [property: JsonPropertyName("status")] string Status,
@@ -232,7 +214,7 @@ public class SandboxService : ISandboxService
 
     private record ManagerStatusResponse(
         [property: JsonPropertyName("id")] string Id,
-        [property: JsonPropertyName("port")] int Port,
-        [property: JsonPropertyName("bridge_port")] int BridgePort,
+        [property: JsonPropertyName("url")] string Url,
+        [property: JsonPropertyName("bridge_url")] string BridgeUrl,
         [property: JsonPropertyName("status")] string Status);
 }

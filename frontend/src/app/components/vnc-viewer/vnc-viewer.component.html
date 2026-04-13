@@ -147,7 +147,7 @@
           <div class="action-divider"></div>
         }
 
-        @if (bridgePort() && isConnected()) {
+        @if (sandboxId() && isConnected()) {
           <button
             class="action-btn"
             type="button"
@@ -210,9 +210,9 @@
     </div>
 
     <!-- Content Area with Split View -->
-    <div class="popup-content" [class.with-conversations]="showConversations() && bridgePort() && agentChatSidebarAllowed()">
+    <div class="popup-content" [class.with-conversations]="showConversations() && sandboxId() && agentChatSidebarAllowed()">
       <!-- AI Conversations Panel (Left Side) — hidden on mobile (narrow viewport) -->
-      @if (bridgePort() && agentChatSidebarAllowed()) {
+      @if (sandboxId() && agentChatSidebarAllowed()) {
         <div class="conversations-panel" [class.collapsed]="!showConversations()" [style.width.px]="showConversations() ? chatPanelWidth() : null" [style.min-width.px]="showConversations() ? chatPanelWidth() : null">
           @if (showConversations()) {
             <div class="chat-resize-handle" (mousedown)="onChatResizeStart($event)"></div>
@@ -406,7 +406,7 @@
               <span class="fullscreen-bar-hint">{{ fsMsg }}</span>
             }
             <div class="fullscreen-bar-actions">
-              @if (bridgePort() && isConnected()) {
+              @if (sandboxId() && isConnected()) {
                 <button
                   class="fullscreen-bar-btn"
                   type="button"

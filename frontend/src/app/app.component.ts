@@ -21,7 +21,7 @@ import { DockPanelComponent } from './components/dock-panel/dock-panel.component
 import { ToastComponent } from './components/toast/toast.component';
 import { VncViewerService, VncViewer } from './core/services/vnc-viewer.service';
 import { SandboxService, Sandbox } from './core/services/sandbox.service';
-import { getVncHtmlUrl } from './core/config/vps.config';
+// VNC URLs now come from the sandbox manager proxy
 import { AuthService } from './core/services/auth.service';
 import { CommonModule } from '@angular/common';
 
@@ -321,21 +321,19 @@ export class AppComponent implements OnInit, OnDestroy {
             return;
           }
           const config = {
-            url: stored.vncUrl || getVncHtmlUrl(sandbox.port),
+            url: stored.vncUrl || sandbox.url || '',
             autoConnect: true,
             scalingMode: 'local' as const,
             useIframe: true
           };
           const title = stored.title ?? `Sandbox ${sandbox.id.slice(0, 6)}`;
-          const bridgePort = stored.bridgePort ?? sandbox.bridge_port;
           this.vncViewerService.open(
             config,
             sandbox.id,
             title,
-            bridgePort,
             stored.implementationContext ?? undefined,
             stored.sandboxToken,
-            stored.bridgeUrl,
+            stored.bridgeUrl ?? sandbox.bridge_url,
             stored.vncPassword
           );
         });

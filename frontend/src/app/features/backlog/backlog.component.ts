@@ -13,7 +13,7 @@ import { AIConfigService } from '../../core/services/ai-config.service';
 import { McpConfigService } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { AuthService } from '../../core/services/auth.service';
-import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
+import { VPS_CONFIG } from '../../core/config/vps.config';
 import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
@@ -172,7 +172,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   private destroy$ = new Subject<void>();
   private lastConversationId: string | null = null;
-  private createdSandboxBridgePort: number | null = null;
+  private createdSandboxId: string | null = null;
   
   // UI State
   expandedItems = signal<ExpandedState>({});
@@ -568,11 +568,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
       v => v.implementationContext?.storyId === `backlog-${currentRepoId}` && v.implementationContext?.repositoryId === currentRepoId
     );
 
-    if (backlogViewer?.bridgePort) {
+    if (backlogViewer?.bridgeUrl) {
       console.log('Found existing backlog sandbox for this repo, reconnecting...', backlogViewer.id);
       this.generationError.set(null);
       this.generationState.set('waiting_response');
-      this.startPollingForResponse(backlogViewer.bridgePort);
+      this.startPollingForResponse(backlogViewer.id);
     }
   }
 
@@ -1194,16 +1194,16 @@ export class BacklogComponent implements OnInit, OnDestroy {
           this.creatingSandboxForStory.set(null);
           
           // Open VNC viewer with implementation context for Push & Create PR
+          const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: vncUrl,
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
             },
             sandbox.id,
             `${repo.name} - ${story.title}`,
-            sandbox.bridge_port,
             {
               repositoryId: repo.id,
               repositoryFullName: repo.fullName,
@@ -1216,26 +1216,23 @@ export class BacklogComponent implements OnInit, OnDestroy {
             sandbox.bridge_url,
             sandbox.vnc_password
           );
-          
-          // Only send implementation prompt for new stories (no existing PR)
-          // If PR exists, user is continuing work - let them interact with AI manually
-          if (sandbox.bridge_port && !story.prUrl) {
-            const bridgePort = sandbox.bridge_port;
+
+          if (sandbox.bridge_url && !story.prUrl) {
+            const sid = sandbox.id;
             setTimeout(() => {
               const prompt = this.buildImplementationPrompt(story, featureTitle, epicTitle);
-              const promptSentTimestamp = Date.now() / 1000; // Convert to seconds for API
+              const promptSentTimestamp = Date.now() / 1000;
               console.log('Sending implementation prompt to Zed...');
-              
-              this.sandboxBridgeService.sendZedPrompt(bridgePort, prompt).subscribe({
+
+              this.sandboxBridgeService.sendZedPrompt(sid, prompt).subscribe({
                 next: (result) => {
                   console.log('Implementation prompt sent:', result);
-                  
-                  // Start monitoring for implementation completion
+
                   this.sandboxBridgeService.waitForImplementationComplete(
-                    bridgePort,
+                    sid,
                     promptSentTimestamp,
-                    5000, // Poll every 5 seconds
-                    600000 // 10 minute timeout
+                    5000,
+                    600000
                   ).subscribe({
                     next: (conversation) => {
                       console.log('Implementation completed!', conversation);
@@ -1380,8 +1377,8 @@ ${story.acceptanceCriteria}
         v.implementationContext?.repositoryId === repo.id &&
         v.implementationContext?.storyId?.startsWith('backlog-')
       ) || null;
-      if (activeSandbox?.bridgePort) {
-        this.sendBacklogPrompt(activeSandbox.bridgePort);
+      if (activeSandbox?.bridgeUrl) {
+        this.sendBacklogPrompt(activeSandbox.id);
       } else {
         this.createSandboxAndGenerate();
       }
@@ -1450,25 +1447,25 @@ ${story.acceptanceCriteria}
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
-        if (!sandbox.bridge_port) {
-          this.generationError.set('Sandbox created but bridge port not available.');
+        if (!sandbox.bridge_url) {
+          this.generationError.set('Sandbox created but bridge URL not available.');
           this.generationState.set('error');
           return;
         }
-        
-        this.createdSandboxBridgePort = sandbox.bridge_port;
-        
+
+        this.createdSandboxId = sandbox.id;
+        const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
+
         setTimeout(() => {
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: vncUrl,
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
             },
             sandbox.id,
             `${repo.name} - Backlog`,
-            sandbox.bridge_port!,
             {
               repositoryId: repo.id,
               repositoryFullName: repo.fullName || repo.name,
@@ -1482,10 +1479,9 @@ ${story.acceptanceCriteria}
           );
 
           this.generationState.set('waiting_sandbox');
-          // Send backlog prompt after Zed is ready
           setTimeout(() => {
-            this.sendBacklogPrompt(sandbox.bridge_port!);
-          }, 20000); // 20s for Zed to start
+            this.sendBacklogPrompt(sandbox.id);
+          }, 20000);
         }, VPS_CONFIG.sandboxReadyDelayMs);
       },
       error: (err) => {
@@ -1495,16 +1491,16 @@ ${story.acceptanceCriteria}
     });
   }
 
-  private waitForZedAndSendBacklogPrompt(bridgePort: number): void {
+  private waitForZedAndSendBacklogPrompt(sandboxId: string): void {
     this.generationState.set('sending');
     const prompt = this.buildBacklogPrompt();
-    
+
     console.log('Waiting for Zed to be ready before sending backlog prompt...');
-    this.sandboxBridgeService.waitForZedAndSendPrompt(bridgePort, prompt).subscribe({
+    this.sandboxBridgeService.waitForZedAndSendPrompt(sandboxId, prompt).subscribe({
       next: (result) => {
         console.log('Backlog prompt sent:', result);
         this.generationState.set('waiting_response');
-        this.startPollingForResponse(bridgePort);
+        this.startPollingForResponse(sandboxId);
       },
       error: (err) => {
         console.warn('Failed to send backlog prompt:', err);
@@ -1514,23 +1510,23 @@ ${story.acceptanceCriteria}
     });
   }
 
-  private sendBacklogPrompt(bridgePort: number): void {
+  private sendBacklogPrompt(sandboxId: string): void {
     this.generationState.set('sending');
     const prompt = this.buildBacklogPrompt();
 
-    this.sandboxBridgeService.sendZedPrompt(bridgePort, prompt).subscribe({
-      next: (result) => {
+    this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
+      next: () => {
         this.generationState.set('waiting_response');
-        this.startPollingForResponse(bridgePort);
+        this.startPollingForResponse(sandboxId);
       },
-      error: (err) => {
+      error: () => {
         setTimeout(() => {
-          this.sandboxBridgeService.sendZedPrompt(bridgePort, prompt).subscribe({
-            next: (result) => {
+          this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
+            next: () => {
               this.generationState.set('waiting_response');
-              this.startPollingForResponse(bridgePort);
+              this.startPollingForResponse(sandboxId);
             },
-            error: (retryErr) => {
+            error: () => {
               this.generationError.set('Failed to send prompt to Zed. Please ensure the sandbox is running and Zed is ready.');
               this.generationState.set('error');
             }
@@ -1603,14 +1599,14 @@ ${jsonFormatRequirement}`;
     return prompt;
   }
 
-  private startPollingForResponse(bridgePort: number): void {
+  private startPollingForResponse(sandboxId: string): void {
     let consecutiveErrors = 0;
 
     interval(3000).pipe(
       takeUntil(this.destroy$),
       filter(() => this.generationState() === 'waiting_response'),
       switchMap(() =>
-        this.sandboxBridgeService.getLatestZedConversation(bridgePort).pipe(
+        this.sandboxBridgeService.getLatestZedConversation(sandboxId).pipe(
           catchError(err => {
             consecutiveErrors++;
             if (consecutiveErrors >= 3) {

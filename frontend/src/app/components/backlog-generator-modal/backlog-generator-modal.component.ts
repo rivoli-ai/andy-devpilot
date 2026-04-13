@@ -11,7 +11,7 @@ import { AIConfigService } from '../../core/services/ai-config.service';
 import { McpConfigService } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { Repository } from '../../shared/models/repository.model';
-import { getVncHtmlUrl, VPS_CONFIG } from '../../core/config/vps.config';
+import { VPS_CONFIG } from '../../core/config/vps.config';
 import { ButtonComponent } from '../../shared/components';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 
@@ -406,7 +406,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
 
   private destroy$ = new Subject<void>();
   private lastConversationId = '';
-  private createdSandboxBridgePort: number | null = null;
+  private createdSandboxId: string | null = null;
 
   // Find active sandbox for this repository
   activeSandbox = computed(() => {
@@ -432,8 +432,8 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
 
     // Get the current last conversation ID to detect new responses
     const sandbox = this.activeSandbox();
-    if (sandbox?.bridgePort) {
-      this.sandboxBridgeService.getLatestZedConversation(sandbox.bridgePort).subscribe({
+    if (sandbox?.bridgeUrl) {
+      this.sandboxBridgeService.getLatestZedConversation(sandbox.id).subscribe({
         next: (conv) => {
           if (conv) {
             this.lastConversationId = conv.id;
@@ -468,39 +468,35 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
   generateBacklog(): void {
     const sandbox = this.activeSandbox();
 
-    // If no sandbox is running, create one first
-    if (!sandbox?.bridgePort) {
+    if (!sandbox?.bridgeUrl) {
       this.createSandboxAndGenerate();
       return;
     }
 
-    this.sendBacklogPrompt(sandbox.bridgePort);
+    this.sendBacklogPrompt(sandbox.id);
   }
 
-  private sendBacklogPrompt(bridgePort: number): void {
+  private sendBacklogPrompt(sandboxId: string): void {
     this.state.set('sending');
 
-    // Build the prompt for backlog generation
     const prompt = this.buildBacklogPrompt();
     console.log('Sending backlog prompt to Zed (length:', prompt.length, 'chars)');
 
-    // Send to Zed (same approach as analyze)
-    this.sandboxBridgeService.sendZedPrompt(bridgePort, prompt).subscribe({
+    this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
       next: (result) => {
         console.log('Backlog generation prompt sent to Zed:', result);
         this.state.set('waiting_response');
-        this.startPollingForResponse(bridgePort);
+        this.startPollingForResponse(sandboxId);
       },
       error: (err) => {
         console.error('Failed to send backlog prompt (Zed may not be ready yet):', err);
-        // Retry once after a short delay
         setTimeout(() => {
           console.log('Retrying backlog prompt...');
-          this.sandboxBridgeService.sendZedPrompt(bridgePort, prompt).subscribe({
+          this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
             next: (result) => {
               console.log('Backlog prompt sent on retry:', result);
               this.state.set('waiting_response');
-              this.startPollingForResponse(bridgePort);
+              this.startPollingForResponse(sandboxId);
             },
             error: (retryErr) => {
               console.error('Failed to send backlog prompt on retry:', retryErr);
@@ -576,42 +572,39 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
       next: (sandbox) => {
         console.log('Sandbox created for backlog generation:', sandbox);
 
-        if (!sandbox.bridge_port) {
+        if (!sandbox.bridge_url) {
           this.state.set('error');
-          this.errorMessage.set('Sandbox created but bridge port not available.');
+          this.errorMessage.set('Sandbox created but bridge URL not available.');
           return;
         }
 
-        this.createdSandboxBridgePort = sandbox.bridge_port;
+        this.createdSandboxId = sandbox.id;
+        const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
 
-        // Wait for the container services to fully start (same as analyze flow)
         setTimeout(() => {
           console.log('Opening VNC viewer for backlog generation, sandbox:', sandbox.id);
-          console.log('Bridge port:', sandbox.bridge_port);
+          console.log('Bridge URL:', sandbox.bridge_url);
 
-          // Open VNC viewer
           this.vncViewerService.open(
             {
-              url: sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : getVncHtmlUrl(sandbox.port),
+              url: vncUrl,
               autoConnect: true,
               scalingMode: 'local',
               useIframe: true
             },
             sandbox.id,
             `${repo.name}`,
-            sandbox.bridge_port!,
             undefined,
             sandbox.sandbox_token,
             sandbox.bridge_url,
             sandbox.vnc_password
           );
 
-          // Wait for Zed to fully initialize before sending prompt
           this.state.set('waiting_sandbox');
           setTimeout(() => {
             console.log('Sending backlog generation prompt to Zed...');
-            this.sendBacklogPrompt(sandbox.bridge_port!);
-          }, 15000); // Wait for Zed to fully initialize
+            this.sendBacklogPrompt(sandbox.id);
+          }, 15000);
         }, VPS_CONFIG.sandboxReadyDelayMs);
       },
       error: (err) => {
@@ -676,14 +669,14 @@ IMPORTANT: Return ONLY valid JSON in this exact format:
     return prompt;
   }
 
-  private startPollingForResponse(bridgePort: number): void {
+  private startPollingForResponse(sandboxId: string): void {
     let consecutiveErrors = 0;
 
     interval(3000).pipe(
       takeUntil(this.destroy$),
       filter(() => this.state() === 'waiting_response'),
       switchMap(() =>
-        this.sandboxBridgeService.getLatestZedConversation(bridgePort).pipe(
+        this.sandboxBridgeService.getLatestZedConversation(sandboxId).pipe(
           catchError(err => {
             consecutiveErrors++;
             if (consecutiveErrors >= 3) {

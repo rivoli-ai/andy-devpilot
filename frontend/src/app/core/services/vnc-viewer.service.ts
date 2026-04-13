@@ -21,19 +21,12 @@ export interface VncViewer {
   config: VncConfig;
   dockPosition: DockPosition;
   title?: string;
-  createdAt: number; // Timestamp for tracking oldest
-  bridgePort?: number; // Port for Bridge API communication
-  /** Full bridge URL (e.g. http://localhost:7102) returned by the backend at sandbox creation */
+  createdAt: number;
   bridgeUrl?: string;
-  /** Per-sandbox bearer token for authenticating bridge API calls */
   sandboxToken?: string;
-  /** Per-sandbox VNC password for noVNC iframe authentication */
   vncPassword?: string;
-  /** Set when opened from backlog for user story implementation - enables Push & Create PR */
   implementationContext?: ImplementationContext;
-  /** True when implementation is complete and waiting for PR */
   readyForPr?: boolean;
-  /** Connection state: 'connecting' | 'connected' | 'disconnected' | 'error' - persisted when viewer moves floating↔minimized */
   connectionState?: string;
 }
 
@@ -43,18 +36,12 @@ export interface VncViewer {
  */
 const SANDBOX_CONTEXTS_KEY = 'devpilot_sandbox_contexts';
 
-/** Stored per sandbox for restore after page refresh (chat/LLM panel needs bridgePort) */
 export interface StoredSandboxContext {
   implementationContext?: ImplementationContext;
   title?: string;
-  bridgePort?: number;
-  /** Full bridge URL persisted so auth works after page refresh */
   bridgeUrl?: string;
-  /** Bearer token persisted so auth works after page refresh */
   sandboxToken?: string;
-  /** Full VNC iframe URL persisted so restore uses the correct host (not VPS_CONFIG fallback) */
   vncUrl?: string;
-  /** Per-sandbox VNC password */
   vncPassword?: string;
 }
 
@@ -98,34 +85,23 @@ export class VncViewerService {
     return this.count >= this.MAX_SANDBOXES;
   }
 
-  /**
-   * Open a new VNC viewer (starts minimized in the bottom tray; user can open dock / float from there)
-   * Auto-closes oldest viewer if at max capacity
-   * @param config VNC connection config
-   * @param id Optional viewer ID (sandbox ID)
-   * @param title Optional title for the viewer
-   * @param bridgePort Optional Bridge API port for sandbox communication
-   * @param implementationContext Optional context when opened for user story implementation (enables Push & Create PR)
-   */
-  open(config: VncConfig, id?: string, title?: string, bridgePort?: number, implementationContext?: ImplementationContext, sandboxToken?: string, bridgeUrl?: string, vncPassword?: string): string {
+  open(config: VncConfig, id?: string, title?: string, implementationContext?: ImplementationContext, sandboxToken?: string, bridgeUrl?: string, vncPassword?: string): string {
     const viewerId = id || `sandbox-${Date.now()}`;
-    
-    console.log('VncViewerService.open called:', { 
-      viewerId, 
+
+    console.log('VncViewerService.open called:', {
+      viewerId,
       currentCount: this.count,
       maxSandboxes: this.MAX_SANDBOXES,
-      bridgePort,
+      bridgeUrl,
       hasSandboxToken: !!sandboxToken
     });
-    
-    // Check if viewer with same ID exists
+
     const existingIndex = this.viewersSubject.value.findIndex(v => v.id === viewerId);
     if (existingIndex >= 0) {
       console.log('Viewer already exists, updating:', viewerId);
       const viewers = [...this.viewersSubject.value];
       const merged = implementationContext ?? viewers[existingIndex].implementationContext;
       const mergedTitle = title ?? viewers[existingIndex].title;
-      const mergedPort = bridgePort ?? viewers[existingIndex].bridgePort;
       const mergedToken = sandboxToken ?? viewers[existingIndex].sandboxToken;
       const mergedBridgeUrl = bridgeUrl ?? viewers[existingIndex].bridgeUrl;
       const mergedVncPassword = vncPassword ?? viewers[existingIndex].vncPassword;
@@ -133,21 +109,19 @@ export class VncViewerService {
       viewers[existingIndex] = {
         ...viewers[existingIndex],
         config,
-        bridgePort: mergedPort,
         sandboxToken: mergedToken,
         bridgeUrl: mergedBridgeUrl,
         vncPassword: mergedVncPassword,
         implementationContext: merged,
         title: mergedTitle
       };
-      if (merged || mergedTitle || mergedPort !== undefined) {
-        this.setStoredContext(viewerId, { implementationContext: merged, title: mergedTitle, bridgePort: mergedPort, sandboxToken: mergedToken, bridgeUrl: mergedBridgeUrl, vncUrl: mergedVncUrl, vncPassword: mergedVncPassword });
+      if (merged || mergedTitle || mergedBridgeUrl) {
+        this.setStoredContext(viewerId, { implementationContext: merged, title: mergedTitle, sandboxToken: mergedToken, bridgeUrl: mergedBridgeUrl, vncUrl: mergedVncUrl, vncPassword: mergedVncPassword });
       }
       this.viewersSubject.next(viewers);
       return viewerId;
     }
-    
-    // If at capacity, close the oldest viewer
+
     if (this.isAtCapacity) {
       const oldest = this.getOldestViewer();
       if (oldest) {
@@ -155,24 +129,23 @@ export class VncViewerService {
         this.close(oldest.id);
       }
     }
-    
+
     const newViewer: VncViewer = {
       id: viewerId,
       config,
       dockPosition: 'minimized',
       title: title || `Sandbox ${viewerId.slice(0, 6)}`,
       createdAt: Date.now(),
-      bridgePort,
       sandboxToken,
       bridgeUrl,
       vncPassword,
       implementationContext
     };
 
-    if (implementationContext || title || bridgePort !== undefined) {
-      this.setStoredContext(viewerId, { implementationContext, title, bridgePort, sandboxToken, bridgeUrl, vncUrl: config.url, vncPassword });
+    if (implementationContext || title || bridgeUrl) {
+      this.setStoredContext(viewerId, { implementationContext, title, sandboxToken, bridgeUrl, vncUrl: config.url, vncPassword });
     }
-    
+
     console.log('Creating new viewer:', newViewer.id, 'Total will be:', this.count + 1);
     this.viewersSubject.next([...this.viewersSubject.value, newViewer]);
     return viewerId;
@@ -297,13 +270,6 @@ export class VncViewerService {
     return this.viewersSubject.value.reduce((oldest, current) => 
       current.createdAt < oldest.createdAt ? current : oldest
     );
-  }
-
-  /**
-   * Find a viewer by its bridge port (used by SandboxBridgeService to look up auth token)
-   */
-  getViewerByBridgePort(bridgePort: number): VncViewer | undefined {
-    return this.viewersSubject.value.find(v => v.bridgePort === bridgePort);
   }
 
   /**

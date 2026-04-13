@@ -6,28 +6,20 @@ import { APP_CONFIG, AppConfig } from './config.service';
 
 export interface Sandbox {
   id: string;
-  port: number;
-  bridge_port?: number;
   status: string;
   url?: string;
   bridge_url?: string;
   created_at?: number;
-  /** Per-sandbox bearer token for authenticating bridge API calls */
   sandbox_token?: string;
-  /** Per-sandbox VNC password for noVNC iframe authentication */
   vnc_password?: string;
 }
 
 export interface CreateSandboxResponse {
   id: string;
-  port: number;
-  bridge_port?: number;
   url: string;
   bridge_url?: string;
   status: string;
-  /** Per-sandbox bearer token for authenticating bridge API calls */
   sandbox_token?: string;
-  /** Per-sandbox VNC password for noVNC iframe authentication */
   vnc_password?: string;
 }
 
@@ -87,8 +79,6 @@ export class SandboxService {
       tap(sandbox => {
         this.currentSandboxSubject.next({
           id: sandbox.id,
-          port: sandbox.port,
-          bridge_port: sandbox.bridge_port,
           status: sandbox.status,
           url: sandbox.url,
           bridge_url: sandbox.bridge_url,

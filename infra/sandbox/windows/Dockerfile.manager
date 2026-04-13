@@ -21,7 +21,7 @@ COPY infra/sandbox/manager/manager.py .
 RUN pip install --no-cache-dir \
     --trusted-host pypi.org \
     --trusted-host files.pythonhosted.org \
-    flask flask-cors docker
+    flask flask-cors flask-sock requests websocket-client docker
 
 EXPOSE 8090
 

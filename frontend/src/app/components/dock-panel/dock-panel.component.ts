@@ -66,7 +66,7 @@ import { VncViewerComponent } from '../vnc-viewer/vnc-viewer.component';
             [initialDockPosition]="'floating'"
             [initialConnectionState]="viewer.connectionState"
             [viewerTitle]="viewer.title || 'Sandbox'"
-            [bridgePort]="viewer.bridgePort"
+            [sandboxId]="viewer.id"
             [implementationContext]="viewer.implementationContext"
             [embedded]="true"
             (closeEvent)="closeViewer(viewer.id)">

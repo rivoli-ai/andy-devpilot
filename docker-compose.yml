@@ -57,7 +57,7 @@ services:
       # Override with a full URL (e.g. https://api.example.com/api) for split-host setups.
       API_URL: ${API_URL:-/api}
     ports:
-      - "80:80"
+      - "8000:80"
 
   # ── Sandbox Manager (Python Flask) ───────────────────────────────────────────
   sandbox-manager:
@@ -76,8 +76,6 @@ services:
       - ./certs:/certs:ro
     ports:
       - "8090:8090"
-      # Sandbox ports (6100-6200 noVNC, 7100-7200 Bridge API) are bound directly
-      # to the host by the sandbox containers themselves — do NOT pre-allocate here.
 
 volumes:
   postgres_data:

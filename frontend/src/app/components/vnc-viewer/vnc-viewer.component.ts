@@ -52,7 +52,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   initialConnectionState = input<string | undefined>(undefined); // From service when viewer moves floating↔minimized
   viewerTitle = input<string>('Sandbox');
   embedded = input<boolean>(false); // When true, renders without container/header (for dock panel)
-  bridgePort = input<number | undefined>(undefined); // Bridge API port for this sandbox
+  sandboxId = input<string | undefined>(undefined);
   implementationContext = input<{ repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string; azureDevOpsWorkItemId?: number } | undefined>(undefined); // Enables Push & Create PR
 
   // Output: Close event
@@ -106,7 +106,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   private static readonly RETRY_DELAY_MS = 3000;           // Wait 3s before retry after error
   private static readonly MAX_CONNECTION_RETRIES = 4;     // Retry up to 4 times before showing error
 
-  // Wait for bridge (AI conversations) before loading iframe when bridgePort is set
+  // Wait for bridge (AI conversations) before loading iframe when sandboxId is set
   private bridgeWaitIntervalId: ReturnType<typeof setInterval> | null = null;
   private static readonly BRIDGE_POLL_INTERVAL_MS = 1500;  // Poll bridge health every 1.5s
   private static readonly BRIDGE_MAX_WAIT_MS = 25000;      // Stop waiting after 25s and load iframe anyway
@@ -243,20 +243,19 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     private repositoryService: RepositoryService,
     private backlogService: BacklogService
   ) {
-    // Update config when input changes. When bridgePort is set, wait for bridge health before loading iframe.
     effect(() => {
       const inputConfig = this.config();
       if (inputConfig) {
         const mergedConfig = { ...DEFAULT_VNC_CONFIG, ...inputConfig };
         this.internalConfig.set(mergedConfig);
         if (mergedConfig.url && mergedConfig.url.trim() !== '') {
-          const port = this.bridgePort();
-          if (port) {
+          const sid = this.sandboxId();
+          if (sid) {
             if (this.bridgeWaitIntervalId) {
               clearInterval(this.bridgeWaitIntervalId);
               this.bridgeWaitIntervalId = null;
             }
-            this.waitForBridgeThenSetupIframe(port);
+            this.waitForBridgeThenSetupIframe(sid);
           } else {
             this.setupIframeUrl();
           }
@@ -321,12 +320,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  /**
-   * When opening sandbox with AI conversations (bridgePort set), wait for the bridge to respond
-   * to /health before loading the VNC iframe. This avoids "unable to connect" when the bridge
-   * starts a few seconds after the sandbox.
-   */
-  private waitForBridgeThenSetupIframe(bridgePort: number): void {
+  private waitForBridgeThenSetupIframe(sandboxId: string): void {
     const start = Date.now();
     const maxWait = VncViewerComponent.BRIDGE_MAX_WAIT_MS;
     const pollMs = VncViewerComponent.BRIDGE_POLL_INTERVAL_MS;
@@ -341,7 +335,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
         this.setupIframeUrl();
         return;
       }
-      this.sandboxBridgeService.health(bridgePort).subscribe({
+      this.sandboxBridgeService.health(sandboxId).subscribe({
         next: (res) => {
           if (res.status !== 'error') {
             if (this.bridgeWaitIntervalId) {
@@ -378,9 +372,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       this.centerPopup();
     }
 
-    // Iframe URL is set by the effect when config (and optional bridgePort) is available
-
-    // Start conversation polling if bridge port is provided
+    // Iframe URL is set by the effect when config (and optional sandboxId) is available
     this.startConversationPolling();
 
     // Subscribe to viewer changes to sync readyForPr state
@@ -416,18 +408,17 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
    * Fetches immediately then every 3s (so restored sandboxes show existing LLM chat right away)
    */
   private startConversationPolling(): void {
-    const port = this.bridgePort();
-    if (!port) return;
+    const sid = this.sandboxId();
+    if (!sid) return;
 
     let consecutiveErrors = 0;
 
-    // Fetch immediately then every 3 seconds
     interval(3000).pipe(
       startWith(0),
       takeUntil(this.destroy$),
-      filter(() => !!this.bridgePort()),
+      filter(() => !!this.sandboxId()),
       switchMap(() =>
-        this.sandboxBridgeService.getAllConversations(this.bridgePort()!).pipe(
+        this.sandboxBridgeService.getAllConversations(this.sandboxId()!).pipe(
           catchError(_err => {
             consecutiveErrors++;
             if (consecutiveErrors >= 3) {
@@ -576,8 +567,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
    */
   pushAndCreatePr(): void {
     const ctx = this.implementationContext();
-    const port = this.bridgePort();
-    if (!ctx || !port || !this.canPushPrAfterQuiet()) return;
+    const sid = this.sandboxId();
+    if (!ctx || !sid || !this.canPushPrAfterQuiet()) return;
 
     this.pushCreatingPr.set(true);
     this.pushPrError.set(null);
@@ -605,11 +596,10 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       next: (result) => {
         // Extract credentials from URL (format: https://TOKEN@host/...)
         const gitCredentials = this.extractCredentialsFromUrl(result.cloneUrl);
-        this.executePush(port, ctx, branchName, commitMessage, prTitle, prBody, gitCredentials);
+        this.executePush(sid, ctx, branchName, commitMessage, prTitle, prBody, gitCredentials);
       },
       error: () => {
-        // Try without credentials
-        this.executePush(port, ctx, branchName, commitMessage, prTitle, prBody, undefined);
+        this.executePush(sid, ctx, branchName, commitMessage, prTitle, prBody, undefined);
       }
     });
   }
@@ -624,7 +614,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   private executePush(
-    port: number,
+    sandboxId: string,
     ctx: { repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string; azureDevOpsWorkItemId?: number },
     branchName: string,
     commitMessage: string,
@@ -632,7 +622,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     prBody: string,
     gitCredentials: string | undefined
   ): void {
-    this.sandboxBridgeService.pushAndCreatePr(port, {
+    this.sandboxBridgeService.pushAndCreatePr(sandboxId, {
       branchName,
       commitMessage,
       prTitle,
@@ -676,16 +666,15 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
    */
   sendMessage(): void {
     const message = this.newMessage.trim();
-    const port = this.bridgePort();
+    const sid = this.sandboxId();
 
-    if (!message || !port || this.isSending()) {
+    if (!message || !sid || this.isSending()) {
       return;
     }
 
     this.isSending.set(true);
 
-    // Send the prompt to Zed via Bridge API
-    this.sandboxBridgeService.sendZedPrompt(port, message).subscribe({
+    this.sandboxBridgeService.sendZedPrompt(sid, message).subscribe({
       next: (response) => {
         console.log('Message sent to Zed:', response);
         this.newMessage = '';
@@ -821,14 +810,14 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     this.error.set(null);
     this.connectionState.set(VncConnectionState.Connecting);
-    const port = this.bridgePort();
-    if (port) {
-      this.vncIframeUrlRaw.set(''); // show loading overlay while waiting for bridge
+    const sid = this.sandboxId();
+    if (sid) {
+      this.vncIframeUrlRaw.set('');
       if (this.bridgeWaitIntervalId) {
         clearInterval(this.bridgeWaitIntervalId);
         this.bridgeWaitIntervalId = null;
       }
-      this.waitForBridgeThenSetupIframe(port);
+      this.waitForBridgeThenSetupIframe(sid);
     } else {
       this.setupIframeUrl();
     }
@@ -870,8 +859,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
    * (xclip + Ctrl+V). Use when normal copy/paste through noVNC does not reach Zed.
    */
   pasteFromHostClipboard(): void {
-    const port = this.bridgePort();
-    if (!port) {
+    const sid = this.sandboxId();
+    if (!sid) {
       this.pasteFromHostMessage.set('Sandbox bridge is not available.');
       setTimeout(() => this.pasteFromHostMessage.set(null), 4000);
       return;
@@ -890,7 +879,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
         setTimeout(() => this.pasteFromHostMessage.set(null), 3000);
         return;
       }
-      this.sandboxBridgeService.pasteHostClipboardIntoSandbox(port, text).subscribe({
+      this.sandboxBridgeService.pasteHostClipboardIntoSandbox(sid, text).subscribe({
         next: () => {
           this.pasteFromHostBusy.set(false);
           this.pasteFromHostMessage.set('Pasted into sandbox.');

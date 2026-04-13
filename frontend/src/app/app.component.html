@@ -77,7 +77,7 @@
                         [initialDockPosition]="viewer.dockPosition"
                         [initialConnectionState]="viewer.connectionState"
                         [viewerTitle]="viewer.title || 'Sandbox'"
-                        [bridgePort]="viewer.bridgePort"
+                        [sandboxId]="viewer.id"
                         [implementationContext]="viewer.implementationContext"
                         (closeEvent)="onVncViewerClose(viewer.id)">
                       </app-vnc-viewer>
@@ -127,7 +127,7 @@
                           [initialDockPosition]="viewer.dockPosition"
                           [initialConnectionState]="viewer.connectionState"
                           [viewerTitle]="viewer.title || 'Sandbox'"
-                          [bridgePort]="viewer.bridgePort"
+                          [sandboxId]="viewer.id"
                           [implementationContext]="viewer.implementationContext"
                           (closeEvent)="onVncViewerClose(viewer.id)">
                         </app-vnc-viewer>
@@ -149,7 +149,7 @@
           [initialDockPosition]="viewer.dockPosition"
           [initialConnectionState]="viewer.connectionState"
           [viewerTitle]="viewer.title || 'Sandbox'"
-          [bridgePort]="viewer.bridgePort"
+          [sandboxId]="viewer.id"
           [implementationContext]="viewer.implementationContext"
           (closeEvent)="onVncViewerClose(viewer.id)">
         </app-vnc-viewer>

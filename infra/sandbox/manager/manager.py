@@ -6,44 +6,66 @@ Supports two backends selected by BACKEND env var:
   BACKEND=k8s               — Kubernetes Python client
 """
 
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, Response
 from flask_cors import CORS
+from flask_sock import Sock
 import uuid
 import secrets
 import threading
 import time
 import os
 import json
+import requests as http_requests
+import websocket as ws_client
 
 app = Flask(__name__)
 CORS(app)
+sock = Sock(app)
 
-SANDBOX_MANAGER_VERSION = "3.0.0"
+SANDBOX_MANAGER_VERSION = "3.1.0"
 
 BACKEND          = os.environ.get("BACKEND", "docker").lower()  # "docker" | "k8s"
 MANAGER_API_KEY  = os.environ.get("MANAGER_API_KEY", "")
 HOST_IP          = os.environ.get("HOST_IP", "localhost")
-# Sandbox container image (Docker Hub, GHCR, etc.). Same env as K8s (k8s_utils.SANDBOX_IMAGE).
 SANDBOX_IMAGE    = os.environ.get("SANDBOX_IMAGE", "devpilot-desktop:latest")
-# When the frontend is served over HTTPS, direct HTTP sandbox URLs cause mixed-content
-# errors in the browser.  Set HTTPS_PROXY_BASE to the public HTTPS origin
-# (e.g. https://flexagent.online) and the manager will return proxy URLs that go
-# through nginx's /sandbox-vnc/<port>/ and /sandbox-bridge/<port>/ locations.
 HTTPS_PROXY_BASE = os.environ.get("HTTPS_PROXY_BASE", "").rstrip("/")
 
+SANDBOX_NETWORK  = "devpilot-sandbox-net"
+MANAGER_PORT     = 8090
 
-def _build_sandbox_urls(vnc_port: int, bridge_port: int) -> tuple[str, str]:
-    """Return (vnc_url, bridge_url) — HTTPS proxy variants when HTTPS_PROXY_BASE is set."""
-    if HTTPS_PROXY_BASE:
-        vnc_url    = f"{HTTPS_PROXY_BASE}/sandbox-vnc/{vnc_port}/vnc.html"
-        bridge_url = f"{HTTPS_PROXY_BASE}/sandbox-bridge/{bridge_port}"
+def _running_inside_docker() -> bool:
+    if os.path.exists("/.dockerenv"):
+        return True
+    try:
+        with open("/proc/1/cgroup") as f:
+            return "docker" in f.read()
+    except (FileNotFoundError, PermissionError):
+        return False
+
+MANAGER_IN_DOCKER = _running_inside_docker()
+
+
+def _build_sandbox_urls(sandbox_id: str, vnc_port: int = 0, bridge_port: int = 0) -> tuple[str, str]:
+    """Return (vnc_url, bridge_url).
+
+    Docker mode: routed through the manager reverse proxy on :8090.
+    K8s mode: uses NodePort-based URLs (ports must be provided).
+    """
+    if BACKEND == "k8s" and vnc_port:
+        if HTTPS_PROXY_BASE:
+            vnc_url    = f"{HTTPS_PROXY_BASE}/sandbox-vnc/{vnc_port}/vnc.html"
+            bridge_url = f"{HTTPS_PROXY_BASE}/sandbox-bridge/{bridge_port}"
+        else:
+            vnc_url    = f"http://{HOST_IP}:{vnc_port}/vnc.html"
+            bridge_url = f"http://{HOST_IP}:{bridge_port}"
     else:
-        vnc_url    = f"http://{HOST_IP}:{vnc_port}/vnc.html"
-        bridge_url = f"http://{HOST_IP}:{bridge_port}"
+        base = HTTPS_PROXY_BASE if HTTPS_PROXY_BASE else f"http://{HOST_IP}:{MANAGER_PORT}"
+        ws_path = f"sandbox/{sandbox_id}/vnc/websockify"
+        vnc_url    = f"{base}/sandbox/{sandbox_id}/vnc/vnc.html?autoconnect=true&path={ws_path}"
+        bridge_url = f"{base}/sandbox/{sandbox_id}/bridge"
     return vnc_url, bridge_url
 
-# In-memory cache: sandbox_id -> {created_at, port, bridge_port, sandbox_token, vnc_password}
-# K8s is the source of truth for running state; this cache holds secrets + timestamps.
+
 sandboxes = {}
 lock = threading.Lock()
 
@@ -64,9 +86,6 @@ else:
     import docker as docker_sdk
     import socket as _socket
     docker_client = docker_sdk.from_env()
-    PORT_START = 6100
-    PORT_END   = 6200
-    used_ports: set = set()
 
     def _discover_host_certs_dir() -> str | None:
         """Find the host path that is bind-mounted to /certs on this container."""
@@ -85,6 +104,22 @@ else:
         print(f"[Docker] Host certs directory: {HOST_CERTS_DIR}")
     else:
         print("[Docker] No host certs mount detected — sandbox containers won't get extra CAs")
+
+    def _ensure_sandbox_network():
+        """Create the shared Docker bridge network if it doesn't exist, and attach this manager container."""
+        try:
+            net = docker_client.networks.get(SANDBOX_NETWORK)
+        except docker_sdk.errors.NotFound:
+            net = docker_client.networks.create(SANDBOX_NETWORK, driver="bridge")
+            print(f"[Docker] Created network: {SANDBOX_NETWORK}")
+        try:
+            hostname = _socket.gethostname()
+            net.connect(hostname)
+            print(f"[Docker] Manager joined network: {SANDBOX_NETWORK}")
+        except docker_sdk.errors.APIError:
+            pass
+
+    _ensure_sandbox_network()
     print("[Docker] Backend ready")
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
@@ -95,19 +130,9 @@ def require_api_key():
             return jsonify({"error": "Unauthorized"}), 401
     return None
 
-# ── Docker port helpers ────────────────────────────────────────────────────────
 
-def _docker_get_free_port():
-    with lock:
-        for port in range(PORT_START, PORT_END):
-            if port not in used_ports:
-                used_ports.add(port)
-                return port
-    return None
-
-def _docker_release_port(port):
-    with lock:
-        used_ports.discard(port)
+def _sandbox_container_name(sandbox_id: str) -> str:
+    return f"sandbox-{sandbox_id}"
 
 # ── Routes ────────────────────────────────────────────────────────────────────
 
@@ -277,45 +302,41 @@ def _docker_create_sandbox():
     sandbox_id   = str(uuid.uuid4())[:8]
     sandbox_token = secrets.token_urlsafe(32)
     vnc_password  = secrets.token_urlsafe(8)[:8]
-    port         = _docker_get_free_port()
-
-    if not port:
-        return jsonify({"error": "No ports available"}), 503
-
-    bridge_port = port + 1000
-    environment = _build_environment(data, sandbox_id, sandbox_token, vnc_password)
+    environment  = _build_environment(data, sandbox_id, sandbox_token, vnc_password)
+    cname        = _sandbox_container_name(sandbox_id)
 
     volumes = {}
     if HOST_CERTS_DIR:
         volumes[HOST_CERTS_DIR] = {"bind": "/usr/local/share/ca-certificates/custom", "mode": "ro"}
 
+    ports = None
+    if not MANAGER_IN_DOCKER:
+        ports = {"6080/tcp": None, "8091/tcp": None}
+
     try:
         container = docker_client.containers.run(
             SANDBOX_IMAGE,
-            name=f"sandbox-{sandbox_id}",
+            name=cname,
             detach=True,
             remove=False,
-            ports={"6080/tcp": port, "8091/tcp": bridge_port},
+            network=SANDBOX_NETWORK,
             shm_size="512m",
             environment=environment,
             volumes=volumes or None,
+            ports=ports,
         )
 
         with lock:
             sandboxes[sandbox_id] = {
                 "container_id": container.id,
-                "port": port,
-                "bridge_port": bridge_port,
                 "created_at": time.time(),
                 "sandbox_token": sandbox_token,
                 "vnc_password": vnc_password,
             }
 
-        vnc_url, bridge_url = _build_sandbox_urls(port, bridge_port)
+        vnc_url, bridge_url = _build_sandbox_urls(sandbox_id)
         return jsonify({
             "id": sandbox_id,
-            "port": port,
-            "bridge_port": bridge_port,
             "url":        vnc_url,
             "bridge_url": bridge_url,
             "status": "starting",
@@ -324,7 +345,6 @@ def _docker_create_sandbox():
         }), 201
 
     except Exception as e:
-        _docker_release_port(port)
         return jsonify({"error": str(e)}), 500
 
 
@@ -333,10 +353,11 @@ def _docker_list_sandboxes():
     for sid, info in sandboxes.items():
         try:
             container = docker_client.containers.get(info["container_id"])
+            vnc_url, bridge_url = _build_sandbox_urls(sid)
             result.append({
                 "id": sid,
-                "port": info["port"],
-                "bridge_port": info.get("bridge_port", 0),
+                "url": vnc_url,
+                "bridge_url": bridge_url,
                 "status": container.status,
                 "created_at": info["created_at"],
             })
@@ -351,7 +372,8 @@ def _docker_get_sandbox(sandbox_id):
     info = sandboxes[sandbox_id]
     try:
         container = docker_client.containers.get(info["container_id"])
-        return jsonify({"id": sandbox_id, "port": info["port"], "bridge_port": info.get("bridge_port", 0), "status": container.status})
+        vnc_url, bridge_url = _build_sandbox_urls(sandbox_id)
+        return jsonify({"id": sandbox_id, "url": vnc_url, "bridge_url": bridge_url, "status": container.status})
     except Exception:
         return jsonify({"error": "Container not found"}), 404
 
@@ -366,7 +388,6 @@ def _docker_delete_sandbox(sandbox_id):
         container.remove()
     except Exception:
         pass
-    _docker_release_port(info["port"])
     return jsonify({"status": "deleted"})
 
 
@@ -380,6 +401,140 @@ def _docker_stop_sandbox(sandbox_id):
         return jsonify({"status": "stopped"})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ── Reverse proxy routes (Docker mode) ────────────────────────────────────────
+# All sandbox traffic is proxied through the manager so only port 8090 is needed.
+
+def _resolve_sandbox_target(sandbox_id: str, container_port: int = 8091) -> tuple[str, int] | None:
+    """Return (host, port) reachable from the manager for the given sandbox.
+
+    Inside Docker: use container name + internal port.
+    On host: use localhost + Docker-published host port.
+    """
+    if sandbox_id not in sandboxes:
+        return None
+    if MANAGER_IN_DOCKER:
+        return (_sandbox_container_name(sandbox_id), container_port)
+    try:
+        container = docker_client.containers.get(sandboxes[sandbox_id]["container_id"])
+        container.reload()
+        port_map = container.ports.get(f"{container_port}/tcp")
+        if port_map:
+            return ("127.0.0.1", int(port_map[0]["HostPort"]))
+    except Exception:
+        pass
+    return None
+
+
+@app.route("/sandbox/<sandbox_id>/bridge/", defaults={"subpath": ""}, methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+@app.route("/sandbox/<sandbox_id>/bridge/<path:subpath>", methods=["GET", "POST", "PUT", "DELETE", "PATCH"])
+def proxy_bridge(sandbox_id, subpath):
+    """HTTP reverse proxy to sandbox Bridge API (container port 8091)."""
+    target = _resolve_sandbox_target(sandbox_id, 8091)
+    if not target:
+        return jsonify({"error": "Sandbox not found"}), 404
+
+    host, port = target
+    url = f"http://{host}:{port}/{subpath}"
+    if request.query_string:
+        url += f"?{request.query_string.decode()}"
+
+    headers = {k: v for k, v in request.headers if k.lower() not in ("host", "content-length")}
+    try:
+        resp = http_requests.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            data=request.get_data(),
+            stream=True,
+            timeout=120,
+        )
+        excluded = {"content-encoding", "transfer-encoding", "content-length", "connection"}
+        proxy_headers = [(k, v) for k, v in resp.raw.headers.items() if k.lower() not in excluded]
+        return Response(resp.iter_content(chunk_size=4096), status=resp.status_code, headers=proxy_headers)
+    except http_requests.exceptions.ConnectionError:
+        return jsonify({"error": "Sandbox bridge not reachable (container may still be starting)"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@app.route("/sandbox/<sandbox_id>/vnc/", defaults={"subpath": ""})
+@app.route("/sandbox/<sandbox_id>/vnc/<path:subpath>")
+def proxy_vnc_http(sandbox_id, subpath):
+    """HTTP reverse proxy for noVNC static assets (HTML, JS, CSS)."""
+    target = _resolve_sandbox_target(sandbox_id, 6080)
+    if not target:
+        return jsonify({"error": "Sandbox not found"}), 404
+
+    host, port = target
+    url = f"http://{host}:{port}/{subpath}"
+    if request.query_string:
+        url += f"?{request.query_string.decode()}"
+
+    headers = {k: v for k, v in request.headers if k.lower() not in ("host", "content-length")}
+    try:
+        resp = http_requests.get(url, headers=headers, stream=True, timeout=30)
+        excluded = {"content-encoding", "transfer-encoding", "content-length", "connection"}
+        proxy_headers = [(k, v) for k, v in resp.raw.headers.items() if k.lower() not in excluded]
+        return Response(resp.iter_content(chunk_size=4096), status=resp.status_code, headers=proxy_headers)
+    except http_requests.exceptions.ConnectionError:
+        return jsonify({"error": "Sandbox VNC not reachable (container may still be starting)"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+@sock.route("/sandbox/<sandbox_id>/vnc/websockify")
+def proxy_vnc_websocket(ws, sandbox_id):
+    """WebSocket reverse proxy for noVNC ↔ VNC (websockify inside the container)."""
+    target = _resolve_sandbox_target(sandbox_id, 6080)
+    if not target:
+        ws.close(1008, "Sandbox not found")
+        return
+
+    host, port = target
+    upstream_url = f"ws://{host}:{port}/websockify"
+    try:
+        upstream = ws_client.create_connection(upstream_url, timeout=10)
+    except Exception:
+        ws.close(1011, "Cannot connect to sandbox VNC")
+        return
+
+    def forward_upstream_to_client():
+        try:
+            while True:
+                opcode, data = upstream.recv_data()
+                if opcode == ws_client.ABNF.OPCODE_CLOSE:
+                    break
+                if opcode == ws_client.ABNF.OPCODE_BINARY:
+                    ws.send(data)
+                elif opcode == ws_client.ABNF.OPCODE_TEXT:
+                    ws.send(data.decode("utf-8", errors="replace"))
+        except Exception:
+            pass
+        finally:
+            try:
+                ws.close()
+            except Exception:
+                pass
+
+    reader = threading.Thread(target=forward_upstream_to_client, daemon=True)
+    reader.start()
+
+    try:
+        while True:
+            data = ws.receive()
+            if data is None:
+                break
+            if isinstance(data, bytes):
+                upstream.send_binary(data)
+            else:
+                upstream.send(data)
+    except Exception:
+        pass
+    finally:
+        upstream.close()
+        reader.join(timeout=2)
+
 
 # ── K8s backend ───────────────────────────────────────────────────────────────
 
@@ -410,7 +565,7 @@ def _k8s_create_sandbox():
                 "vnc_password": vnc_password,
             }
 
-        vnc_url, bridge_url = _build_sandbox_urls(vnc_port, bridge_port)
+        vnc_url, bridge_url = _build_sandbox_urls(sandbox_id, vnc_port=vnc_port, bridge_port=bridge_port)
         return jsonify({
             "id": sandbox_id,
             "port": vnc_port,
@@ -518,7 +673,6 @@ def _cleanup_old_sandboxes_docker():
                 container = docker_client.containers.get(info["container_id"])
                 container.stop(timeout=5)
                 container.remove()
-                _docker_release_port(info["port"])
                 print(f"[cleanup] Removed orphan sandbox {sid}")
             except Exception:
                 pass

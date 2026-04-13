@@ -42,8 +42,6 @@ public class SandboxController : ControllerBase
         return Ok(new { sandboxes = sandboxes.Select(s => new
         {
             id = s.Id,
-            port = s.Port,
-            bridge_port = s.BridgePort,
             url = s.Url,
             bridge_url = s.BridgeUrl,
             status = s.Status,
@@ -120,8 +118,6 @@ public class SandboxController : ControllerBase
             return Ok(new SandboxResponse
             {
                 Id = result.Id,
-                Port = result.Port,
-                BridgePort = result.BridgePort,
                 Url = result.Url,
                 BridgeUrl = result.BridgeUrl,
                 Status = result.Status,
@@ -248,12 +244,6 @@ public class SandboxResponse
 {
     [JsonPropertyName("id")]
     public string Id { get; set; } = string.Empty;
-
-    [JsonPropertyName("port")]
-    public int Port { get; set; }
-
-    [JsonPropertyName("bridge_port")]
-    public int BridgePort { get; set; }
 
     [JsonPropertyName("url")]
     public string Url { get; set; } = string.Empty;
