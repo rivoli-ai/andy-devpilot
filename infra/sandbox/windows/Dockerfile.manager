@@ -1,10 +1,26 @@
+FROM scratch AS certs
+COPY certs/ /
+
 FROM python:3.12-slim
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir flask flask-cors docker
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
 
-COPY manager/manager.py .
+COPY --from=certs / /usr/local/share/ca-certificates/corporate/
+RUN find /usr/local/share/ca-certificates/corporate/ \( -name '.gitkeep' -o -name '.gitignore' -o -name 'README.md' \) -delete 2>/dev/null || true && \
+    update-ca-certificates
+ENV SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt \
+    REQUESTS_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt \
+    CURL_CA_BUNDLE=/etc/ssl/certs/ca-certificates.crt
+
+COPY infra/sandbox/manager/manager.py .
+
+RUN pip install --no-cache-dir \
+    --trusted-host pypi.org \
+    --trusted-host files.pythonhosted.org \
+    flask flask-cors docker
 
 EXPOSE 8090
 
