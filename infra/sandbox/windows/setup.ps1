@@ -233,7 +233,7 @@ while ($waited -lt $maxWait) {
             break
         }
     } catch { }
-    Write-Host "  Waiting... (${waited}s)" -ForegroundColor Gray
+    Write-Host "  Waiting... $($waited)s" -ForegroundColor Gray
 }
 
 if ($ready) {
