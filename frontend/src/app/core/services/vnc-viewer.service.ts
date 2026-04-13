@@ -28,6 +28,7 @@ export interface VncViewer {
   implementationContext?: ImplementationContext;
   readyForPr?: boolean;
   connectionState?: string;
+  viewMode?: 'sandbox' | 'split' | 'chat';
 }
 
 /**
@@ -211,6 +212,13 @@ export class VncViewerService {
   setConnectionState(viewerId: string, state: string): void {
     const viewers = this.viewersSubject.value.map(v =>
       v.id === viewerId ? { ...v, connectionState: state } : v
+    );
+    this.viewersSubject.next(viewers);
+  }
+
+  setViewMode(viewerId: string, mode: 'sandbox' | 'split' | 'chat'): void {
+    const viewers = this.viewersSubject.value.map(v =>
+      v.id === viewerId ? { ...v, viewMode: mode } : v
     );
     this.viewersSubject.next(viewers);
   }

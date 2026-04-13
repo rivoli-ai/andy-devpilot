@@ -64,15 +64,12 @@ public class CodeAnalysisService : ICodeAnalysisService
             // Create sandbox with repository cloned
             sandbox = await CreateSandboxAsync(repository, effectiveBranch, cancellationToken);
             
-            // Wait for Zed to be ready
-            await WaitForZedReadyAsync(sandbox.BridgePort, cancellationToken);
+            await WaitForBridgeReadyAsync(sandbox.BridgeUrl, cancellationToken);
             
-            // Send analysis prompt
             var prompt = BuildRepositoryAnalysisPrompt(repository.Name);
-            await SendPromptAsync(sandbox.BridgePort, prompt, cancellationToken);
+            await SendPromptAsync(sandbox.BridgeUrl, prompt, cancellationToken);
             
-            // Wait and collect response
-            var response = await WaitForResponseAsync(sandbox.BridgePort, cancellationToken);
+            var response = await WaitForResponseAsync(sandbox.BridgeUrl, cancellationToken);
             
             // Parse response and create/update analysis
             var result = ParseRepositoryAnalysisResponse(response, repositoryId, effectiveBranch);
@@ -411,7 +408,7 @@ Any suggestions for improving this file (if applicable).";
         return new SandboxInfo
         {
             ContainerId = result.id,
-            BridgePort = result.bridge_port
+            BridgeUrl = result.bridge_url
         };
     }
 
@@ -431,10 +428,9 @@ Any suggestions for improving this file (if applicable).";
         }
     }
 
-    private async System.Threading.Tasks.Task WaitForZedReadyAsync(int bridgePort, CancellationToken cancellationToken)
+    private async System.Threading.Tasks.Task WaitForBridgeReadyAsync(string bridgeUrl, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient();
-        var bridgeUrl = $"http://localhost:{bridgePort}";
         var maxAttempts = 30;
         var delayMs = 3000;
 
@@ -446,9 +442,9 @@ Any suggestions for improving this file (if applicable).";
                 if (response.IsSuccessStatusCode)
                 {
                     var health = await response.Content.ReadFromJsonAsync<HealthResponse>(cancellationToken: cancellationToken);
-                    if (health?.zed_running == true && !string.IsNullOrEmpty(health.zed_window_id))
+                    if (health?.status == "ok" && health.api_configured)
                     {
-                        _logger.LogDebug("Zed is ready on port {Port}", bridgePort);
+                        _logger.LogDebug("Bridge is ready at {Url}", bridgeUrl);
                         return;
                     }
                 }
@@ -461,22 +457,20 @@ Any suggestions for improving this file (if applicable).";
             await System.Threading.Tasks.Task.Delay(delayMs, cancellationToken);
         }
 
-        throw new TimeoutException($"Zed did not become ready within {maxAttempts * delayMs / 1000} seconds");
+        throw new TimeoutException($"Bridge did not become ready within {maxAttempts * delayMs / 1000} seconds");
     }
 
-    private async System.Threading.Tasks.Task SendPromptAsync(int bridgePort, string prompt, CancellationToken cancellationToken)
+    private async System.Threading.Tasks.Task SendPromptAsync(string bridgeUrl, string prompt, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient();
-        var bridgeUrl = $"http://localhost:{bridgePort}";
 
-        var response = await client.PostAsJsonAsync($"{bridgeUrl}/zed/send-prompt", new { prompt }, cancellationToken);
+        var response = await client.PostAsJsonAsync($"{bridgeUrl}/agent/prompt", new { prompt }, cancellationToken);
         response.EnsureSuccessStatusCode();
     }
 
-    private async Task<string> WaitForResponseAsync(int bridgePort, CancellationToken cancellationToken)
+    private async Task<string> WaitForResponseAsync(string bridgeUrl, CancellationToken cancellationToken)
     {
         var client = _httpClientFactory.CreateClient();
-        var bridgeUrl = $"http://localhost:{bridgePort}";
         var maxAttempts = 60;
         var delayMs = 2000;
         var initialConversationCount = 0;
@@ -640,21 +634,20 @@ Please read and analyze the file '{filePath}' thoroughly.";
     private class SandboxCreateResponse
     {
         public string id { get; set; } = "";
-        public int port { get; set; }
-        public int bridge_port { get; set; }
+        public string url { get; set; } = "";
+        public string bridge_url { get; set; } = "";
     }
 
     private class SandboxInfo
     {
         public string ContainerId { get; set; } = "";
-        public int BridgePort { get; set; }
+        public string BridgeUrl { get; set; } = "";
     }
 
     private class HealthResponse
     {
         public string status { get; set; } = "";
-        public bool zed_running { get; set; }
-        public string? zed_window_id { get; set; }
+        public bool api_configured { get; set; }
     }
 
     private class ConversationsResponse

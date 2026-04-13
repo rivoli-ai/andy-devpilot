@@ -121,11 +121,11 @@ export class VncService {
     
     console.log('buildIframeUrl input:', url);
     
-    // If URL already contains vnc.html, ensure autoconnect is set then append password
-    if (url.includes('vnc.html')) {
+    // If URL already contains vnc.html or vnc_lite.html, ensure params are set
+    if (url.includes('vnc.html') || url.includes('vnc_lite.html')) {
       const sep = () => url.includes('?') ? '&' : '?';
 
-      // When VNC is served via nginx HTTPS proxy (/sandbox-vnc/<port>/vnc.html),
+      // When VNC is served via nginx HTTPS proxy (/sandbox-vnc/<port>/...),
       // noVNC defaults its WebSocket path to /websockify (root), which nginx routes
       // to the frontend. Tell noVNC to use the proxied path instead.
       if (url.includes('/sandbox-vnc/') && !url.includes('path=')) {
@@ -137,6 +137,9 @@ export class VncService {
 
       if (!url.includes('autoconnect')) {
         url += sep() + 'autoconnect=true';
+      }
+      if (!url.includes('reconnect=')) {
+        url += sep() + 'reconnect=true&reconnect_delay=3000';
       }
       if (vncPassword) {
         url += `&password=${encodeURIComponent(vncPassword)}`;
@@ -173,7 +176,7 @@ export class VncService {
     }
     
     // Build URL — noVNC connects to websocket on same host:port automatically
-    let finalUrl = `http://${host}:${port}/vnc.html?autoconnect=true&resize=scale`;
+    let finalUrl = `http://${host}:${port}/vnc_lite.html?autoconnect=true&reconnect=true&reconnect_delay=3000&resize=scale`;
     if (vncPassword) {
       finalUrl += `&password=${encodeURIComponent(vncPassword)}`;
     }

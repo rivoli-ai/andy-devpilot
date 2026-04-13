@@ -51,17 +51,18 @@ def _build_sandbox_urls(sandbox_id: str, vnc_port: int = 0, bridge_port: int = 0
     Docker mode: routed through the manager reverse proxy on :8090.
     K8s mode: uses NodePort-based URLs (ports must be provided).
     """
+    vnc_qs = "autoconnect=true&reconnect=true&reconnect_delay=3000&resize=scale"
     if BACKEND == "k8s" and vnc_port:
         if HTTPS_PROXY_BASE:
-            vnc_url    = f"{HTTPS_PROXY_BASE}/sandbox-vnc/{vnc_port}/vnc.html"
+            vnc_url    = f"{HTTPS_PROXY_BASE}/sandbox-vnc/{vnc_port}/vnc_lite.html?{vnc_qs}"
             bridge_url = f"{HTTPS_PROXY_BASE}/sandbox-bridge/{bridge_port}"
         else:
-            vnc_url    = f"http://{HOST_IP}:{vnc_port}/vnc.html"
+            vnc_url    = f"http://{HOST_IP}:{vnc_port}/vnc_lite.html?{vnc_qs}"
             bridge_url = f"http://{HOST_IP}:{bridge_port}"
     else:
         base = HTTPS_PROXY_BASE if HTTPS_PROXY_BASE else f"http://{HOST_IP}:{MANAGER_PORT}"
         ws_path = f"sandbox/{sandbox_id}/vnc/websockify"
-        vnc_url    = f"{base}/sandbox/{sandbox_id}/vnc/vnc.html?autoconnect=true&path={ws_path}"
+        vnc_url    = f"{base}/sandbox/{sandbox_id}/vnc/vnc_lite.html?{vnc_qs}&path={ws_path}"
         bridge_url = f"{base}/sandbox/{sandbox_id}/bridge"
     return vnc_url, bridge_url
 
@@ -254,6 +255,12 @@ def _build_environment(data: dict, sandbox_id: str, sandbox_token: str, vnc_pass
                     "enabled": True,
                     "default_model": {"provider": zed_provider, "model": model},
                     "always_allow_tool_actions": True,
+                },
+                "agent_servers": {
+                    "DevPilot": {
+                        "command": "/opt/devpilot-venv/bin/python",
+                        "args": ["/opt/devpilot/bridge/acp_agent.py"],
+                    }
                 },
                 "features": {"edit_prediction_provider": "zed"},
                 "terminal": {"dock": "bottom", "env": {"LIBGL_ALWAYS_SOFTWARE": "1"}},

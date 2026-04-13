@@ -41,11 +41,18 @@ export interface ZedConversation {
   had_tool_execution?: boolean; // true if response involved tool calls
 }
 
+export interface LiveResponse {
+  content: string;
+  user_message: string;
+}
+
 export interface ZedConversationsResponse {
   conversations: ZedConversation[];
   count: number;
   /** From /all-conversations: true while bridge is handling a chat request (LLM streaming/processing) */
   request_in_progress?: boolean;
+  /** Partial assistant text while LLM is still generating */
+  live_response?: LiveResponse;
 }
 
 /**
@@ -126,11 +133,36 @@ export class SandboxBridgeService {
     );
   }
 
-  sendZedPrompt(sandboxId: string, prompt: string): Observable<{ status: string; prompt_sent?: string }> {
-    return this.http.post<{ status: string; prompt_sent?: string }>(
-      `${this.getBridgeUrl(sandboxId)}/zed/send-prompt`,
-      { prompt },
+  abortStream(sandboxId: string): Observable<{ status: string }> {
+    return this.http.post<{ status: string }>(
+      `${this.getBridgeUrl(sandboxId)}/stream/abort`,
+      {},
       { headers: this.getAuthHeaders(sandboxId) }
+    ).pipe(
+      catchError(error => {
+        console.error('Failed to abort stream:', error);
+        return of({ status: 'error' });
+      })
+    );
+  }
+
+  sendZedPrompt(sandboxId: string, prompt: string): Observable<{ status: string; prompt_sent?: string; prompt_id?: string }> {
+    const headers = this.getAuthHeaders(sandboxId);
+    const bridgeUrl = this.getBridgeUrl(sandboxId);
+
+    return this.http.post<{ status: string; prompt_sent?: string; prompt_id?: string }>(
+      `${bridgeUrl}/zed/send-prompt`,
+      { prompt },
+      { headers }
+    ).pipe(
+      catchError(() => {
+        console.warn('[sendZedPrompt] xdotool route failed, falling back to headless agent');
+        return this.http.post<{ status: string; prompt_sent?: string; prompt_id?: string }>(
+          `${bridgeUrl}/agent/prompt`,
+          { prompt },
+          { headers }
+        );
+      })
     );
   }
 
@@ -138,48 +170,46 @@ export class SandboxBridgeService {
     sandboxId: string,
     prompt: string,
     maxWaitMs: number = 90000
-  ): Observable<{ status: string; prompt_sent?: string }> {
+  ): Observable<{ status: string; prompt_sent?: string; prompt_id?: string }> {
     const startTime = Date.now();
     const pollInterval = 3000;
 
     return new Observable(observer => {
-      const checkZed = () => {
+      const checkBridge = () => {
         const elapsed = Date.now() - startTime;
 
         if (elapsed > maxWaitMs) {
-          observer.error(new Error('Timeout waiting for Zed to be ready'));
+          observer.error(new Error('Timeout waiting for bridge to be ready'));
           return;
         }
 
-        console.log(`[WaitForZed] Checking Zed status... (${Math.round(elapsed/1000)}s elapsed)`);
+        console.log(`[WaitForBridge] Checking bridge health... (${Math.round(elapsed/1000)}s elapsed)`);
 
         this.http.get<any>(`${this.getBridgeUrl(sandboxId)}/health`, { headers: this.getAuthHeaders(sandboxId) }).subscribe({
           next: (health) => {
-            console.log('[WaitForZed] Health response:', health);
+            console.log('[WaitForBridge] Health response:', health);
 
-            if (health.zed_running && health.zed_window_id) {
-              console.log('[WaitForZed] Zed is ready! Sending prompt...');
-              setTimeout(() => {
-                this.sendZedPrompt(sandboxId, prompt).subscribe({
-                  next: (result) => {
-                    observer.next(result);
-                    observer.complete();
-                  },
-                  error: (err) => observer.error(err)
-                });
-              }, 5000);
+            if (health.status === 'ok' && health.api_configured) {
+              console.log('[WaitForBridge] Bridge ready — sending prompt to Zed...');
+              this.sendZedPrompt(sandboxId, prompt).subscribe({
+                next: (result) => {
+                  observer.next(result);
+                  observer.complete();
+                },
+                error: (err) => observer.error(err)
+              });
             } else {
-              setTimeout(checkZed, pollInterval);
+              setTimeout(checkBridge, pollInterval);
             }
           },
           error: (err) => {
-            console.log('[WaitForZed] Health check failed, retrying...', err.message);
-            setTimeout(checkZed, pollInterval);
+            console.log('[WaitForBridge] Health check failed, retrying...', err.message);
+            setTimeout(checkBridge, pollInterval);
           }
         });
       };
 
-      setTimeout(checkZed, 5000);
+      setTimeout(checkBridge, 3000);
     });
   }
 

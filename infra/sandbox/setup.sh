@@ -105,11 +105,10 @@ if ! command -v docker &> /dev/null; then
     systemctl start docker
 fi
 
-# Create project directory
-PROJECT_DIR="/opt/devpilot-sandbox"
+# Create project directory (PROJECT_DIR already set per-OS above)
 log_info "Creating project: $PROJECT_DIR"
-mkdir -p $PROJECT_DIR
-cd $PROJECT_DIR
+mkdir -p "$PROJECT_DIR"
+cd "$PROJECT_DIR"
 
 # ============================================================
 # Create Desktop Dockerfile (the actual sandbox environment)
@@ -342,7 +341,9 @@ RUN printf '%s\n' \
   ' },500);' \
   '})();' > /usr/share/novnc/clipboard-sync.js && \
     sed -i '/<\/body>/i <script src="clipboard-sync.js"><\/script>' /usr/share/novnc/vnc.html && \
-    sed -i '/<\/head>/i <style>#noVNC_control_bar_anchor{display:none!important;}</style>' /usr/share/novnc/vnc.html
+    sed -i '/<\/head>/i <style>#noVNC_control_bar_anchor,#noVNC_connect_dlg,#noVNC_transition{display:none!important;}</style>' /usr/share/novnc/vnc.html && \
+    cp /usr/share/novnc/vnc_lite.html /usr/share/novnc/vnc_lite.html.bak && \
+    sed -i '/<\/head>/i <style>body{margin:0;padding:0;overflow:hidden;}#noVNC_status_bar{display:none!important;}</style>' /usr/share/novnc/vnc_lite.html
 
 # ── SSL certificates (build-time) ──
 # Custom certificates (Zscaler, corporate proxy, etc.) are loaded from the
@@ -583,10 +584,11 @@ RUN mkdir -p Desktop && \
 
 USER root
 
-# Copy DevPilot ACP agent and bridge API
+# Copy DevPilot ACP agent, bridge API, and shared agent modules
+COPY bridge/ /opt/devpilot/bridge/
 COPY devpilot-agent.py /opt/devpilot/devpilot-agent.py
 COPY devpilot-bridge.py /opt/devpilot/devpilot-bridge.py
-RUN chmod +x /opt/devpilot/*.py
+RUN chmod +x /opt/devpilot/*.py /opt/devpilot/bridge/acp_agent.py
 
 # Startup script
 COPY start.sh /start.sh
@@ -918,6 +920,7 @@ import sys
 import json
 import subprocess
 import logging
+import threading
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
@@ -1007,6 +1010,14 @@ zed_conversations = []
 # True while handling a chat/completions request (LLM streaming or processing)
 # Frontend uses this to know when implementation is truly done (no 30s guess)
 bridge_request_in_progress = False
+
+# Live streaming buffer — exposes partial assistant text while LLM is still generating.
+# Included in /all-conversations so the frontend can render tokens in real-time.
+live_stream_content = ""
+live_stream_user_message = ""
+
+# Set to True by POST /stream/abort — checked each iteration of generate_stream().
+abort_stream = False
 
 # Patterns to filter out system/internal Zed messages
 SYSTEM_MESSAGE_PATTERNS = [
@@ -1159,10 +1170,13 @@ def openai_chat_completions():
         if stream:
             # Streaming response with full tool call support
             def generate_stream():
-                global bridge_request_in_progress
+                global bridge_request_in_progress, live_stream_content, live_stream_user_message, abort_stream
                 full_text_response = ""
                 has_tool_calls = False
                 tool_calls_buffer = []  # Buffer to collect tool call chunks
+                live_stream_content = ""
+                live_stream_user_message = user_message
+                abort_stream = False
                 
                 try:
                     logger.info(f"Making streaming request to: {API_BASE}/chat/completions")
@@ -1188,14 +1202,18 @@ def openai_chat_completions():
                         yield "data: [DONE]\n\n"
                         return
                     
+                    aborted = False
                     for line in response.iter_lines():
+                        if abort_stream:
+                            logger.info("=== STREAM ABORTED BY USER ===")
+                            aborted = True
+                            response.close()
+                            break
                         if line:
                             line_str = line.decode('utf-8')
                             if line_str.startswith('data: '):
-                                # Pass through the chunk unchanged to Zed
                                 yield line_str + "\n\n"
                                 
-                                # Parse chunk for logging and conversation tracking
                                 try:
                                     if line_str != 'data: [DONE]':
                                         chunk_data = json.loads(line_str[6:])
@@ -1203,11 +1221,10 @@ def openai_chat_completions():
                                             choice = chunk_data['choices'][0]
                                             delta = choice.get('delta', {})
                                             
-                                            # Track text content
                                             if delta.get('content'):
                                                 full_text_response += delta['content']
+                                                live_stream_content = full_text_response
                                             
-                                            # Track tool calls
                                             if delta.get('tool_calls'):
                                                 has_tool_calls = True
                                                 for tc in delta['tool_calls']:
@@ -1230,27 +1247,25 @@ def openai_chat_completions():
                     yield "data: [DONE]\n\n"
                     
                     # Log what we received
-                    if has_tool_calls:
+                    if has_tool_calls and not aborted:
                         tool_names = [tc['function']['name'] for tc in tool_calls_buffer if tc['function']['name']]
                         logger.info(f"=== ZED RESPONSE (stream) - TOOL CALLS ===")
                         logger.info(f"Tool calls: {tool_names}")
-                        # Don't store tool call responses - wait for final text
                     elif full_text_response:
-                        logger.info(f"=== ZED RESPONSE (stream) - TEXT ===")
+                        status = "ABORTED" if aborted else "TEXT"
+                        logger.info(f"=== ZED RESPONSE (stream) - {status} ===")
                         logger.info(f"Assistant (truncated): {full_text_response[:200]}...")
                         
-                        # Only store final text responses (not intermediate tool call responses)
-                        # A final response has text and comes after any tool execution
-                        # Also filter out system messages (title generation, file writing, etc.)
                         if user_message and full_text_response.strip() and not is_system_message(user_message):
                             conversation_entry = {
                                 "id": str(uuid.uuid4()),
                                 "timestamp": time.time(),
                                 "user_message": user_message,
-                                "assistant_message": full_text_response,
+                                "assistant_message": full_text_response + ("\n\n*(generation stopped)*" if aborted else ""),
                                 "model": model,
                                 "had_tool_execution": has_tool_results or has_tool_calls_in_history,
-                                "source": "proxy"
+                                "source": "proxy",
+                                "aborted": aborted
                             }
                             zed_conversations.append(conversation_entry)
                             if len(zed_conversations) > 50:
@@ -1264,7 +1279,7 @@ def openai_chat_completions():
                         elif is_system_message(user_message):
                             logger.info(f"Filtered system message: {user_message[:50]}...")
                             
-                            logger.info(f"Conversation stored. Total: {len(zed_conversations)}")
+                        logger.info(f"Conversation stored. Total: {len(zed_conversations)}")
                     else:
                         logger.info(f"=== ZED RESPONSE (stream) - EMPTY ===")
                     
@@ -1277,6 +1292,8 @@ def openai_chat_completions():
                     yield "data: [DONE]\n\n"
                 finally:
                     bridge_request_in_progress = False
+                    live_stream_content = ""
+                    live_stream_user_message = ""
             
             from flask import Response
             return Response(
@@ -1625,11 +1642,27 @@ def get_all_conversations():
     # Sort by timestamp
     all_convs.sort(key=lambda x: x.get("timestamp", 0))
     
-    return jsonify({
+    response_data = {
         "conversations": all_convs,
         "count": len(all_convs),
-        "request_in_progress": bridge_request_in_progress
-    })
+        "request_in_progress": bridge_request_in_progress,
+    }
+    if bridge_request_in_progress and live_stream_content:
+        response_data["live_response"] = {
+            "content": live_stream_content,
+            "user_message": live_stream_user_message,
+        }
+    return jsonify(response_data)
+
+@app.route('/stream/abort', methods=['POST'])
+def stream_abort():
+    """Signal the in-flight LLM stream to stop. The partial response is saved."""
+    global abort_stream
+    if not bridge_request_in_progress:
+        return jsonify({"status": "no_stream", "message": "No generation in progress"}), 200
+    abort_stream = True
+    logger.info("=== ABORT REQUESTED BY FRONTEND ===")
+    return jsonify({"status": "aborted"})
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -1880,36 +1913,48 @@ def find_zed_window():
 
     return None
 
-def open_agent_panel(window_id, env, max_attempts=3):
-    """Ensure Zed's agent panel is visible and focused via the command palette.
+def _xdt(args, env, timeout=10):
+    """Run an xdotool command with logging; returns CompletedProcess."""
+    result = subprocess.run(
+        ['xdotool'] + args,
+        env=env, capture_output=True, text=True, timeout=timeout,
+    )
+    if result.returncode != 0 and result.stderr:
+        logger.warning("xdotool %s stderr: %s", args[0], result.stderr.strip())
+    return result
 
-    Use "agent: toggle focus" (agent::ToggleFocus), not "agent: toggle"
-    (agent::Toggle).  Toggle can call close_panel when the panel is already
-    open/focused, which hides the chat DevPilot is trying to paste into.
-    """
+def _run_command_palette(window_id, env, command_text, settle=1.0):
+    """Open command palette, type a command, press Enter, wait for it to settle."""
     import time
+    _xdt(['windowactivate', '--sync', window_id], env)
+    _xdt(['windowfocus', '--sync', window_id], env)
+    time.sleep(0.3)
+    _xdt(['key', '--clearmodifiers', 'ctrl+shift+p'], env)
+    time.sleep(1.0)
+    _xdt(['type', '--delay', '20', command_text], env)
+    time.sleep(0.4)
+    _xdt(['key', 'Return'], env)
+    time.sleep(settle)
 
+def _set_clipboard(text, env):
+    """Write text to the X11 clipboard using xsel (non-blocking)."""
+    proc = subprocess.run(
+        ['xsel', '--clipboard', '--input'],
+        input=text.encode('utf-8'),
+        env=env, capture_output=True, timeout=5,
+    )
+    return proc.returncode == 0
+
+def open_agent_panel(window_id, env, max_attempts=3):
+    """Open Zed's agent panel using Ctrl+Shift+/ (Ctrl+?)."""
+    import time
     for attempt in range(max_attempts):
-        logger.info(f"Opening agent panel attempt {attempt + 1}/{max_attempts} via command palette")
-
-        subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
-        subprocess.run(['xdotool', 'windowfocus', '--sync', window_id], env=env)
-        time.sleep(0.5)
-
-        # Open command palette
-        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+shift+p'], env=env)
-        time.sleep(1.5)
-
-        # Type the command and execute it
-        subprocess.run(['xdotool', 'type', '--delay', '30', 'agent: toggle focus'], env=env)
-        time.sleep(0.5)
-        subprocess.run(['xdotool', 'key', 'Return'], env=env)
-        time.sleep(1.5)
-
-        logger.info(f"Agent toggle-focus sent (attempt {attempt + 1})")
-        break
-
-    return True
+        logger.info("Opening agent panel attempt %d/%d (Ctrl+Shift+/)", attempt + 1, max_attempts)
+        _xdt(['key', '--clearmodifiers', 'ctrl+shift+slash'], env)
+        time.sleep(2)
+        logger.info("Agent panel shortcut sent (attempt %d)", attempt + 1)
+        return True
+    return False
 
 @app.route('/zed/open-agent', methods=['POST'])
 def zed_open_agent():
@@ -2023,167 +2068,135 @@ def debug_test_input():
     
     return jsonify(results)
 
+_first_prompt_sent = False
+
+def _wait_for_zed(max_wait=60):
+    """Block until a Zed window appears, with exponential back-off. Returns window_id or None."""
+    import time
+    delay = 2
+    elapsed = 0
+    while elapsed < max_wait:
+        wid = find_zed_window()
+        if wid:
+            return wid
+        logger.info("Zed window not found, retrying in %ds (%ds elapsed)...", delay, elapsed)
+        time.sleep(delay)
+        elapsed += delay
+        delay = min(delay * 1.5, 8)
+    return None
+
+def _wait_for_zed_ready(max_wait=60):
+    """Wait until Zed finishes loading by polling its log file.
+
+    Zed writes 'extensions updated' once its UI is fully initialised and
+    the event loop is ready to process keyboard events.  We poll every 2s
+    and bail out as soon as we see that line (or hit *max_wait*).
+    """
+    import time
+    log_path = '/home/sandbox/.local/share/zed/logs/Zed.log'
+    delay = 2
+    elapsed = 0
+    while elapsed < max_wait:
+        try:
+            with open(log_path) as f:
+                content = f.read()
+            if 'extensions updated' in content:
+                logger.info("Zed ready (extensions loaded, %ds elapsed)", elapsed)
+                time.sleep(3)          # small extra settle time
+                return
+        except FileNotFoundError:
+            pass
+        logger.info("Zed not ready yet, retrying in %ds (%ds/%ds)...", delay, elapsed, max_wait)
+        time.sleep(delay)
+        elapsed += delay
+    logger.warning("Zed ready-wait timed out after %ds — proceeding anyway", max_wait)
+
 @app.route('/zed/send-prompt', methods=['POST'])
 def zed_send_prompt():
-    """Send a prompt to Zed's agent panel using keyboard simulation"""
+    """Inject a prompt into Zed's agent panel via xdotool + clipboard.
+
+    Flow:
+      1. Find & focus Zed window (wmctrl + xdotool)
+      2. Open agent panel with Ctrl+Shift+/ (Zed's built-in shortcut)
+      3. Paste prompt via xsel clipboard + Ctrl+V
+      4. Submit with Enter
+    """
     import time
-    data = request.get_json()
+    global _first_prompt_sent
+
+    data = request.get_json() or {}
     prompt = data.get('prompt', '')
-    
     if not prompt:
         return jsonify({"error": "No prompt provided"}), 400
-    
-    logger.info(f"=== SEND PROMPT REQUEST ===")
-    logger.info(f"Prompt: {prompt[:100]}...")
-    
+
+    logger.info("=== SEND PROMPT REQUEST (%d chars) ===", len(prompt))
+    logger.info("Prompt: %s", prompt[:120])
+
     try:
-        # Retry finding Zed window (Zed can take 20-40s to show window with software rendering)
-        window_id = None
-        max_retries = 14
-        retry_interval = 4
-        # Brief initial delay: Zed may need a few seconds before its window is mapped
-        time.sleep(2)
-        for attempt in range(max_retries):
-            window_id = find_zed_window()
-            if window_id:
-                break
-            if attempt < max_retries - 1:
-                logger.info(f"Zed window not found yet, retry {attempt + 1}/{max_retries} in {retry_interval}s...")
-                time.sleep(retry_interval)
-        
-        if not window_id:
-            logger.error("Zed window not found after retries!")
-            return jsonify({"error": "Zed window not found"}), 404
-        
-        logger.info(f"Found Zed window: {window_id}")
         env = {**os.environ, 'DISPLAY': ':0'}
-        
-        import time
-        
-        # Step 1: Focus Zed window
-        logger.info("Step 1: Focusing Zed window...")
-        subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
+
+        # ── Step 1: Find & focus Zed window ─────────────────────────────
+        window_id = _wait_for_zed(max_wait=60)
+        if not window_id:
+            return jsonify({"error": "Zed window not found after 60s"}), 404
+
+        logger.info("Step 1: Zed window found: %s", window_id)
+
+        # First prompt: let Zed finish its initial layout pass.
+        if not _first_prompt_sent:
+            _wait_for_zed_ready(max_wait=30)
+
+        # Raise and focus via wmctrl (more reliable than xdotool alone)
+        subprocess.run(['wmctrl', '-i', '-a', window_id], env=env)
         time.sleep(0.5)
-        
-        # Step 2: Press Escape to close any dialogs/panels and ensure clean state
-        logger.info("Step 2: Pressing Escape to clear state...")
-        subprocess.run(['xdotool', 'key', 'Escape'], env=env)
-        time.sleep(0.3)
-        
-        # Step 3: Open the agent panel with retry + multiple keystroke strategies
-        logger.info("Step 3: Opening agent panel...")
-        open_agent_panel(window_id, env, max_attempts=2)
-        
-        # Step 4: Focus should now be in the agent input. 
-        # Press End to go to end of any existing text, then select all and delete
-        logger.info("Step 4: Preparing input area...")
-        subprocess.run(['xdotool', 'key', 'End'], env=env)
-        time.sleep(0.1)
-        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+a'], env=env)
-        time.sleep(0.1)
-        subprocess.run(['xdotool', 'key', 'BackSpace'], env=env)
-        time.sleep(0.3)
-        
-        # Step 5: Input the prompt using xsel (xclip has timeout issues)
-        logger.info(f"Step 5: Inputting prompt ({len(prompt)} chars)...")
-        
-        clipboard_success = False
-        
-        # Try xsel first (doesn't have the timeout issues that xclip has)
-        try:
-            check_xsel = subprocess.run(['which', 'xsel'], capture_output=True, env=env)
-            if check_xsel.returncode == 0:
-                logger.info("Using xsel for clipboard...")
-                
-                # xsel --clipboard --input doesn't hang like xclip does
-                xsel_proc = subprocess.run(
-                    ['xsel', '--clipboard', '--input'],
-                    input=prompt.encode('utf-8'),
-                    env=env,
-                    capture_output=True,
-                    timeout=5
-                )
-                
-                if xsel_proc.returncode == 0:
-                    logger.info("xsel clipboard copy successful")
-                    time.sleep(0.2)
-                    
-                    # Paste with Ctrl+Shift+V (works better in terminals) or Ctrl+V
-                    logger.info("Pasting from clipboard...")
-                    subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+v'], env=env)
-                    time.sleep(0.5)
-                    clipboard_success = True
-                else:
-                    logger.warning(f"xsel failed: {xsel_proc.stderr.decode() if xsel_proc.stderr else 'unknown'}")
-        except subprocess.TimeoutExpired:
-            logger.warning("xsel timed out")
-        except Exception as e:
-            logger.warning(f"xsel error: {e}")
-        
-        # Fallback: use xdotool type
-        if not clipboard_success:
-            logger.info("Clipboard failed, using xdotool type fallback...")
-            
-            # Clean prompt for xdotool (remove problematic chars)
-            safe_prompt = prompt
-            safe_prompt = safe_prompt.replace('`', "'")
-            safe_prompt = safe_prompt.replace('\t', '    ')  # tabs to spaces
-            
-            # Type in chunks to avoid buffer issues
-            chunk_size = 100
-            total_chunks = (len(safe_prompt) + chunk_size - 1) // chunk_size
-            
-            for i in range(0, len(safe_prompt), chunk_size):
-                chunk = safe_prompt[i:i+chunk_size]
-                chunk_num = (i // chunk_size) + 1
-                logger.info(f"Typing chunk {chunk_num}/{total_chunks} ({len(chunk)} chars)")
-                
-                result = subprocess.run(
-                    ['xdotool', 'type', '--delay', '10', '--clearmodifiers', '--', chunk],
-                    env=env, capture_output=True, text=True, timeout=60
-                )
-                if result.returncode != 0:
-                    logger.warning(f"Type error: {result.stderr}")
-                # Brief pause between chunks
-                time.sleep(0.05)
-            
+
+        # ── Step 2: Ensure agent panel is open ──────────────────────────
+        # Ctrl+Shift+/ is a TOGGLE.  Only press it on the very first
+        # prompt (panel is closed).  For subsequent prompts the panel is
+        # already open — pressing the shortcut would CLOSE it.
+        if not _first_prompt_sent:
+            logger.info("Step 2: Opening agent panel (first prompt)...")
+            _xdt(['key', '--clearmodifiers', 'ctrl+shift+slash'], env)
+            time.sleep(3)
+        else:
+            logger.info("Step 2: Panel already open, skipping toggle")
             time.sleep(0.3)
-        
-        # Step 6: Submit with Enter
-        logger.info("Step 6: Submitting with Enter...")
-        subprocess.run(['xdotool', 'key', 'Return'], env=env)
+
+        # ── Step 3: Paste prompt via clipboard ───────────────────────────
+        # Select any existing text in the input so paste replaces it.
+        _xdt(['key', '--clearmodifiers', 'ctrl+a'], env)
+        time.sleep(0.2)
+
+        logger.info("Step 3: Pasting prompt (%d chars)...", len(prompt))
+        clipboard_ok = _set_clipboard(prompt, env)
+        if clipboard_ok:
+            time.sleep(0.3)
+            _xdt(['key', '--clearmodifiers', 'ctrl+v'], env)
+            time.sleep(0.8)
+        else:
+            logger.warning("Clipboard failed, falling back to xdotool type")
+            safe = prompt.replace('`', "'").replace('\t', '    ')
+            for i in range(0, len(safe), 100):
+                _xdt(['type', '--delay', '8', '--clearmodifiers', '--', safe[i:i+100]], env, timeout=30)
+                time.sleep(0.03)
+            time.sleep(0.5)
+
+        # ── Step 4: Submit ───────────────────────────────────────────────
+        logger.info("Step 4: Submitting with Enter...")
+        _xdt(['key', 'Return'], env)
         time.sleep(0.5)
-        
-        # Step 7: Open terminal panel (once) now that the prompt is safely submitted
-        global _terminal_panel_opened
-        if not _terminal_panel_opened:
-            logger.info("Step 7: Opening terminal panel (ctrl+backtick)...")
-            subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
-            time.sleep(0.3)
-            subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+grave'], env=env)
-            time.sleep(0.3)
-            _terminal_panel_opened = True
-        
-        # Track pending prompt
-        try:
-            import uuid as uuid_module
-            pending_entry = {
-                "id": str(uuid_module.uuid4()),
-                "timestamp": time.time(),
-                "prompt": prompt,
-                "window_id": window_id,
-                "status": "sent"
-            }
-            with open('/tmp/devpilot-pending-prompts.json', 'a') as f:
-                f.write(json.dumps(pending_entry) + '\n')
-        except:
-            pass
-        
+
+        _first_prompt_sent = True
         logger.info("=== PROMPT SENT SUCCESSFULLY ===")
-        return jsonify({"status": "ok", "prompt_sent": prompt, "window_id": window_id})
-    
+        return jsonify({
+            "status": "ok",
+            "prompt_sent": prompt[:200],
+            "window_id": window_id,
+            "method": "zed_agent_panel",
+        })
+
     except Exception as e:
-        logger.error(f"Zed send prompt error: {e}")
+        logger.error("Zed send prompt error: %s", e)
         import traceback
         logger.error(traceback.format_exc())
         return jsonify({"error": str(e)}), 500
@@ -2405,29 +2418,108 @@ def git_push_and_create_pr():
         return jsonify({"error": str(e)}), 500
 
 def _deferred_terminal_open():
-    """Open the terminal panel after a delay if no prompt was sent."""
-    import time
-    time.sleep(60)
-    global _terminal_panel_opened
-    if _terminal_panel_opened:
-        return
-    logger.info("No prompt sent after 60s — opening terminal panel now")
-    env = {**os.environ, 'DISPLAY': ':0'}
-    window_id = find_zed_window()
-    if window_id:
-        subprocess.run(['xdotool', 'windowactivate', '--sync', window_id], env=env)
-        time.sleep(0.3)
-        subprocess.run(['xdotool', 'key', '--clearmodifiers', 'ctrl+grave'], env=env)
-        _terminal_panel_opened = True
-        logger.info("Terminal panel opened (deferred)")
+    """No-op. Terminal panel is no longer opened automatically."""
+    pass
+
+# ============================================================
+# Headless Agent Endpoint — replaces xdotool-based /zed/send-prompt
+# ============================================================
+
+# Make the bridge package importable so we can reuse the tool engine
+import sys as _sys
+_sys.path.insert(0, '/opt/devpilot')
+
+_agent_lock = threading.Lock()
+_agent_running = False
+
+@app.route('/agent/prompt', methods=['POST'])
+def agent_prompt():
+    """Run a headless agent loop (LLM + tool execution) without Zed/xdotool.
+
+    Starts the agent in a background thread and returns immediately.
+    Results appear in GET /all-conversations when the agent finishes.
+    """
+    global _agent_running
+
+    if not client:
+        return jsonify({"error": "LLM API not configured"}), 500
+
+    data = request.get_json() or {}
+    prompt = data.get('prompt', '')
+    if not prompt:
+        return jsonify({"error": "No prompt provided"}), 400
+
+    if _agent_running:
+        return jsonify({"error": "An agent task is already running"}), 409
+
+    import uuid as _uuid
+    prompt_id = str(_uuid.uuid4())[:8]
+
+    def _run():
+        global _agent_running
+        _agent_running = True
+        try:
+            from bridge.agent_loop import run as _run_loop
+            result = _run_loop(
+                prompt=prompt,
+                project_path=PROJECT_PATH,
+                llm_client=client,
+                model=MODEL,
+            )
+            import time as _time
+            conversation_entry = {
+                "id": prompt_id,
+                "timestamp": _time.time(),
+                "user_message": prompt,
+                "assistant_message": result.content,
+                "model": result.model,
+                "source": "headless_agent",
+                "tool_calls": [
+                    {"name": tc.name, "args": tc.arguments, "result": tc.result[:500]}
+                    for tc in result.tool_executions
+                ],
+                "iterations": result.iterations,
+            }
+            zed_conversations.append(conversation_entry)
+            if len(zed_conversations) > 50:
+                zed_conversations.pop(0)
+            try:
+                with open('/tmp/zed-latest-conversation.json', 'w') as f:
+                    json.dump(conversation_entry, f)
+            except Exception:
+                pass
+            logger.info("Agent prompt %s completed: %d iterations, %d tool calls",
+                        prompt_id, result.iterations, len(result.tool_executions))
+        except Exception as e:
+            logger.error("Agent prompt %s failed: %s", prompt_id, e)
+            import traceback
+            logger.error(traceback.format_exc())
+        finally:
+            _agent_running = False
+
+    threading.Thread(target=_run, daemon=True).start()
+    logger.info("Agent prompt %s started in background", prompt_id)
+    return jsonify({"status": "ok", "prompt_id": prompt_id})
+
+@app.route('/agent/status', methods=['GET'])
+def agent_status():
+    """Check whether a headless agent task is currently running."""
+    return jsonify({"running": _agent_running})
 
 if __name__ == '__main__':
-    import threading
     threading.Thread(target=_deferred_terminal_open, daemon=True).start()
     port = int(os.environ.get('BRIDGE_PORT', 8091))
     logger.info(f"Starting DevPilot Bridge API on port {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
 DEVPILOT_BRIDGE
+
+# Copy shared bridge modules (tools, agent loop, ACP agent) into build context
+if [ -d "$SCRIPT_SOURCE_DIR/bridge" ]; then
+    cp -r "$SCRIPT_SOURCE_DIR/bridge" desktop/bridge
+    log_info "Copied bridge/ modules into build context"
+else
+    log_warn "bridge/ directory not found at $SCRIPT_SOURCE_DIR/bridge — ACP agent will not be available"
+fi
 
 # Desktop start script
 cat > desktop/start.sh << 'DESKTOP_START'
@@ -2776,6 +2868,22 @@ mkdir -p /home/sandbox/.config/zed
 if [ -n "$ZED_SETTINGS_JSON" ]; then
     echo "Using provided Zed settings from API..."
     echo "$ZED_SETTINGS_JSON" > /home/sandbox/.config/zed/settings.json
+    # Ensure agent_servers is always present (older managers may not include it)
+    if ! grep -q '"agent_servers"' /home/sandbox/.config/zed/settings.json 2>/dev/null; then
+        python3 -c "
+import json, sys
+with open('/home/sandbox/.config/zed/settings.json') as f:
+    s = json.load(f)
+s.setdefault('agent_servers', {
+    'DevPilot': {
+        'command': '/opt/devpilot-venv/bin/python',
+        'args': ['/opt/devpilot/bridge/acp_agent.py']
+    }
+})
+with open('/home/sandbox/.config/zed/settings.json', 'w') as f:
+    json.dump(s, f, indent=2)
+" && echo "Injected agent_servers into Zed settings"
+    fi
 else
     echo "No ZED_SETTINGS_JSON provided, using defaults with proxy..."
     # Default settings MUST route through Bridge API proxy to capture conversations
@@ -2792,6 +2900,12 @@ else
       "model": "gpt-4o"
     },
     "always_allow_tool_actions": true
+  },
+  "agent_servers": {
+    "DevPilot": {
+      "command": "/opt/devpilot-venv/bin/python",
+      "args": ["/opt/devpilot/bridge/acp_agent.py"]
+    }
   },
   "language_models": {
     "openai": {
@@ -2828,7 +2942,7 @@ ZEDSETTINGS
 fi
 
 chmod 644 /home/sandbox/.config/zed/settings.json
-# Files are already owned by sandbox since start.sh runs as sandbox user
+
 echo "Zed settings written:" >> /tmp/sandbox-debug.log
 cat /home/sandbox/.config/zed/settings.json >> /tmp/sandbox-debug.log
 
@@ -3141,7 +3255,6 @@ export GALLIUM_DRIVER=llvmpipe
 export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
 
 # CRITICAL: Explicitly select lavapipe (software Vulkan) device
-# Without this, Zed fails with "VK_KHR_get_physical_device_properties2 not supported"
 export MESA_VK_DEVICE_SELECT=10005:0
 
 # Set ICD file - try generic name first, then architecture-specific
@@ -3384,6 +3497,7 @@ case "\${1:-help}" in
         ;;
     rebuild)
         echo "Rebuilding desktop image (using cache)..."
+        [ -d "$SCRIPT_SOURCE_DIR/bridge" ] && cp -r "$SCRIPT_SOURCE_DIR/bridge" desktop/bridge
         docker build -t devpilot-desktop ./desktop
         echo "Desktop image rebuilt"
         ;;
@@ -3396,6 +3510,7 @@ case "\${1:-help}" in
         echo "Pruning Docker build cache..."
         docker builder prune -f 2>/dev/null || true
         echo "Building fresh image..."
+        [ -d "$SCRIPT_SOURCE_DIR/bridge" ] && cp -r "$SCRIPT_SOURCE_DIR/bridge" desktop/bridge
         docker build --no-cache --pull -t devpilot-desktop ./desktop
         echo "Desktop image force rebuilt (no cache)"
         ;;

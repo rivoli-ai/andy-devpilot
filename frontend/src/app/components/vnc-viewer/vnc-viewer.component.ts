@@ -23,6 +23,7 @@ import {
   SandboxBridgeService,
   ZedConversation,
   ZedConversationsResponse,
+  LiveResponse,
   SANDBOX_AGENT_QUIET_POLL_COUNT
 } from '../../core/services/sandbox-bridge.service';
 import { RepositoryService } from '../../core/services/repository.service';
@@ -44,12 +45,14 @@ import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('vncIframe', { static: false }) vncIframeRef!: ElementRef<HTMLIFrameElement>;
   @ViewChild('popupContainer', { static: false }) popupContainerRef!: ElementRef<HTMLDivElement>;
+  @ViewChild('chatContent', { static: false }) chatContentRef?: ElementRef<HTMLDivElement>;
 
   // Inputs
   config = input.required<VncConfig>();
   viewerId = input<string>('');
   initialDockPosition = input<DockPosition>('floating');
-  initialConnectionState = input<string | undefined>(undefined); // From service when viewer moves floating↔minimized
+  initialConnectionState = input<string | undefined>(undefined);
+  initialViewMode = input<'sandbox' | 'split' | 'chat' | undefined>(undefined);
   viewerTitle = input<string>('Sandbox');
   embedded = input<boolean>(false); // When true, renders without container/header (for dock panel)
   sandboxId = input<string | undefined>(undefined);
@@ -115,7 +118,11 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
 
   // Conversations state
   conversations = signal<ZedConversation[]>([]);
-  showConversations = signal<boolean>(false); // Collapsed until user opens chat
+  liveResponse = signal<LiveResponse | null>(null);
+  requestInProgress = signal<boolean>(false);
+  viewMode = signal<'sandbox' | 'split' | 'chat'>('sandbox');
+  showChat = computed(() => this.viewMode() === 'split' || this.viewMode() === 'chat');
+  showSandbox = computed(() => this.viewMode() === 'split' || this.viewMode() === 'sandbox');
   /** False when viewport matches {@link AGENT_CHAT_SIDEBAR_MEDIA} — hide AI chat UI (desktop only) */
   agentChatSidebarAllowed = signal<boolean>(
     typeof matchMedia === 'undefined'
@@ -295,6 +302,23 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       }
     });
 
+    // Restore viewMode from service when component re-mounts (minimize→restore)
+    effect(() => {
+      const init = this.initialViewMode();
+      if (init) {
+        this.viewMode.set(init);
+      }
+    }, { allowSignalWrites: true });
+
+    // Persist viewMode back to service
+    effect(() => {
+      const id = this.viewerId();
+      const mode = this.viewMode();
+      if (id) {
+        untracked(() => this.vncViewerService.setViewMode(id, mode));
+      }
+    });
+
     // When the dock mounts a new tile, viewerId can lag behind the first viewers$ emission;
     // re-pull readyForPr from the service whenever id is set.
     effect(() => {
@@ -302,6 +326,16 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       if (!id) return;
       untracked(() => this.syncReadyForPrFromService());
     }, { allowSignalWrites: true });
+
+    // Auto-scroll chat to bottom when live streaming or new conversations arrive
+    effect(() => {
+      this.liveResponse();
+      this.conversations();
+      setTimeout(() => {
+        const el = this.chatContentRef?.nativeElement;
+        if (el) el.scrollTop = el.scrollHeight;
+      }, 50);
+    });
   }
 
   /**
@@ -399,51 +433,104 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     const allowed = !mql.matches;
     this.agentChatSidebarAllowed.set(allowed);
     if (!allowed) {
-      this.showConversations.set(false);
+      this.viewMode.set('sandbox');
     }
   }
 
   /**
-   * Start polling for AI conversations from the Bridge API
-   * Fetches immediately then every 3s (so restored sandboxes show existing LLM chat right away)
+   * Start polling for AI conversations from the Bridge API.
+   * Uses adaptive interval: 600ms while the LLM is streaming, 3s when idle.
+   *
+   * Signal updates are deduplicated: conversations/liveResponse are only
+   * written when the payload actually changed, preventing unnecessary DOM
+   * teardown/rebuild (especially expensive for the markdown pipe).
    */
   private startConversationPolling(): void {
     const sid = this.sandboxId();
     if (!sid) return;
 
     let consecutiveErrors = 0;
+    let streaming = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-    interval(3000).pipe(
-      startWith(0),
-      takeUntil(this.destroy$),
-      filter(() => !!this.sandboxId()),
-      switchMap(() =>
-        this.sandboxBridgeService.getAllConversations(this.sandboxId()!).pipe(
-          catchError(_err => {
-            consecutiveErrors++;
-            if (consecutiveErrors >= 3) {
-              // Bridge unreachable — container likely stopped
-              this.connectionState.set(VncConnectionState.Error);
-              this.error.set('Sandbox stopped or unreachable. Close this viewer to clean up.');
-            }
-            return EMPTY;
-          })
-        )
-      )
-    ).subscribe({
-      next: (response) => {
-        consecutiveErrors = 0;
-        if (response.conversations.length > 0) {
-          this.conversations.set(response.conversations);
-          const latestId = response.conversations[response.conversations.length - 1]?.id;
-          if (latestId && latestId !== this.lastConversationId) {
-            this.lastConversationId = latestId;
-            console.log('New conversation in sandbox:', this.viewerId());
+    let prevConvCount = 0;
+    let prevLiveLen = 0;
+
+    const FAST_MS = 600;
+    const SLOW_MS = 3000;
+
+    const poll = () => {
+      if (!this.sandboxId()) return;
+      this.sandboxBridgeService.getAllConversations(this.sandboxId()!).pipe(
+        catchError(_err => {
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+            this.connectionState.set(VncConnectionState.Error);
+            this.error.set('Sandbox stopped or unreachable. Close this viewer to clean up.');
           }
+          return EMPTY;
+        }),
+        takeUntil(this.destroy$)
+      ).subscribe({
+        next: (response) => {
+          consecutiveErrors = 0;
+
+          // ── Conversations: only update when the list actually changed ──
+          const convs = response.conversations;
+          const newLatestId = convs.length > 0 ? convs[convs.length - 1].id : '';
+          if (convs.length !== prevConvCount || newLatestId !== this.lastConversationId) {
+            prevConvCount = convs.length;
+            this.conversations.set(convs);
+            if (newLatestId && newLatestId !== this.lastConversationId) {
+              this.lastConversationId = newLatestId;
+            }
+          }
+
+          // ── Streaming state ───────────────────────────────────────────
+          const wasStreaming = streaming;
+          streaming = response.request_in_progress === true;
+
+          if (streaming !== this.requestInProgress()) {
+            this.requestInProgress.set(streaming);
+          }
+
+          // ── Live response: only write when content length changed ─────
+          const liveContent = streaming ? (response.live_response?.content ?? '') : '';
+          if (liveContent.length !== prevLiveLen) {
+            prevLiveLen = liveContent.length;
+            this.liveResponse.set(streaming && response.live_response ? response.live_response : null);
+          }
+
+          // When streaming just ended, keep the live bubble visible for
+          // one more cycle so there's no gap before the completed
+          // conversation appears in the list.
+          if (wasStreaming && !streaming && prevLiveLen > 0) {
+            prevLiveLen = 0;
+            setTimeout(() => {
+              if (!this.requestInProgress()) {
+                this.liveResponse.set(null);
+              }
+            }, SLOW_MS + 200);
+          }
+
+          this.updatePushPrEligibility(response);
+
+          if (streaming && !wasStreaming && this.viewMode() === 'sandbox') {
+            this.viewMode.set('split');
+          }
+
+          schedulePoll(streaming ? FAST_MS : SLOW_MS);
         }
-        this.updatePushPrEligibility(response);
-      }
-    });
+      });
+    };
+
+    const schedulePoll = (ms: number) => {
+      if (pollTimer) clearTimeout(pollTimer);
+      pollTimer = setTimeout(poll, ms);
+    };
+
+    this.destroy$.subscribe(() => { if (pollTimer) clearTimeout(pollTimer); });
+    poll();
   }
 
   /**
@@ -496,14 +583,9 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     }
   }
 
-  /**
-   * Toggle conversations panel visibility
-   */
-  toggleConversations(): void {
-    if (!this.agentChatSidebarAllowed()) {
-      return;
-    }
-    this.showConversations.set(!this.showConversations());
+  setViewMode(mode: 'sandbox' | 'split' | 'chat'): void {
+    if (!this.agentChatSidebarAllowed() && mode !== 'sandbox') return;
+    this.viewMode.set(mode);
   }
 
   cleanUserMessage(msg: string): string {
@@ -523,21 +605,33 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     this.chatResizeStartX = event.clientX;
     this.chatResizeStartWidth = this.chatPanelWidth();
 
-    // Block iframe from stealing mouse events during drag
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:fixed;inset:0;z-index:99999;cursor:col-resize;';
     document.body.appendChild(overlay);
 
+    const panel = (event.target as HTMLElement).closest('.conversations-panel') as HTMLElement | null;
+    panel?.classList.add('resizing');
+
+    let rafId = 0;
+    let pendingWidth = this.chatResizeStartWidth;
+
     const onMouseMove = (e: MouseEvent) => {
       if (!this.chatResizing) return;
       e.preventDefault();
-      const delta = e.clientX - this.chatResizeStartX;
-      const newWidth = Math.min(Math.max(this.chatResizeStartWidth + delta, 250), 800);
-      this.chatPanelWidth.set(newWidth);
+      pendingWidth = Math.min(Math.max(this.chatResizeStartWidth + (e.clientX - this.chatResizeStartX), 250), 800);
+      if (!rafId) {
+        rafId = requestAnimationFrame(() => {
+          rafId = 0;
+          this.chatPanelWidth.set(pendingWidth);
+        });
+      }
     };
 
     const onMouseUp = () => {
       this.chatResizing = false;
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+      this.chatPanelWidth.set(pendingWidth);
+      panel?.classList.remove('resizing');
       overlay.remove();
       document.removeEventListener('mousemove', onMouseMove);
       document.removeEventListener('mouseup', onMouseUp);
@@ -659,6 +753,12 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
         this.pushPrError.set(err.error?.error || err.error?.message || err.message || 'Failed to push changes');
       }
     });
+  }
+
+  stopGeneration(): void {
+    const sid = this.sandboxId();
+    if (!sid || !this.requestInProgress()) return;
+    this.sandboxBridgeService.abortStream(sid).subscribe();
   }
 
   /**
