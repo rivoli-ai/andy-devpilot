@@ -126,17 +126,9 @@ if ($imageExists -and -not $Rebuild) {
     $dockerCertsDir = "${dockerRepoRoot}/certs"
 
     Write-Host ""
-    $ErrorActionPreference = "Continue"
-    & docker run --rm --name devpilot-desktop-builder `
-        -v /var/run/docker.sock:/var/run/docker.sock `
-        -v "${absSandboxDir}:${dockerSandboxDir}:rw" `
-        -v "${absRepoRoot}\certs:${dockerCertsDir}:ro" `
-        -e BUILD_ONLY=1 `
-        -e "SCRIPT_SOURCE_DIR=${dockerSandboxDir}" `
-        -e "CERTS_DIR=${dockerCertsDir}" `
-        -w $dockerSandboxDir `
-        ubuntu:24.04 `
-        bash $innerScript
+    $buildCmd = "docker run --rm --name devpilot-desktop-builder -v /var/run/docker.sock:/var/run/docker.sock -v `"${absSandboxDir}:${dockerSandboxDir}:rw`" -v `"${absRepoRoot}\certs:${dockerCertsDir}:ro`" -e BUILD_ONLY=1 -e `"SCRIPT_SOURCE_DIR=${dockerSandboxDir}`" -e `"CERTS_DIR=${dockerCertsDir}`" -w `"${dockerSandboxDir}`" ubuntu:24.04 bash `"${innerScript}`""
+    Write-Host "  CMD: $buildCmd" -ForegroundColor DarkGray
+    cmd /c $buildCmd
     $buildExitCode = $LASTEXITCODE
     $ErrorActionPreference = "SilentlyContinue"
     docker rm -f devpilot-desktop-builder *>$null
