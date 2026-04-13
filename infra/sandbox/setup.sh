@@ -2087,25 +2087,24 @@ def _wait_for_zed(max_wait=60):
     return None
 
 def _wait_for_zed_ready(max_wait=60):
-    """Wait until Zed finishes loading by polling its log file.
+    """Wait until Zed is ready by checking its log file exists and has content.
 
-    Zed writes 'extensions updated' once its UI is fully initialised and
-    the event loop is ready to process keyboard events.  We poll every 2s
-    and bail out as soon as we see that line (or hit *max_wait*).
+    On corporate networks, 'extensions updated' may never appear because Zed
+    can't reach extension servers.  Instead, we check for the log file having
+    meaningful content (> 200 bytes), which indicates the UI event loop is up.
     """
-    import time
+    import time, os
     log_path = '/home/sandbox/.local/share/zed/logs/Zed.log'
     delay = 2
     elapsed = 0
     while elapsed < max_wait:
         try:
-            with open(log_path) as f:
-                content = f.read()
-            if 'extensions updated' in content:
-                logger.info("Zed ready (extensions loaded, %ds elapsed)", elapsed)
-                time.sleep(3)          # small extra settle time
+            size = os.path.getsize(log_path)
+            if size > 200:
+                logger.info("Zed ready (log has %d bytes, %ds elapsed)", size, elapsed)
+                time.sleep(3)
                 return
-        except FileNotFoundError:
+        except (FileNotFoundError, OSError):
             pass
         logger.info("Zed not ready yet, retrying in %ds (%ds/%ds)...", delay, elapsed, max_wait)
         time.sleep(delay)
@@ -2153,13 +2152,13 @@ def zed_send_prompt():
         if not _agent_panel_open:
             logger.info("Step 2: Opening agent panel with Ctrl+Shift+/ ...")
             _xdt(['key', '--clearmodifiers', 'ctrl+shift+slash'], env)
-            time.sleep(1.5)
+            time.sleep(3)
         else:
             logger.info("Step 2: Agent panel already open, skipping toggle.")
 
         # ── Step 3: Paste prompt via clipboard ───────────────────────────
         _xdt(['key', '--clearmodifiers', 'ctrl+a'], env)
-        time.sleep(0.2)
+        time.sleep(0.3)
 
         logger.info("Step 3: Pasting prompt (%d chars)...", len(prompt))
         clipboard_ok = _set_clipboard(prompt, env)
