@@ -7,6 +7,7 @@
 # Usage:
 #   bash deploy.sh
 #   bash deploy.sh --build-desktop   # run infra/sandbox/setup.sh even if devpilot-desktop:latest exists
+#   bash deploy.sh --build-manager   # rebuild devpilot-manager even if image exists
 #   bash deploy.sh --stop            # stop sandbox-manager only
 #   bash deploy.sh --reset           # remove sandbox-manager container (next deploy recreates it)
 
@@ -26,11 +27,13 @@ error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 step()  { echo -e "\n${CYAN}==>${NC} $1"; }
 
 BUILD_DESKTOP=false
+BUILD_MANAGER=false
 STOP=false
 RESET=false
 for arg in "$@"; do
     case $arg in
         --build-desktop) BUILD_DESKTOP=true ;;
+        --build-manager) BUILD_MANAGER=true ;;
         --stop)          STOP=true ;;
         --reset)         RESET=true ;;
     esac
@@ -91,8 +94,25 @@ else
     BUILD_ONLY=1 bash "$SANDBOX_SETUP"
 fi
 
+step "devpilot-manager image..."
+MANAGER_IMAGE="devpilot-manager:latest"
+_manager_exists=false
+if docker images -q "$MANAGER_IMAGE" 2>/dev/null | grep -q .; then
+    _manager_exists=true
+fi
+
+if [ "$BUILD_MANAGER" = true ]; then
+    warn "Rebuilding ${MANAGER_IMAGE}..."
+    compose build "$MANAGER_SERVICE"
+elif [ "$_manager_exists" = true ]; then
+    info "Using existing ${MANAGER_IMAGE}."
+else
+    info "No ${MANAGER_IMAGE} found — building via Compose..."
+    compose build "$MANAGER_SERVICE"
+fi
+
 step "Starting ${MANAGER_SERVICE} (frontend/backend/postgres are not started)..."
-compose up -d "$MANAGER_SERVICE"
+compose up -d --no-build "$MANAGER_SERVICE"
 
 step "Waiting for sandbox manager health..."
 RETRIES=60
@@ -116,5 +136,6 @@ echo ""
 echo "  Full stack (frontend + backend + DB): bash infra/local/setup.sh"
 echo "  Stop manager only:  bash deploy.sh --stop"
 echo "  Reset manager only: bash deploy.sh --reset"
-echo "  Rebuild desktop image: bash deploy.sh --build-desktop"
+echo "  Rebuild desktop image:  bash deploy.sh --build-desktop"
+echo "  Rebuild manager image:  bash deploy.sh --build-manager"
 echo ""

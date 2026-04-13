@@ -187,17 +187,28 @@ if ($mainManager) {
     Write-Ok "Main docker-compose sandbox-manager stopped."
 }
 
-# - 5. Build manager image and start with docker-compose -
+# - 5. Build manager image (only if missing) and start with docker-compose -
 $managerRunning = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
 
 if ($managerRunning -and -not $Rebuild) {
     Write-Step "Sandbox manager already running. Skipping (use -Rebuild to recreate)."
 } else {
-    Write-Step "Starting standalone sandbox manager container..."
+    $managerImage = docker images -q devpilot-sandbox-manager:latest 2>$null
+    if ($managerImage -and -not $Rebuild) {
+        Write-Step "devpilot-sandbox-manager image exists — starting without rebuild..."
+    } else {
+        if ($Rebuild) { Write-Step "Rebuilding sandbox manager image..." }
+        else          { Write-Step "Building sandbox manager image (first time)..." }
+    }
+
     Push-Location $windowsDir
     try {
         cmd /c "docker compose down --remove-orphans 2>nul" | Out-Null
-        $proc = Start-Process -FilePath "docker" -ArgumentList @("compose", "up", "-d", "--build") -NoNewWindow -PassThru -Wait
+        if ($managerImage -and -not $Rebuild) {
+            $proc = Start-Process -FilePath "docker" -ArgumentList @("compose", "up", "-d", "--no-build") -NoNewWindow -PassThru -Wait
+        } else {
+            $proc = Start-Process -FilePath "docker" -ArgumentList @("compose", "up", "-d", "--build") -NoNewWindow -PassThru -Wait
+        }
         if ($proc.ExitCode -ne 0) {
             Write-Fail "Failed to start sandbox manager."
             exit 1

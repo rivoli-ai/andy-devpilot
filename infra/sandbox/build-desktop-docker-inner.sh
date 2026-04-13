@@ -5,6 +5,12 @@ set -euo pipefail
 
 export DOCKER_BUILDKIT=1
 
+# Pin API version so the docker.io CLI from apt (which may advertise a newer API, e.g. 1.51)
+# doesn't 500 against an older Docker Desktop engine on the host.
+if [ -z "${DOCKER_API_VERSION:-}" ]; then
+    export DOCKER_API_VERSION=1.45
+fi
+
 # docker.io from apt does not ship the buildx CLI plugin; BuildKit requires it when DOCKER_BUILDKIT=1.
 install_docker_buildx() {
   local ver="${BUILDX_VERSION:-0.20.1}"
