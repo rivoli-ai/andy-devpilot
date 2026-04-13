@@ -125,27 +125,24 @@ if ($imageExists -and -not $Rebuild) {
     }
     $dockerCertsDir = "${dockerRepoRoot}/certs"
 
-    $buildArgs = @(
-        "run", "--rm", "--name", "devpilot-desktop-builder",
-        "-v", "/var/run/docker.sock:/var/run/docker.sock",
-        "-v", "${absSandboxDir}:${dockerSandboxDir}:rw",
-        "-v", "${absRepoRoot}\certs:${dockerCertsDir}:ro",
-        "-e", "BUILD_ONLY=1",
-        "-e", "SCRIPT_SOURCE_DIR=${dockerSandboxDir}",
-        "-e", "CERTS_DIR=${dockerCertsDir}",
-        "-w", $dockerSandboxDir,
-        "ubuntu:24.04",
-        "bash", $innerScript
-    )
-
-    $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
-
+    Write-Host ""
     $ErrorActionPreference = "SilentlyContinue"
+    & docker run --rm --name devpilot-desktop-builder `
+        -v /var/run/docker.sock:/var/run/docker.sock `
+        -v "${absSandboxDir}:${dockerSandboxDir}:rw" `
+        -v "${absRepoRoot}\certs:${dockerCertsDir}:ro" `
+        -e BUILD_ONLY=1 `
+        -e "SCRIPT_SOURCE_DIR=${dockerSandboxDir}" `
+        -e "CERTS_DIR=${dockerCertsDir}" `
+        -w $dockerSandboxDir `
+        ubuntu:24.04 `
+        bash $innerScript
+    $buildExitCode = $LASTEXITCODE
     docker rm -f devpilot-desktop-builder *>$null
     $ErrorActionPreference = "Stop"
 
-    if ($proc.ExitCode -ne 0) {
-        Write-Fail "Desktop image build failed (exit code $($proc.ExitCode))."
+    if ($buildExitCode -ne 0) {
+        Write-Fail "Desktop image build failed (exit code $buildExitCode)."
         Write-Host "  Check the output above for errors." -ForegroundColor Yellow
         exit 1
     }
