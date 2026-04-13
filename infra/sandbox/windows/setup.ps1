@@ -191,14 +191,14 @@ if ($mainManager) {
 $managerRunning = docker ps -q --filter "name=devpilot-sandbox-manager" 2>$null
 
 if ($managerRunning -and -not $Rebuild) {
-    Write-Step "Sandbox manager already running. Skipping (use -Rebuild to recreate)."
+    Write-Step "Sandbox manager already running. Skipping -- use -Rebuild to recreate."
 } else {
-    $managerImage = docker images -q devpilot-sandbox-manager:latest 2>$null
+    $managerImage = docker images -q "devpilot-sandbox-manager:latest" 2>$null
     if ($managerImage -and -not $Rebuild) {
-        Write-Step "devpilot-sandbox-manager image exists — starting without rebuild..."
+        Write-Step "devpilot-sandbox-manager image exists -- starting without rebuild..."
     } else {
         if ($Rebuild) { Write-Step "Rebuilding sandbox manager image..." }
-        else          { Write-Step "Building sandbox manager image (first time)..." }
+        else          { Write-Step "Building sandbox manager image for the first time..." }
     }
 
     Push-Location $windowsDir
