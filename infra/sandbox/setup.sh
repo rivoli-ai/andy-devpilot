@@ -2069,7 +2069,7 @@ def debug_test_input():
     
     return jsonify(results)
 
-_first_prompt_sent = False
+_agent_panel_open = False
 
 def _wait_for_zed(max_wait=60):
     """Block until a Zed window appears, with exponential back-off. Returns window_id or None."""
@@ -2123,7 +2123,7 @@ def zed_send_prompt():
       4. Submit with Enter
     """
     import time
-    global _first_prompt_sent
+    global _agent_panel_open
 
     data = request.get_json() or {}
     prompt = data.get('prompt', '')
@@ -2143,28 +2143,24 @@ def zed_send_prompt():
 
         logger.info("Step 1: Zed window found: %s", window_id)
 
-        # First prompt: let Zed finish its initial layout pass.
-        if not _first_prompt_sent:
+        if not _agent_panel_open:
             _wait_for_zed_ready(max_wait=30)
 
-        # Raise and focus via wmctrl (more reliable than xdotool alone)
         subprocess.run(['wmctrl', '-i', '-a', window_id], env=env)
         time.sleep(0.5)
 
         # ── Step 2: Ensure agent panel is open ──────────────────────────
-        # Ctrl+Shift+/ is a TOGGLE.  Only press it on the very first
-        # prompt (panel is closed).  For subsequent prompts the panel is
-        # already open — pressing the shortcut would CLOSE it.
-        if not _first_prompt_sent:
-            logger.info("Step 2: Opening agent panel (first prompt)...")
-            _xdt(['key', '--clearmodifiers', 'ctrl+shift+slash'], env)
-            time.sleep(3)
-        else:
-            logger.info("Step 2: Panel already open, skipping toggle")
-            time.sleep(0.3)
+        # Always open via Zed command palette — this is idempotent
+        # (opening an already-open panel just focuses it, never closes it).
+        logger.info("Step 2: Opening agent panel via command palette...")
+        _xdt(['key', '--clearmodifiers', 'ctrl+shift+p'], env)
+        time.sleep(0.8)
+        _xdt(['type', '--clearmodifiers', '--delay', '12', '--', 'agent: open'], env, timeout=10)
+        time.sleep(0.6)
+        _xdt(['key', 'Return'], env)
+        time.sleep(1.5 if not _agent_panel_open else 0.8)
 
         # ── Step 3: Paste prompt via clipboard ───────────────────────────
-        # Select any existing text in the input so paste replaces it.
         _xdt(['key', '--clearmodifiers', 'ctrl+a'], env)
         time.sleep(0.2)
 
@@ -2187,7 +2183,7 @@ def zed_send_prompt():
         _xdt(['key', 'Return'], env)
         time.sleep(0.5)
 
-        _first_prompt_sent = True
+        _agent_panel_open = True
         logger.info("=== PROMPT SENT SUCCESSFULLY ===")
         return jsonify({
             "status": "ok",
