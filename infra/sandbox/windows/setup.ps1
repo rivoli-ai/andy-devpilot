@@ -44,6 +44,11 @@ Write-Host "   DevPilot Sandbox - Windows Setup       " -ForegroundColor Magenta
 Write-Host "==========================================" -ForegroundColor Magenta
 Write-Host ""
 
+# Pin Docker API version so a newer CLI (e.g. API 1.51) doesn't 500 against an older engine.
+if (-not $env:DOCKER_API_VERSION) {
+    $env:DOCKER_API_VERSION = "1.45"
+}
+
 # - 1. Check Docker Desktop -
 Write-Step "Checking Docker Desktop..."
 try {
