@@ -64,8 +64,11 @@ try {
 if ($Rebuild) {
     Write-Step "Cleaning up everything before rebuild..."
 
+    $savedEAP = $ErrorActionPreference
+    $ErrorActionPreference = "SilentlyContinue"
+
     # Stop and remove ALL sandbox containers (sandbox-*)
-    $sandboxIds = docker ps -aq --filter "name=sandbox-" 2>$null
+    $sandboxIds = docker ps -aq --filter "name=sandbox-"
     if ($sandboxIds) { docker rm -f $sandboxIds *>$null }
 
     # Stop and remove the standalone manager + build container
@@ -81,6 +84,8 @@ if ($Rebuild) {
 
     # Prune dangling images
     docker image prune -f *>$null
+
+    $ErrorActionPreference = $savedEAP
 
     Write-Ok "Cleanup complete - starting fresh."
 }
@@ -106,7 +111,9 @@ if ($imageExists -and -not $Rebuild) {
 
     $innerScript = "${dockerSandboxDir}/build-desktop-docker-inner.sh"
 
+    $ErrorActionPreference = "SilentlyContinue"
     docker rm -f devpilot-desktop-builder *>$null
+    $ErrorActionPreference = "Stop"
 
     # Also mount repo-root certs/ so the build container can trust corporate proxies
     $repoRoot = Split-Path $sandboxDir -Parent
@@ -133,7 +140,9 @@ if ($imageExists -and -not $Rebuild) {
 
     $proc = Start-Process -FilePath "docker" -ArgumentList $buildArgs -NoNewWindow -PassThru -Wait
 
+    $ErrorActionPreference = "SilentlyContinue"
     docker rm -f devpilot-desktop-builder *>$null
+    $ErrorActionPreference = "Stop"
 
     if ($proc.ExitCode -ne 0) {
         Write-Fail "Desktop image build failed (exit code $($proc.ExitCode))."
@@ -188,8 +197,10 @@ $rootComposeFile = Join-Path (Split-Path $sandboxDir -Parent | Split-Path -Paren
 $mainManager = docker ps -q --filter "name=sandbox-manager" --filter "label=com.docker.compose.service=sandbox-manager" 2>$null
 if ($mainManager) {
     Write-Step "Stopping sandbox-manager from main docker-compose (port conflict)..."
+    $ErrorActionPreference = "SilentlyContinue"
     docker compose -f $rootComposeFile stop sandbox-manager *>$null
     docker compose -f $rootComposeFile rm -f sandbox-manager *>$null
+    $ErrorActionPreference = "Stop"
     Write-Ok "Main docker-compose sandbox-manager stopped."
 }
 
@@ -209,7 +220,9 @@ if ($managerRunning -and -not $Rebuild) {
 
     Push-Location $windowsDir
     try {
+        $ErrorActionPreference = "SilentlyContinue"
         docker compose down --remove-orphans *>$null
+        $ErrorActionPreference = "Stop"
         if ($managerImage -and -not $Rebuild) {
             $proc = Start-Process -FilePath "docker" -ArgumentList @("compose", "up", "-d", "--no-build") -NoNewWindow -PassThru -Wait
         } else {
