@@ -51,7 +51,7 @@ def _build_sandbox_urls(sandbox_id: str, vnc_port: int = 0, bridge_port: int = 0
     Docker mode: routed through the manager reverse proxy on :8090.
     K8s mode: uses NodePort-based URLs (ports must be provided).
     """
-    vnc_qs = "autoconnect=true&reconnect=true&reconnect_delay=3000&resize=scale"
+    vnc_qs = "autoconnect=true&reconnect=true&reconnect_delay=3000&scale=true"
     if BACKEND == "k8s" and vnc_port:
         if HTTPS_PROXY_BASE:
             vnc_url    = f"{HTTPS_PROXY_BASE}/sandbox-vnc/{vnc_port}/vnc_lite.html?{vnc_qs}"

@@ -176,7 +176,7 @@ export class VncService {
     }
     
     // Build URL — noVNC connects to websocket on same host:port automatically
-    let finalUrl = `http://${host}:${port}/vnc_lite.html?autoconnect=true&reconnect=true&reconnect_delay=3000&resize=scale`;
+    let finalUrl = `http://${host}:${port}/vnc_lite.html?autoconnect=true&reconnect=true&reconnect_delay=3000&scale=true`;
     if (vncPassword) {
       finalUrl += `&password=${encodeURIComponent(vncPassword)}`;
     }

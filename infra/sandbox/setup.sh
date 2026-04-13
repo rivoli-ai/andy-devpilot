@@ -343,7 +343,8 @@ RUN printf '%s\n' \
     sed -i '/<\/body>/i <script src="clipboard-sync.js"><\/script>' /usr/share/novnc/vnc.html && \
     sed -i '/<\/head>/i <style>#noVNC_control_bar_anchor,#noVNC_connect_dlg,#noVNC_transition{display:none!important;}</style>' /usr/share/novnc/vnc.html && \
     cp /usr/share/novnc/vnc_lite.html /usr/share/novnc/vnc_lite.html.bak && \
-    sed -i '/<\/head>/i <style>body{margin:0;padding:0;overflow:hidden;}#noVNC_status_bar{display:none!important;}</style>' /usr/share/novnc/vnc_lite.html
+    sed -i '/<\/head>/i <style>html,body{margin:0;padding:0;overflow:hidden;width:100%;height:100%;}#top_bar{display:none!important;}#screen{position:absolute;top:0;left:0;width:100%;height:100%;overflow:hidden;}</style>' /usr/share/novnc/vnc_lite.html && \
+    sed -i 's/rfb\.scaleViewport = readQueryVariable(.*/rfb.scaleViewport = true; rfb.resizeSession = readQueryVariable("resize", "off") === "remote";/' /usr/share/novnc/vnc_lite.html
 
 # ── SSL certificates (build-time) ──
 # Custom certificates (Zscaler, corporate proxy, etc.) are loaded from the

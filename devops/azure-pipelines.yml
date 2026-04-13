@@ -105,6 +105,27 @@ stages:
             artifact: manager-image
             displayName: "Publish manager artifact"
 
+      - job: BuildDesktop
+        displayName: "Build devpilot-desktop"
+        pool:
+          vmImage: ubuntu-latest
+        timeoutInMinutes: 60
+        steps:
+          - script: |
+              cd $(Build.SourcesDirectory)
+              BUILD_ONLY=1 bash infra/sandbox/setup.sh
+            displayName: "Generate Dockerfile & build desktop image"
+
+          - script: |
+              mkdir -p $(BUILD_DIR)
+              docker save devpilot-desktop:latest | gzip > $(BUILD_DIR)/desktop.tar.gz
+              echo "Desktop image size: $(du -sh $(BUILD_DIR)/desktop.tar.gz)"
+            displayName: "Export desktop image"
+
+          - publish: $(BUILD_DIR)/desktop.tar.gz
+            artifact: desktop-image
+            displayName: "Publish desktop artifact"
+
   # ── Stage 2 — Deploy ─────────────────────────────────────
   - stage: Deploy
     displayName: "Deploy to production"
@@ -137,6 +158,10 @@ stages:
                 - download: current
                   artifact: manager-image
                   displayName: "Download manager image"
+
+                - download: current
+                  artifact: desktop-image
+                  displayName: "Download desktop image"
 
                 # 2) Generate .env from pipeline secret variables + static config
                 - script: |
@@ -265,6 +290,16 @@ stages:
                     cleanTargetFolder: false
                     overwrite: true
 
+                - task: CopyFilesOverSSH@0
+                  displayName: "Copy desktop image"
+                  inputs:
+                    sshEndpoint: 'production-server-password'
+                    sourceFolder: $(Pipeline.Workspace)/desktop-image
+                    contents: desktop.tar.gz
+                    targetFolder: $(DEPLOY_DIR)/images
+                    cleanTargetFolder: false
+                    overwrite: true
+
                 # 5) Load images + restart containers on server
                 # Using absolute paths throughout — SSH@0 'commands' mode does not
                 # guarantee that 'cd' persists between lines in all agent versions.
@@ -281,6 +316,7 @@ stages:
                       docker load < /opt/devpilot/images/backend.tar.gz
                       docker load < /opt/devpilot/images/frontend.tar.gz
                       docker load < /opt/devpilot/images/manager.tar.gz
+                      docker load < /opt/devpilot/images/desktop.tar.gz
 
                       echo "==> Pulling postgres image..."
                       docker pull postgres:16-alpine
@@ -300,7 +336,7 @@ stages:
                       docker compose -f /opt/devpilot/docker-compose.prod.yml --env-file /opt/devpilot/.env up -d --remove-orphans 2>&1
 
                       echo "==> Cleaning up compressed archives..."
-                      rm -f /opt/devpilot/images/backend.tar.gz /opt/devpilot/images/frontend.tar.gz /opt/devpilot/images/manager.tar.gz
+                      rm -f /opt/devpilot/images/backend.tar.gz /opt/devpilot/images/frontend.tar.gz /opt/devpilot/images/manager.tar.gz /opt/devpilot/images/desktop.tar.gz
 
                       echo "==> Removing dangling images to free disk space..."
                       docker image prune -f 2>&1

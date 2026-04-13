@@ -9,5 +9,9 @@ backend/src/API/appsettings.Development.json
 # .NET test and coverage output
 **/TestResults/
 
+# Python
+__pycache__/
+*.pyc
+
 # OS files
 .DS_Store
