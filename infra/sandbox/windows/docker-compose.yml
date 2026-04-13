@@ -3,7 +3,7 @@ services:
     build:
       context: ../../..
       dockerfile: infra/sandbox/windows/Dockerfile.manager
-    image: sandbox-manager:latest
+    image: devpilot-manager:latest
     container_name: devpilot-sandbox-manager
     ports:
       - "8090:8090"

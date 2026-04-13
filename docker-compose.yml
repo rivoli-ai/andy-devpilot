@@ -61,7 +61,7 @@ services:
 
   # ── Sandbox Manager (Python Flask) ───────────────────────────────────────────
   sandbox-manager:
-    image: sandbox-manager:latest
+    image: devpilot-manager:latest
     build:
       context: .
       dockerfile: infra/sandbox/manager/Dockerfile

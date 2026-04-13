@@ -95,7 +95,7 @@ else
 fi
 
 step "devpilot-manager image..."
-MANAGER_IMAGE="sandbox-manager:latest"
+MANAGER_IMAGE="devpilot-manager:latest"
 _manager_exists=false
 if docker images -q "$MANAGER_IMAGE" 2>/dev/null | grep -q .; then
     _manager_exists=true
