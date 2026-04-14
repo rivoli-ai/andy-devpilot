@@ -1078,26 +1078,50 @@ def zed_readiness():
 @app.route('/system-info', methods=['GET'])
 def system_info():
     """Return system information for the frontend stats overlay."""
-    import platform
+    import platform, re
 
-    gpu_info = "llvmpipe (Software)"
-    rendering = "software"
-    if os.path.exists('/dev/dri/renderD128'):
-        gpu_info = "Hardware GPU (/dev/dri)"
-        rendering = "hardware"
-    if os.path.exists('/dev/nvidia0') or subprocess.run(
-        ['which', 'nvidia-smi'], capture_output=True
-    ).returncode == 0:
-        rendering = "hardware"
-        try:
-            result = subprocess.run(
-                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
-                capture_output=True, text=True, timeout=5
-            )
-            if result.returncode == 0 and result.stdout.strip():
-                gpu_info = result.stdout.strip()
-        except Exception:
-            gpu_info = "NVIDIA GPU"
+    gpu_info = "Unknown"
+    rendering = "unknown"
+
+    # Read the actual GPU info from Zed's log — it reports exactly what adapter is in use
+    zed_log = '/home/sandbox/.local/share/zed/logs/Zed.log'
+    try:
+        with open(zed_log, 'r') as f:
+            for line in f:
+                if 'Using GPU: GpuSpecs' in line:
+                    m = re.search(r'device_name:\s*"([^"]+)"', line)
+                    if m:
+                        gpu_info = m.group(1)
+                    rendering = "software" if 'is_software_emulated: true' in line else "hardware"
+                    break
+                if 'Selected GPU adapter' in line:
+                    m = re.search(r'"([^"]+)"', line)
+                    if m:
+                        gpu_info = m.group(1)
+    except Exception:
+        pass
+
+    # Fallback: check device nodes if Zed log wasn't available
+    if rendering == "unknown":
+        if os.path.exists('/dev/nvidia0') or subprocess.run(
+            ['which', 'nvidia-smi'], capture_output=True
+        ).returncode == 0:
+            rendering = "hardware"
+            try:
+                result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                    capture_output=True, text=True, timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip():
+                    gpu_info = result.stdout.strip()
+            except Exception:
+                gpu_info = "NVIDIA GPU"
+        elif os.path.exists('/dev/dri/renderD128'):
+            gpu_info = "Hardware GPU (/dev/dri)"
+            rendering = "hardware"
+        else:
+            gpu_info = "llvmpipe (Software)"
+            rendering = "software"
 
     cpu_count = os.cpu_count() or 0
     mem_total = 0
