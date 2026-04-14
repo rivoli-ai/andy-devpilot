@@ -44,8 +44,8 @@ if [ -n "${BASH_SOURCE[0]}" ] && [ "${BASH_SOURCE[0]}" != "bash" ]; then
     [ -n "$_SCRIPT_DIR" ] && SCRIPT_SOURCE_DIR="$_SCRIPT_DIR"
 fi
 
-# Check root (only on Linux)
-if [ "$IS_LINUX" = true ] && [ "$EUID" -ne 0 ]; then 
+# Check root (only on Linux, skip in BUILD_ONLY mode — CI agents don't need root for docker)
+if [ "$IS_LINUX" = true ] && [ "${BUILD_ONLY:-0}" != "1" ] && [ "$EUID" -ne 0 ]; then
     log_error "Please run as root: sudo ./setup.sh"
     exit 1
 fi
