@@ -1219,37 +1219,46 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
           if (sandbox.bridge_url && !story.prUrl) {
             const sid = sandbox.id;
-            setTimeout(() => {
-              const prompt = this.buildImplementationPrompt(story, featureTitle, epicTitle);
-              const promptSentTimestamp = Date.now() / 1000;
-              console.log('Sending implementation prompt to Zed...');
+            const prompt = this.buildImplementationPrompt(story, featureTitle, epicTitle);
+            const maxRetries = 5;
 
-              this.sandboxBridgeService.sendZedPrompt(sid, prompt).subscribe({
-                next: (result) => {
-                  console.log('Implementation prompt sent:', result);
+            const sendWithRetry = (attempt: number) => {
+              const delay = attempt === 0 ? 25000 : 15000;
+              setTimeout(() => {
+                const promptSentTimestamp = Date.now() / 1000;
+                console.log(`Sending implementation prompt to Zed (attempt ${attempt + 1}/${maxRetries})...`);
 
-                  this.sandboxBridgeService.waitForImplementationComplete(
-                    sid,
-                    promptSentTimestamp,
-                    5000,
-                    600000
-                  ).subscribe({
-                    next: (conversation) => {
-                      console.log('Implementation completed!', conversation);
-                      
-                      // Mark sandbox as ready for PR (shows alert on minimized widget)
-                      this.vncViewerService.setReadyForPrByStoryId(story.id, true);
-                    },
-                    error: (err) => {
-                      console.warn('Failed to detect implementation completion:', err);
+                this.sandboxBridgeService.sendZedPrompt(sid, prompt).subscribe({
+                  next: (result) => {
+                    console.log('Implementation prompt sent:', result);
+
+                    this.sandboxBridgeService.waitForImplementationComplete(
+                      sid,
+                      promptSentTimestamp,
+                      5000,
+                      600000
+                    ).subscribe({
+                      next: (conversation) => {
+                        console.log('Implementation completed!', conversation);
+                        this.vncViewerService.setReadyForPrByStoryId(story.id, true);
+                      },
+                      error: (err) => {
+                        console.warn('Failed to detect implementation completion:', err);
+                      }
+                    });
+                  },
+                  error: (err) => {
+                    console.warn(`Prompt send attempt ${attempt + 1} failed:`, err);
+                    if (attempt + 1 < maxRetries) {
+                      sendWithRetry(attempt + 1);
+                    } else {
+                      console.error('All prompt send attempts failed after retries');
                     }
-                  });
-                },
-                error: (err) => {
-                  console.warn('Failed to send implementation prompt:', err);
-                }
-              });
-            }, 20000); // 20s for Zed to start
+                  }
+                });
+              }, delay);
+            };
+            sendWithRetry(0);
           } else if (story.prUrl) {
             console.log('Story already has PR, skipping auto-prompt - user can interact manually');
           }

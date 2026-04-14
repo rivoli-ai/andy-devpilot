@@ -502,9 +502,22 @@ def proxy_vnc_websocket(ws, sandbox_id):
     upstream_url = f"ws://{host}:{port}/websockify"
     try:
         upstream = ws_client.create_connection(upstream_url, timeout=10)
+        # After connecting, remove the socket timeout so recv_data() blocks
+        # indefinitely instead of killing the connection when VNC is idle.
+        upstream.settimeout(None)
     except Exception:
         ws.close(1011, "Cannot connect to sandbox VNC")
         return
+
+    alive = threading.Event()
+
+    def keepalive():
+        """Send WebSocket pings every 25s to keep the connection alive through proxies."""
+        while not alive.wait(25):
+            try:
+                upstream.ping()
+            except Exception:
+                break
 
     def forward_upstream_to_client():
         try:
@@ -519,6 +532,7 @@ def proxy_vnc_websocket(ws, sandbox_id):
         except Exception:
             pass
         finally:
+            alive.set()
             try:
                 ws.close()
             except Exception:
@@ -526,6 +540,8 @@ def proxy_vnc_websocket(ws, sandbox_id):
 
     reader = threading.Thread(target=forward_upstream_to_client, daemon=True)
     reader.start()
+    pinger = threading.Thread(target=keepalive, daemon=True)
+    pinger.start()
 
     try:
         while True:
@@ -539,6 +555,7 @@ def proxy_vnc_websocket(ws, sandbox_id):
     except Exception:
         pass
     finally:
+        alive.set()
         upstream.close()
         reader.join(timeout=2)
 

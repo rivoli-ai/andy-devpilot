@@ -55,6 +55,23 @@ export interface ZedConversationsResponse {
   live_response?: LiveResponse;
 }
 
+export interface SandboxStats {
+  gpu: string;
+  rendering: 'hardware' | 'software';
+  cpu_cores: number;
+  platform: string;
+  memory_total_mb: number;
+  memory_available_mb: number;
+  model: string;
+  provider: string;
+  uptime_seconds: number;
+  zed_running: boolean;
+  zed_pid: string | null;
+  resolution: string;
+  conversations_count: number;
+  agent_panel_open: boolean;
+}
+
 /**
  * Consecutive idle polls (same latest conversation id, no LLM round in flight) before treating
  * the agent as "settled" for Push PR and implementation-complete heuristics.
@@ -418,6 +435,22 @@ export class SandboxBridgeService {
         console.log('[WaitForImpl] Implementation complete (quiet period after last reply):', conv.id);
         stop$.next();
       })
+    );
+  }
+
+  checkHealth(sandboxId: string): Observable<HealthResponse | null> {
+    return this.http.get<HealthResponse>(`${this.getBridgeUrl(sandboxId)}/health`, {
+      headers: this.getAuthHeaders(sandboxId)
+    }).pipe(
+      catchError(() => of(null))
+    );
+  }
+
+  getSystemInfo(sandboxId: string): Observable<SandboxStats | null> {
+    return this.http.get<SandboxStats>(`${this.getBridgeUrl(sandboxId)}/system-info`, {
+      headers: this.getAuthHeaders(sandboxId)
+    }).pipe(
+      catchError(() => of(null))
     );
   }
 }

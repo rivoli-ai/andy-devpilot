@@ -546,6 +546,9 @@ RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
     echo '        proxy_set_header Connection "upgrade";' >> /etc/nginx/sites-available/novnc && \
     echo '        proxy_set_header Host $host;' >> /etc/nginx/sites-available/novnc && \
     echo '        proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_read_timeout 86400s;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_send_timeout 86400s;' >> /etc/nginx/sites-available/novnc && \
+    echo '        proxy_connect_timeout 7s;' >> /etc/nginx/sites-available/novnc && \
     echo '        proxy_hide_header X-Frame-Options;' >> /etc/nginx/sites-available/novnc && \
     echo '        proxy_hide_header Content-Security-Policy;' >> /etc/nginx/sites-available/novnc && \
     echo '        proxy_hide_header X-Content-Type-Options;' >> /etc/nginx/sites-available/novnc && \
@@ -922,8 +925,11 @@ import json
 import subprocess
 import logging
 import threading
+import time as _time_mod
 from flask import Flask, request, jsonify
 from flask_cors import CORS
+
+bridge_start_time = _time_mod.time()
 
 # Configure logging
 logging.basicConfig(
@@ -1050,6 +1056,89 @@ def health():
         "api_configured": bool(API_KEY),
         "model": MODEL,
         "project_path": PROJECT_PATH
+    })
+
+@app.route('/zed/readiness', methods=['GET'])
+def zed_readiness():
+    """Check if Zed is started, has a window, and is ready to receive prompts."""
+    wid = find_zed_window()
+    log_path = '/home/sandbox/.local/share/zed/logs/Zed.log'
+    log_size = 0
+    try:
+        log_size = os.path.getsize(log_path)
+    except (FileNotFoundError, OSError):
+        pass
+    ready = wid is not None and log_size > 500
+    return jsonify({
+        "ready": ready,
+        "window_found": wid is not None,
+        "log_size": log_size,
+    }), 200 if ready else 503
+
+@app.route('/system-info', methods=['GET'])
+def system_info():
+    """Return system information for the frontend stats overlay."""
+    import platform
+
+    gpu_info = "llvmpipe (Software)"
+    rendering = "software"
+    if os.path.exists('/dev/dri/renderD128'):
+        gpu_info = "Hardware GPU (/dev/dri)"
+        rendering = "hardware"
+    if os.path.exists('/dev/nvidia0') or subprocess.run(
+        ['which', 'nvidia-smi'], capture_output=True
+    ).returncode == 0:
+        rendering = "hardware"
+        try:
+            result = subprocess.run(
+                ['nvidia-smi', '--query-gpu=name', '--format=csv,noheader'],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                gpu_info = result.stdout.strip()
+        except Exception:
+            gpu_info = "NVIDIA GPU"
+
+    cpu_count = os.cpu_count() or 0
+    mem_total = 0
+    mem_available = 0
+    try:
+        with open('/proc/meminfo', 'r') as f:
+            for line in f:
+                if line.startswith('MemTotal:'):
+                    mem_total = int(line.split()[1]) // 1024
+                elif line.startswith('MemAvailable:'):
+                    mem_available = int(line.split()[1]) // 1024
+    except Exception:
+        pass
+
+    uptime = int(_time_mod.time() - bridge_start_time)
+
+    zed_running = False
+    zed_pid = None
+    try:
+        result = subprocess.run(['pgrep', '-f', 'zed-editor'], capture_output=True, text=True)
+        if result.stdout.strip():
+            zed_running = True
+            zed_pid = result.stdout.strip().split('\n')[0]
+    except Exception:
+        pass
+
+    return jsonify({
+        "gpu": gpu_info,
+        "rendering": rendering,
+        "cpu_cores": cpu_count,
+        "platform": platform.machine(),
+        "memory_total_mb": mem_total,
+        "memory_available_mb": mem_available,
+        "model": MODEL,
+        "provider": os.environ.get('DEVPILOT_PROVIDER', 'unknown'),
+        "uptime_seconds": uptime,
+        "zed_running": zed_running,
+        "zed_pid": zed_pid,
+        "resolution": os.environ.get('RESOLUTION', '1920x1080x24'),
+        "conversations_count": len(zed_conversations),
+        "agent_panel_open": _agent_panel_open,
     })
 
 # ============================================================
@@ -2835,8 +2924,8 @@ sleep 1
 x11vnc -display $DISPLAY -forever -shared -rfbport 5900 -passwd "${VNC_PASSWORD:-devpilot}" -xkb -noxdamage &
 sleep 1
 
-# Start websockify on internal port 6081
-websockify --web=/usr/share/novnc 6081 localhost:5900 &
+# Start websockify on internal port 6081 (heartbeat keeps WebSocket alive through proxies)
+websockify --web=/usr/share/novnc --heartbeat=30 6081 localhost:5900 &
 sleep 1
 
 # Start nginx on port 6080 (proxies websockify, adds CORS/X-Frame-Options headers)

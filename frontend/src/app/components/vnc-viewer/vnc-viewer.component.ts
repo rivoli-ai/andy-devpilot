@@ -15,12 +15,13 @@ import {
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
+import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
 import { Subject, interval, takeUntil, switchMap, filter, startWith, EMPTY, catchError } from 'rxjs';
 import { VncService } from '../../core/services/vnc.service';
 import { VncViewerService, DockPosition } from '../../core/services/vnc-viewer.service';
 import {
   SandboxBridgeService,
+  SandboxStats,
   ZedConversation,
   ZedConversationsResponse,
   LiveResponse,
@@ -71,6 +72,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   connectionState = signal<VncConnectionState>(VncConnectionState.Connecting);
   error = signal<string | null>(null);
   connectionStateText = signal<string>('Connecting...');
+  /** True after the first successful connection — prevents full-screen overlay on reconnects */
+  everConnected = signal<boolean>(false);
 
   // UI State
   dockPosition = signal<DockPosition>('floating');
@@ -120,6 +123,18 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   conversations = signal<ZedConversation[]>([]);
   liveResponse = signal<LiveResponse | null>(null);
   requestInProgress = signal<boolean>(false);
+
+  /**
+   * Pre-rendered HTML for the live streaming response.
+   * Throttled to avoid DOM thrashing — the markdown pipe only runs when the
+   * accumulated delta exceeds a threshold or a cooldown expires, giving a
+   * smooth, Zed-like incremental appearance.
+   */
+  liveStreamHtml = signal<SafeHtml>('');
+  liveStreamRendered = signal<boolean>(false);
+  private _liveRenderTimer: any = null;
+  private _liveLastRenderedLen = 0;
+  private static readonly LIVE_RENDER_INTERVAL_MS = 1200;
   viewMode = signal<'sandbox' | 'split' | 'chat'>('sandbox');
   showChat = computed(() => this.viewMode() === 'split' || this.viewMode() === 'chat');
   showSandbox = computed(() => this.viewMode() === 'split' || this.viewMode() === 'sandbox');
@@ -154,6 +169,23 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Clipboard: paste from host OS into sandbox (bridge /clipboard/paste) */
   pasteFromHostBusy = signal<boolean>(false);
   pasteFromHostMessage = signal<string | null>(null);
+
+  // Auto-reconnect state
+  isReconnecting = signal<boolean>(false);
+  reconnectAttempt = signal<number>(0);
+  private reconnectTimeout: any = null;
+  private healthCheckInterval: any = null;
+  private consecutiveHealthFailures = 0;
+  private static readonly HEALTH_CHECK_INTERVAL_MS = 8000;
+  private static readonly RECONNECT_DELAY_MS_AUTO = 4000;
+  private static readonly MAX_RECONNECT_ATTEMPTS = 15;
+  private static readonly HEALTH_FAILURE_THRESHOLD = 2;
+
+  // Stats overlay
+  showStatsOverlay = signal<boolean>(false);
+  sandboxStats = signal<SandboxStats | null>(null);
+  private statsRefreshInterval: any = null;
+  bridgeLatencyMs = signal<number>(0);
 
   /**
    * Enable Push PR after latest turn has assistant text and the bridge has been idle with a
@@ -248,7 +280,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     private sanitizer: DomSanitizer,
     private sandboxBridgeService: SandboxBridgeService,
     private repositoryService: RepositoryService,
-    private backlogService: BacklogService
+    private backlogService: BacklogService,
+    private markdownPipe: MarkdownPipe
   ) {
     effect(() => {
       const inputConfig = this.config();
@@ -445,6 +478,39 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
    * written when the payload actually changed, preventing unnecessary DOM
    * teardown/rebuild (especially expensive for the markdown pipe).
    */
+  /**
+   * Render the live streaming content with throttling to avoid DOM thrash.
+   * Called from the polling loop each time liveResponse changes.
+   */
+  private renderLiveStream(content: string | null): void {
+    if (!content) {
+      if (this._liveRenderTimer) { clearTimeout(this._liveRenderTimer); this._liveRenderTimer = null; }
+      this._liveLastRenderedLen = 0;
+      this.liveStreamHtml.set('');
+      this.liveStreamRendered.set(false);
+      return;
+    }
+
+    // First chunk → render immediately so the user sees content right away
+    if (this._liveLastRenderedLen === 0) {
+      this._liveLastRenderedLen = content.length;
+      this.liveStreamHtml.set(this.markdownPipe.transform(content));
+      this.liveStreamRendered.set(true);
+      return;
+    }
+
+    // Subsequent chunks → schedule a throttled render (batches multiple poll cycles)
+    if (!this._liveRenderTimer) {
+      this._liveRenderTimer = setTimeout(() => {
+        this._liveRenderTimer = null;
+        const live = this.liveResponse();
+        const latest = live?.content ?? content;
+        this._liveLastRenderedLen = latest.length;
+        this.liveStreamHtml.set(this.markdownPipe.transform(latest));
+      }, VncViewerComponent.LIVE_RENDER_INTERVAL_MS);
+    }
+  }
+
   private startConversationPolling(): void {
     const sid = this.sandboxId();
     if (!sid) return;
@@ -464,10 +530,6 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       this.sandboxBridgeService.getAllConversations(this.sandboxId()!).pipe(
         catchError(_err => {
           consecutiveErrors++;
-          if (consecutiveErrors >= 3) {
-            this.connectionState.set(VncConnectionState.Error);
-            this.error.set('Sandbox stopped or unreachable. Close this viewer to clean up.');
-          }
           return EMPTY;
         }),
         takeUntil(this.destroy$)
@@ -499,16 +561,19 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
           if (liveContent.length !== prevLiveLen) {
             prevLiveLen = liveContent.length;
             this.liveResponse.set(streaming && response.live_response ? response.live_response : null);
+            this.renderLiveStream(liveContent || null);
           }
 
-          // When streaming just ended, keep the live bubble visible for
-          // one more cycle so there's no gap before the completed
-          // conversation appears in the list.
+          // When streaming just ended, do a final full render then clear
           if (wasStreaming && !streaming && prevLiveLen > 0) {
+            if (liveContent) {
+              this.liveStreamHtml.set(this.markdownPipe.transform(liveContent));
+            }
             prevLiveLen = 0;
             setTimeout(() => {
               if (!this.requestInProgress()) {
                 this.liveResponse.set(null);
+                this.renderLiveStream(null);
               }
             }, SLOW_MS + 200);
           }
@@ -803,6 +868,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     this.destroy$.next();
     this.destroy$.complete();
 
+    if (this._liveRenderTimer) { clearTimeout(this._liveRenderTimer); this._liveRenderTimer = null; }
+
     if (this.chatSidebarMql) {
       this.chatSidebarMql.removeEventListener('change', this.onChatSidebarMediaChange);
       this.chatSidebarMql = undefined;
@@ -897,6 +964,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       if (this.connectionState() === VncConnectionState.Connecting) {
         console.log('VNC connection established');
         this.connectionState.set(VncConnectionState.Connected);
+        this.everConnected.set(true);
+        this.startHealthCheck();
       }
     }, delayMs);
   }
@@ -909,6 +978,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       return;
     }
     this.error.set(null);
+    this.stopAutoReconnect();
     this.connectionState.set(VncConnectionState.Connecting);
     const sid = this.sandboxId();
     if (sid) {
@@ -936,9 +1006,140 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       clearInterval(this.bridgeWaitIntervalId);
       this.bridgeWaitIntervalId = null;
     }
+    this.stopAutoReconnect();
+    this.stopHealthCheck();
+    this.stopStatsRefresh();
     this.connectionRetryCount = 0;
     this.vncIframeUrlRaw.set('');
     this.connectionState.set(VncConnectionState.Disconnected);
+  }
+
+  // ── Auto-reconnect ──────────────────────────────────────────────────────────
+
+  private startHealthCheck(): void {
+    if (this.healthCheckInterval) return;
+    const sid = this.sandboxId();
+    if (!sid) return;
+    this.consecutiveHealthFailures = 0;
+    this.healthCheckInterval = setInterval(() => {
+      this.sandboxBridgeService.checkHealth(sid).subscribe(resp => {
+        if (resp) {
+          if (this.isReconnecting()) {
+            this.onReconnectSuccess();
+          }
+          this.consecutiveHealthFailures = 0;
+        } else {
+          this.consecutiveHealthFailures++;
+          if (this.consecutiveHealthFailures >= VncViewerComponent.HEALTH_FAILURE_THRESHOLD && !this.isReconnecting()) {
+            this.startAutoReconnect();
+          }
+        }
+      });
+    }, VncViewerComponent.HEALTH_CHECK_INTERVAL_MS);
+  }
+
+  private stopHealthCheck(): void {
+    if (this.healthCheckInterval) {
+      clearInterval(this.healthCheckInterval);
+      this.healthCheckInterval = null;
+    }
+  }
+
+  private startAutoReconnect(): void {
+    if (this.reconnectAttempt() >= VncViewerComponent.MAX_RECONNECT_ATTEMPTS) {
+      this.isReconnecting.set(false);
+      if (!this.everConnected()) {
+        this.connectionState.set(VncConnectionState.Error);
+        this.error.set('Lost connection to sandbox. Click Retry to reconnect.');
+      }
+      return;
+    }
+    this.isReconnecting.set(true);
+    this.error.set(null);
+    this.reconnectAttempt.update(n => n + 1);
+    console.log(`Auto-reconnecting (attempt ${this.reconnectAttempt()}/${VncViewerComponent.MAX_RECONNECT_ATTEMPTS})...`);
+
+    this.reconnectTimeout = setTimeout(() => {
+      this.refreshIframe();
+      const sid = this.sandboxId();
+      if (sid) {
+        this.sandboxBridgeService.checkHealth(sid).subscribe(resp => {
+          if (resp) {
+            this.onReconnectSuccess();
+          } else if (this.reconnectAttempt() < VncViewerComponent.MAX_RECONNECT_ATTEMPTS) {
+            this.startAutoReconnect();
+          } else {
+            this.isReconnecting.set(false);
+            if (!this.everConnected()) {
+              this.connectionState.set(VncConnectionState.Error);
+              this.error.set('Lost connection to sandbox. Click Retry to reconnect.');
+            }
+          }
+        });
+      }
+    }, VncViewerComponent.RECONNECT_DELAY_MS_AUTO);
+  }
+
+  private onReconnectSuccess(): void {
+    console.log('Reconnected successfully');
+    this.isReconnecting.set(false);
+    this.reconnectAttempt.set(0);
+    this.consecutiveHealthFailures = 0;
+    this.connectionState.set(VncConnectionState.Connected);
+    this.error.set(null);
+  }
+
+  private stopAutoReconnect(): void {
+    if (this.reconnectTimeout) {
+      clearTimeout(this.reconnectTimeout);
+      this.reconnectTimeout = null;
+    }
+    this.isReconnecting.set(false);
+    this.reconnectAttempt.set(0);
+  }
+
+  // ── Stats overlay ───────────────────────────────────────────────────────────
+
+  toggleStats(): void {
+    const show = !this.showStatsOverlay();
+    this.showStatsOverlay.set(show);
+    if (show) {
+      this.refreshStats();
+      this.startStatsRefresh();
+    } else {
+      this.stopStatsRefresh();
+    }
+  }
+
+  private refreshStats(): void {
+    const sid = this.sandboxId();
+    if (!sid) return;
+    const t0 = performance.now();
+    this.sandboxBridgeService.getSystemInfo(sid).subscribe(stats => {
+      this.bridgeLatencyMs.set(Math.round(performance.now() - t0));
+      if (stats) this.sandboxStats.set(stats);
+    });
+  }
+
+  private startStatsRefresh(): void {
+    this.stopStatsRefresh();
+    this.statsRefreshInterval = setInterval(() => this.refreshStats(), 5000);
+  }
+
+  private stopStatsRefresh(): void {
+    if (this.statsRefreshInterval) {
+      clearInterval(this.statsRefreshInterval);
+      this.statsRefreshInterval = null;
+    }
+  }
+
+  formatUptime(seconds: number): string {
+    const h = Math.floor(seconds / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    const s = seconds % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
   }
 
   // UI State methods
@@ -1085,9 +1286,10 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     const currentUrl = this.vncIframeUrlRaw();
     if (currentUrl && this.vncIframeRef?.nativeElement) {
       console.log('Refreshing iframe...');
-      // Force reload by setting src again
       this.vncIframeRef.nativeElement.src = currentUrl;
-      this.connectionState.set(VncConnectionState.Connecting);
+      if (!this.everConnected()) {
+        this.connectionState.set(VncConnectionState.Connecting);
+      }
     }
   }
 
@@ -1238,7 +1440,10 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       this.connectionTimeout = null;
     }
     this.connectionState.set(VncConnectionState.Connected);
+    this.everConnected.set(true);
     this.error.set(null);
+    this.stopAutoReconnect();
+    this.startHealthCheck();
   }
 
   onIframeError(): void {
@@ -1246,7 +1451,6 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     console.warn('VNC iframe load error, retry', this.connectionRetryCount, 'of', VncViewerComponent.MAX_CONNECTION_RETRIES);
 
     if (this.connectionRetryCount < VncViewerComponent.MAX_CONNECTION_RETRIES) {
-      // Sandbox may still be starting; retry after a delay
       this.connectionState.set(VncConnectionState.Connecting);
       this.error.set(null);
       this.connectionRetryTimeout = setTimeout(() => {
@@ -1257,13 +1461,12 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
         }
       }, VncViewerComponent.RETRY_DELAY_MS);
     } else {
-      console.error('VNC iframe failed after retries');
+      console.warn('VNC iframe failed initial retries, starting auto-reconnect...');
       if (this.connectionRetryTimeout) {
         clearTimeout(this.connectionRetryTimeout);
         this.connectionRetryTimeout = null;
       }
-      this.connectionState.set(VncConnectionState.Error);
-      this.error.set('Failed to load VNC viewer after retries. Check your VPS connection or try "Connect" again.');
+      this.startAutoReconnect();
     }
   }
 

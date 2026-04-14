@@ -1667,6 +1667,19 @@
   40%           { transform: translateY(-4px); opacity: 1; }
 }
 
+/* Smooth streaming content — prevent DOM-replacement flash */
+.streaming-content {
+  min-height: 1.4em;
+  contain: layout style;
+}
+.streaming-content > * {
+  animation: stream-fade-in 0.25s ease-out;
+}
+@keyframes stream-fade-in {
+  from { opacity: 0.6; }
+  to   { opacity: 1; }
+}
+
 .conv-meta {
   display: flex;
   gap: 8px;
@@ -2433,4 +2446,127 @@
   .popup-header {
     padding: 6px max(8px, env(safe-area-inset-right, 0px)) 6px max(8px, env(safe-area-inset-left, 0px));
   }
+}
+
+/* ── Reconnect Banner (non-blocking, over VNC content) ─────────────── */
+
+.reconnect-banner {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 25;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(15, 15, 20, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 20px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.8);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  animation: banner-slide-in 0.3s ease-out;
+  pointer-events: none;
+}
+
+@keyframes banner-slide-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+.reconnect-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  border-top-color: #60a5fa;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Stats Overlay ─────────────────────────────────────────────────── */
+
+.stats-overlay {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 20;
+  background: rgba(15, 15, 20, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 280px;
+  max-width: 340px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.85);
+  pointer-events: auto;
+  animation: stats-fade-in 0.2s ease-out;
+}
+
+@keyframes stats-fade-in {
+  from { opacity: 0; transform: translateY(-6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 16px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.stat-label {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255, 255, 255, 0.4);
+  font-weight: 600;
+}
+
+.stat-value {
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.stat-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+}
+
+.stat-hw {
+  color: #22c55e;
+}
+
+.stat-sw {
+  color: #f59e0b;
+}
+
+.stat-good {
+  color: #22c55e;
+}
+
+.stat-warn {
+  color: #f59e0b;
+}
+
+.stat-bad {
+  color: #ef4444;
 }
