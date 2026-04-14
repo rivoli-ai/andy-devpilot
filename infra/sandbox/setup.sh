@@ -513,28 +513,28 @@ RUN echo '# SSL bypass for sandbox (dev environment)' >> /home/sandbox/.bashrc &
 
 # Create fix-ssl helper script (user can type "fix-ssl" in terminal if SSL issues persist)
 # Re-extracts live certs from servers and updates the trust store
-RUN cat > /usr/local/bin/fix-ssl << 'FIX_SSL_SCRIPT'
-#!/bin/bash
-echo "==> Extracting live SSL certs from servers..."
-for H in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do
-  echo | openssl s_client -showcerts -connect $H:443 -servername $H 2>/dev/null | \
-    awk -v h=$H 'BEGIN{n=0}/BEGIN CERT/{n++;f="/tmp/c-"h"-"n".pem"}/BEGIN CERT/,/END CERT/{print>f}' 2>/dev/null
-  for F in /tmp/c-$H-*.pem; do
-    [ -f "$F" ] && sudo cp "$F" /usr/local/share/ca-certificates/$(basename $F .pem).crt && rm -f "$F"
-  done
-  echo "  $H: done"
-done
-echo ""
-echo "==> Updating trust store..."
-sudo update-ca-certificates 2>/dev/null
-sudo c_rehash /etc/ssl/certs 2>/dev/null
-echo ""
-echo "Done. Try 'dotnet restore' again."
-echo ""
-echo "TIP: If this keeps failing, export your corporate root CA (Zscaler, etc.)"
-echo "     and place it in sandbox/certs/ then re-run setup.sh"
-FIX_SSL_SCRIPT
-RUN chmod +x /usr/local/bin/fix-ssl
+RUN printf '%s\n' \
+      '#!/bin/bash' \
+      'echo "==> Extracting live SSL certs from servers..."' \
+      'for H in api.nuget.org globalcdn.nuget.org nuget.org registry.npmjs.org; do' \
+      '  echo | openssl s_client -showcerts -connect $H:443 -servername $H 2>/dev/null | \' \
+      '    awk -v h=$H '"'"'BEGIN{n=0}/BEGIN CERT/{n++;f="/tmp/c-"h"-"n".pem"}/BEGIN CERT/,/END CERT/{print>f}'"'"' 2>/dev/null' \
+      '  for F in /tmp/c-$H-*.pem; do' \
+      '    [ -f "$F" ] && sudo cp "$F" /usr/local/share/ca-certificates/$(basename $F .pem).crt && rm -f "$F"' \
+      '  done' \
+      '  echo "  $H: done"' \
+      'done' \
+      'echo ""' \
+      'echo "==> Updating trust store..."' \
+      'sudo update-ca-certificates 2>/dev/null' \
+      'sudo c_rehash /etc/ssl/certs 2>/dev/null' \
+      'echo ""' \
+      'echo "Done. Try dotnet restore again."' \
+      'echo ""' \
+      'echo "TIP: If this keeps failing, export your corporate root CA (Zscaler, etc.)"' \
+      'echo "     and place it in sandbox/certs/ then re-run setup.sh"' \
+      > /usr/local/bin/fix-ssl && \
+    chmod +x /usr/local/bin/fix-ssl
 
 # Configure nginx for noVNC proxy (port 6080)
 RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
