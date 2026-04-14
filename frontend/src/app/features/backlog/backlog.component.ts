@@ -1522,27 +1522,31 @@ ${story.acceptanceCriteria}
   private sendBacklogPrompt(sandboxId: string): void {
     this.generationState.set('sending');
     const prompt = this.buildBacklogPrompt();
+    const maxRetries = 5;
 
-    this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
-      next: () => {
-        this.generationState.set('waiting_response');
-        this.startPollingForResponse(sandboxId);
-      },
-      error: () => {
-        setTimeout(() => {
-          this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
-            next: () => {
-              this.generationState.set('waiting_response');
-              this.startPollingForResponse(sandboxId);
-            },
-            error: () => {
-              this.generationError.set('Failed to send prompt to Zed. Please ensure the sandbox is running and Zed is ready.');
+    const sendWithRetry = (attempt: number) => {
+      const delay = attempt === 0 ? 5000 : 15000;
+      setTimeout(() => {
+        console.log(`Sending backlog prompt to Zed (attempt ${attempt + 1}/${maxRetries})...`);
+        this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
+          next: () => {
+            console.log('Backlog prompt sent successfully');
+            this.generationState.set('waiting_response');
+            this.startPollingForResponse(sandboxId);
+          },
+          error: (err) => {
+            console.warn(`Backlog prompt attempt ${attempt + 1} failed:`, err);
+            if (attempt + 1 < maxRetries) {
+              sendWithRetry(attempt + 1);
+            } else {
+              this.generationError.set('Failed to send prompt to Zed after multiple retries.');
               this.generationState.set('error');
             }
-          });
-        }, 5000);
-      }
-    });
+          }
+        });
+      }, delay);
+    };
+    sendWithRetry(0);
   }
 
   private buildBacklogPrompt(): string {

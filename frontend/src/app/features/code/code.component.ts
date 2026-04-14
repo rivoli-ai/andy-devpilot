@@ -788,9 +788,25 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   private async sendPromptToZed(sandboxId: string, prompt: string): Promise<void> {
-    await firstValueFrom(
-      this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt)
-    );
+    const maxRetries = 5;
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          console.log(`Retrying analysis prompt (attempt ${attempt + 1}/${maxRetries}) in 15s...`);
+          await this.delay(15000);
+        }
+        await firstValueFrom(
+          this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt)
+        );
+        console.log('Analysis prompt sent successfully');
+        return;
+      } catch (err) {
+        console.warn(`Analysis prompt attempt ${attempt + 1} failed:`, err);
+        if (attempt + 1 >= maxRetries) {
+          throw new Error('Failed to send analysis prompt after multiple retries');
+        }
+      }
+    }
   }
 
   private async waitForZedResponse(sandboxId: string, maxAttempts = 600): Promise<string> {
