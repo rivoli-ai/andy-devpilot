@@ -2491,117 +2491,131 @@
 
 /* ── Stats Overlay ─────────────────────────────────────────────────── */
 
+/* ── Stats overlay ──────────────────────────────────────────── */
 .stats-overlay {
   position: absolute;
   top: 8px;
   right: 8px;
   z-index: 20;
-  background: rgba(15, 15, 20, 0.92);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 260px;
+  background: rgba(12, 12, 18, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 10px;
-  padding: 14px 16px;
-  min-width: 280px;
-  max-width: 340px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+  padding: 0;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
   font-family: 'SF Mono', 'Cascadia Code', 'JetBrains Mono', monospace;
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.85);
+  color: rgba(255, 255, 255, 0.8);
   pointer-events: auto;
   animation: stats-fade-in 0.2s ease-out;
+  overflow: hidden;
 }
-
 @keyframes stats-fade-in {
   from { opacity: 0; transform: translateY(-6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 16px;
-}
-
-.stat-item {
+.stats-header {
   display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.stat-label {
-  font-size: 9px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: rgba(255, 255, 255, 0.4);
-  font-weight: 600;
-}
-
-.stat-value {
-  font-size: 11px;
-  font-weight: 500;
-  display: flex;
+  justify-content: space-between;
   align-items: center;
-  gap: 4px;
+  padding: 10px 14px 8px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.5);
+}
+.stats-uptime {
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.35);
+  text-transform: none;
+  letter-spacing: 0;
 }
 
-.stat-truncate {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 140px;
+.stats-section {
+  padding: 8px 14px;
+}
+.stats-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.06);
+  margin: 0;
 }
 
-.stat-hw {
-  color: #22c55e;
-}
-
-.stat-sw {
-  color: #f59e0b;
-}
-
-.stat-good {
-  color: #22c55e;
-}
-
-.stat-warn {
-  color: #f59e0b;
-}
-
-.stat-bad {
-  color: #ef4444;
-}
-
-/* Wide stat items span the full grid row for usage bars */
-.stat-item--wide {
-  grid-column: 1 / -1;
+/* ── Usage bars ──────────────────────────────────────────────── */
+.usage-row {
   display: flex;
   align-items: center;
   gap: 8px;
+  height: 20px;
 }
-.stat-item--wide .stat-label {
-  min-width: 90px;
+.usage-label {
+  width: 36px;
   flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.45);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
-.stat-bar-container {
+.usage-bar-track {
   flex: 1;
-  height: 6px;
-  background: rgba(255, 255, 255, 0.08);
+  height: 5px;
+  background: rgba(255, 255, 255, 0.06);
   border-radius: 3px;
   overflow: hidden;
 }
-.stat-bar {
+.usage-bar-fill {
   height: 100%;
   border-radius: 3px;
-  transition: width 0.6s ease-out;
+  transition: width 0.8s ease-out;
   min-width: 1px;
 }
-.stat-bar-ok  { background: #22c55e; }
-.stat-bar-warn { background: #f59e0b; }
-.stat-bar-crit { background: #ef4444; }
-.stat-pct {
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.6);
-  min-width: 36px;
-  text-align: right;
+.bar-ok   { background: #22c55e; }
+.bar-warn { background: #f59e0b; }
+.bar-crit { background: #ef4444; }
+.usage-value {
+  width: 52px;
   flex-shrink: 0;
+  text-align: right;
+  font-size: 10px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.55);
 }
+
+/* ── Key-value rows ──────────────────────────────────────────── */
+.stats-kv {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 22px;
+}
+.kv-key {
+  font-size: 10.5px;
+  color: rgba(255, 255, 255, 0.4);
+}
+.kv-val {
+  font-size: 10.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.8);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.kv-truncate {
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.kv-green { color: #22c55e; }
+.kv-amber { color: #f59e0b; }
+.kv-red   { color: #ef4444; }
+.kv-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+.dot-green { background: #22c55e; box-shadow: 0 0 6px rgba(34, 197, 94, 0.4); }
+.dot-red   { background: #ef4444; box-shadow: 0 0 6px rgba(239, 68, 68, 0.4); }
