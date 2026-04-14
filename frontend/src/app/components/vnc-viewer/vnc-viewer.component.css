@@ -2570,3 +2570,38 @@
 .stat-bad {
   color: #ef4444;
 }
+
+/* Wide stat items span the full grid row for usage bars */
+.stat-item--wide {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.stat-item--wide .stat-label {
+  min-width: 90px;
+  flex-shrink: 0;
+}
+.stat-bar-container {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.stat-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.6s ease-out;
+  min-width: 1px;
+}
+.stat-bar-ok  { background: #22c55e; }
+.stat-bar-warn { background: #f59e0b; }
+.stat-bar-crit { background: #ef4444; }
+.stat-pct {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.6);
+  min-width: 36px;
+  text-align: right;
+  flex-shrink: 0;
+}

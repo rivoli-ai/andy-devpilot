@@ -59,9 +59,15 @@ export interface SandboxStats {
   gpu: string;
   rendering: 'hardware' | 'software';
   cpu_cores: number;
+  cpu_percent: number;
   platform: string;
   memory_total_mb: number;
   memory_available_mb: number;
+  memory_used_mb: number;
+  memory_percent: number;
+  gpu_util_percent: number | null;
+  gpu_mem_used_mb: number | null;
+  gpu_mem_total_mb: number | null;
   model: string;
   provider: string;
   uptime_seconds: number;

@@ -1135,6 +1135,46 @@ def system_info():
                     mem_available = int(line.split()[1]) // 1024
     except Exception:
         pass
+    mem_used = mem_total - mem_available if mem_total > 0 else 0
+    mem_percent = round(mem_used / mem_total * 100, 1) if mem_total > 0 else 0
+
+    # CPU usage from /proc/stat (instant snapshot vs previous reading)
+    cpu_percent = 0.0
+    try:
+        with open('/proc/stat', 'r') as f:
+            first = f.readline()
+        parts = first.split()
+        idle1 = int(parts[4])
+        total1 = sum(int(p) for p in parts[1:])
+        _time_mod.sleep(0.1)
+        with open('/proc/stat', 'r') as f:
+            second = f.readline()
+        parts2 = second.split()
+        idle2 = int(parts2[4])
+        total2 = sum(int(p) for p in parts2[1:])
+        dt = total2 - total1
+        if dt > 0:
+            cpu_percent = round((1.0 - (idle2 - idle1) / dt) * 100, 1)
+    except Exception:
+        pass
+
+    # GPU utilization (NVIDIA only)
+    gpu_util_percent = None
+    gpu_mem_used_mb = None
+    gpu_mem_total_mb = None
+    try:
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=utilization.gpu,memory.used,memory.total',
+             '--format=csv,noheader,nounits'],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            vals = result.stdout.strip().split(',')
+            gpu_util_percent = float(vals[0].strip())
+            gpu_mem_used_mb = int(vals[1].strip())
+            gpu_mem_total_mb = int(vals[2].strip())
+    except Exception:
+        pass
 
     uptime = int(_time_mod.time() - bridge_start_time)
 
@@ -1152,9 +1192,15 @@ def system_info():
         "gpu": gpu_info,
         "rendering": rendering,
         "cpu_cores": cpu_count,
+        "cpu_percent": cpu_percent,
         "platform": platform.machine(),
         "memory_total_mb": mem_total,
         "memory_available_mb": mem_available,
+        "memory_used_mb": mem_used,
+        "memory_percent": mem_percent,
+        "gpu_util_percent": gpu_util_percent,
+        "gpu_mem_used_mb": gpu_mem_used_mb,
+        "gpu_mem_total_mb": gpu_mem_total_mb,
         "model": MODEL,
         "provider": os.environ.get('DEVPILOT_PROVIDER', 'unknown'),
         "uptime_seconds": uptime,
