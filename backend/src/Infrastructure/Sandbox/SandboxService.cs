@@ -19,6 +19,7 @@ public class SandboxService : ISandboxService
     private readonly ILogger<SandboxService> _logger;
     private readonly string _httpsProxyBase;
     private readonly string _publicIp;
+    private readonly bool _vpsEnabled;
 
     private static readonly ConcurrentDictionary<string, Guid> _ownershipMap = new();
 
@@ -46,8 +47,21 @@ public class SandboxService : ISandboxService
 
         _publicIp = configuration["VPS:PublicIp"] ?? "localhost";
         _httpsProxyBase = (configuration["VPS:HttpsProxyBase"] ?? string.Empty).TrimEnd('/');
+        _vpsEnabled = configuration.GetValue("VPS:Enabled", false);
+
+        if (_vpsEnabled && string.IsNullOrEmpty(_httpsProxyBase))
+        {
+            _logger.LogWarning(
+                "VPS:Enabled is true but VPS:HttpsProxyBase is empty. HTTPS SPAs will block http:// and ws:// sandbox URLs (mixed content). " +
+                "Set HttpsProxyBase to the public https origin that proxies to the manager (same paths as {GatewayUrl}), e.g. https://sandbox-gw.example.com",
+                gatewayUrl);
+        }
     }
 
+    /// <summary>
+    /// Rewrites manager URLs for the browser. When <c>VPS:HttpsProxyBase</c> is set, scheme/host/port
+    /// are replaced so VNC (wss) and bridge (https) work from an HTTPS-loaded SPA.
+    /// </summary>
     private string RewriteUrl(string managerUrl)
     {
         if (string.IsNullOrEmpty(managerUrl)) return managerUrl;
@@ -56,7 +70,12 @@ public class SandboxService : ISandboxService
             var uri = new Uri(managerUrl, UriKind.Absolute);
             return $"{_httpsProxyBase}{uri.PathAndQuery}";
         }
-        return managerUrl.Replace("HOST_IP", _publicIp);
+
+        var rewritten = managerUrl.Replace("HOST_IP", _publicIp, StringComparison.Ordinal);
+        // noVNC or older payloads may expose ws:// explicitly
+        if (rewritten.StartsWith("ws://", StringComparison.OrdinalIgnoreCase))
+            return "wss://" + rewritten[6..];
+        return rewritten;
     }
 
     public async Task<SandboxCreateResult> CreateSandboxAsync(
