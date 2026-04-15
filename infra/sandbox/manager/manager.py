@@ -367,6 +367,8 @@ def _docker_list_sandboxes():
                 "bridge_url": bridge_url,
                 "status": container.status,
                 "created_at": info["created_at"],
+                "sandbox_token": info.get("sandbox_token", ""),
+                "vnc_password": info.get("vnc_password", ""),
             })
         except Exception:
             pass
@@ -380,7 +382,14 @@ def _docker_get_sandbox(sandbox_id):
     try:
         container = docker_client.containers.get(info["container_id"])
         vnc_url, bridge_url = _build_sandbox_urls(sandbox_id)
-        return jsonify({"id": sandbox_id, "url": vnc_url, "bridge_url": bridge_url, "status": container.status})
+        return jsonify({
+            "id": sandbox_id,
+            "url": vnc_url,
+            "bridge_url": bridge_url,
+            "status": container.status,
+            "sandbox_token": info.get("sandbox_token", ""),
+            "vnc_password": info.get("vnc_password", ""),
+        })
     except Exception:
         return jsonify({"error": "Container not found"}), 404
 
@@ -624,12 +633,17 @@ def _k8s_list_sandboxes():
             except Exception:
                 vnc_port = bridge_port = 0
 
+            vnc_url, bridge_url = _build_sandbox_urls(sid, vnc_port=vnc_port, bridge_port=bridge_port)
             result.append({
                 "id": sid,
                 "port": vnc_port,
                 "bridge_port": bridge_port,
+                "url": vnc_url,
+                "bridge_url": bridge_url,
                 "status": pod.status.phase or "Unknown",
                 "created_at": cache.get("created_at", 0),
+                "sandbox_token": cache.get("sandbox_token", ""),
+                "vnc_password": cache.get("vnc_password", ""),
             })
         return jsonify({"sandboxes": result})
     except Exception as e:
@@ -642,11 +656,18 @@ def _k8s_get_sandbox(sandbox_id):
             name=f"sandbox-{sandbox_id}", namespace=k8s_utils.NAMESPACE
         )
         cache = sandboxes.get(sandbox_id, {})
+        vnc_port = cache.get("port", 0)
+        bridge_port = cache.get("bridge_port", 0)
+        vnc_url, bridge_url = _build_sandbox_urls(sandbox_id, vnc_port=vnc_port, bridge_port=bridge_port)
         return jsonify({
             "id": sandbox_id,
-            "port": cache.get("port", 0),
-            "bridge_port": cache.get("bridge_port", 0),
+            "port": vnc_port,
+            "bridge_port": bridge_port,
+            "url": vnc_url,
+            "bridge_url": bridge_url,
             "status": pod.status.phase or "Unknown",
+            "sandbox_token": cache.get("sandbox_token", ""),
+            "vnc_password": cache.get("vnc_password", ""),
         })
     except k8s_client.exceptions.ApiException as e:
         if e.status == 404:

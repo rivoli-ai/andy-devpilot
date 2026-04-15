@@ -7,22 +7,20 @@ import { APP_CONFIG, AppConfig } from './config.service';
 export interface Sandbox {
   id: string;
   status: string;
-  url?: string;
-  bridge_url?: string;
-  created_at?: number;
-  sandbox_token?: string;
   vnc_password?: string;
 }
 
 export interface CreateSandboxResponse {
   id: string;
-  url: string;
-  bridge_url?: string;
   status: string;
-  sandbox_token?: string;
   vnc_password?: string;
 }
 
+/**
+ * Sandbox creation request.
+ * AI config, MCP servers, and Zed settings are resolved server-side —
+ * the frontend never sends API keys or MCP secrets.
+ */
 export interface CreateSandboxRequest {
   resolution?: string;
   repo_url?: string;
@@ -30,15 +28,8 @@ export interface CreateSandboxRequest {
   repo_branch?: string;
   /** GitHub zipball URL (e.g. api.github.com/.../zipball/main) to download code without git clone when clone is blocked */
   repo_archive_url?: string;
-  github_token?: string; // For cloning private GitHub repos
-  azure_devops_pat?: string; // For cloning Azure DevOps repos
-  ai_config?: {
-    provider: string;
-    api_key?: string;
-    model: string;
-    base_url?: string;
-  };
-  zed_settings?: object;
+  github_token?: string;
+  azure_devops_pat?: string;
   artifact_feeds?: { name: string; organization: string; feedName: string; projectName?: string; feedType: string }[];
   agent_rules?: string;
 }
@@ -70,19 +61,13 @@ export class SandboxService {
       ...options
     };
 
-    console.log('Creating sandbox with options:', {
-      ...request,
-      ai_config: request.ai_config ? { ...request.ai_config, api_key: '***' } : undefined
-    });
+    console.log('Creating sandbox with options:', request);
 
     return this.http.post<CreateSandboxResponse>(this.apiUrl, request).pipe(
       tap(sandbox => {
         this.currentSandboxSubject.next({
           id: sandbox.id,
           status: sandbox.status,
-          url: sandbox.url,
-          bridge_url: sandbox.bridge_url,
-          sandbox_token: sandbox.sandbox_token,
           vnc_password: sandbox.vnc_password,
         });
       }),

@@ -1,7 +1,7 @@
-import { Injectable, inject } from '@angular/core';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
+import { Injectable, Inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { Observable, catchError, of, map, interval, Subject, takeUntil, switchMap, filter, take, tap, scan, throwError } from 'rxjs';
-import { VncViewerService } from './vnc-viewer.service';
+import { APP_CONFIG, AppConfig } from './config.service';
 
 export interface ChatResponse {
   response: string;
@@ -84,31 +84,28 @@ export interface SandboxStats {
  */
 export const SANDBOX_AGENT_QUIET_POLL_COUNT = 4;
 
+/**
+ * Service for interacting with sandbox bridge APIs.
+ *
+ * All traffic is proxied through the backend at `/api/sandboxes/{id}/bridge/…`
+ * so the browser never sees internal sandbox URLs or tokens.
+ */
 @Injectable({
   providedIn: 'root'
 })
 export class SandboxBridgeService {
-  private http = inject(HttpClient);
-  private vncViewerService = inject(VncViewerService);
+  private apiUrl: string;
 
-  private getBridgeUrl(sandboxId: string): string {
-    const viewer = this.vncViewerService.getViewer(sandboxId);
-    if (viewer?.bridgeUrl) {
-      return viewer.bridgeUrl;
-    }
-    throw new Error(`No bridge URL found for sandbox ${sandboxId}`);
+  constructor(private http: HttpClient, @Inject(APP_CONFIG) config: AppConfig) {
+    this.apiUrl = config.apiUrl;
   }
 
-  private getAuthHeaders(sandboxId: string): HttpHeaders {
-    const viewer = this.vncViewerService.getViewer(sandboxId);
-    const token = viewer?.sandboxToken;
-    return token
-      ? new HttpHeaders({ Authorization: `Bearer ${token}` })
-      : new HttpHeaders();
+  private getBridgeUrl(sandboxId: string): string {
+    return `${this.apiUrl}/sandboxes/${sandboxId}/bridge`;
   }
 
   health(sandboxId: string): Observable<HealthResponse> {
-    return this.http.get<HealthResponse>(`${this.getBridgeUrl(sandboxId)}/health`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
+    return this.http.get<HealthResponse>(`${this.getBridgeUrl(sandboxId)}/health`).pipe(
       catchError(error => {
         console.error('Bridge health check failed:', error);
         return of({ status: 'error', api_configured: false, model: '', project_path: '' });
@@ -117,7 +114,7 @@ export class SandboxBridgeService {
   }
 
   chat(sandboxId: string, message: string): Observable<ChatResponse & { conversation_id?: string }> {
-    return this.http.post<ChatResponse & { conversation_id?: string }>(`${this.getBridgeUrl(sandboxId)}/chat`, { message }, { headers: this.getAuthHeaders(sandboxId) });
+    return this.http.post<ChatResponse & { conversation_id?: string }>(`${this.getBridgeUrl(sandboxId)}/chat`, { message });
   }
 
   getDebugInfo(sandboxId: string): Observable<{
@@ -128,7 +125,7 @@ export class SandboxBridgeService {
     zed_window_id: string | null;
     conversations_count: number;
   }> {
-    return this.http.get<any>(`${this.getBridgeUrl(sandboxId)}/debug`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
+    return this.http.get<any>(`${this.getBridgeUrl(sandboxId)}/debug`).pipe(
       catchError(error => {
         console.error('Debug info failed:', error);
         return of({ status: 'error', api_configured: false, model: '', zed_running: false, zed_window_id: null, conversations_count: 0 });
@@ -137,30 +134,27 @@ export class SandboxBridgeService {
   }
 
   analyze(sandboxId: string, focus?: string): Observable<AnalysisResponse> {
-    return this.http.post<AnalysisResponse>(`${this.getBridgeUrl(sandboxId)}/analyze`, { focus }, { headers: this.getAuthHeaders(sandboxId) });
+    return this.http.post<AnalysisResponse>(`${this.getBridgeUrl(sandboxId)}/analyze`, { focus });
   }
 
   pasteHostClipboardIntoSandbox(sandboxId: string, text: string): Observable<{ status: string; error?: string }> {
     return this.http.post<{ status: string; error?: string }>(
       `${this.getBridgeUrl(sandboxId)}/clipboard/paste`,
-      { text },
-      { headers: this.getAuthHeaders(sandboxId) }
+      { text }
     );
   }
 
   openZedAgent(sandboxId: string): Observable<{ status: string; window_id?: string }> {
     return this.http.post<{ status: string; window_id?: string }>(
       `${this.getBridgeUrl(sandboxId)}/zed/open-agent`,
-      {},
-      { headers: this.getAuthHeaders(sandboxId) }
+      {}
     );
   }
 
   abortStream(sandboxId: string): Observable<{ status: string }> {
     return this.http.post<{ status: string }>(
       `${this.getBridgeUrl(sandboxId)}/stream/abort`,
-      {},
-      { headers: this.getAuthHeaders(sandboxId) }
+      {}
     ).pipe(
       catchError(error => {
         console.error('Failed to abort stream:', error);
@@ -170,20 +164,17 @@ export class SandboxBridgeService {
   }
 
   sendZedPrompt(sandboxId: string, prompt: string): Observable<{ status: string; prompt_sent?: string; prompt_id?: string }> {
-    const headers = this.getAuthHeaders(sandboxId);
     const bridgeUrl = this.getBridgeUrl(sandboxId);
 
     return this.http.post<{ status: string; prompt_sent?: string; prompt_id?: string }>(
       `${bridgeUrl}/zed/send-prompt`,
-      { prompt },
-      { headers }
+      { prompt }
     ).pipe(
       catchError(() => {
         console.warn('[sendZedPrompt] xdotool route failed, falling back to headless agent');
         return this.http.post<{ status: string; prompt_sent?: string; prompt_id?: string }>(
           `${bridgeUrl}/agent/prompt`,
-          { prompt },
-          { headers }
+          { prompt }
         );
       })
     );
@@ -208,7 +199,7 @@ export class SandboxBridgeService {
 
         console.log(`[WaitForBridge] Checking bridge health... (${Math.round(elapsed/1000)}s elapsed)`);
 
-        this.http.get<any>(`${this.getBridgeUrl(sandboxId)}/health`, { headers: this.getAuthHeaders(sandboxId) }).subscribe({
+        this.http.get<any>(`${this.getBridgeUrl(sandboxId)}/health`).subscribe({
           next: (health) => {
             console.log('[WaitForBridge] Health response:', health);
 
@@ -237,24 +228,23 @@ export class SandboxBridgeService {
   }
 
   getHistory(sandboxId: string): Observable<ConversationMessage[]> {
-    return this.http.get<{ history: ConversationMessage[] }>(`${this.getBridgeUrl(sandboxId)}/history`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
+    return this.http.get<{ history: ConversationMessage[] }>(`${this.getBridgeUrl(sandboxId)}/history`).pipe(
       map(res => res.history)
     );
   }
 
   clearHistory(sandboxId: string): Observable<{ status: string }> {
-    return this.http.delete<{ status: string }>(`${this.getBridgeUrl(sandboxId)}/history`, { headers: this.getAuthHeaders(sandboxId) });
+    return this.http.delete<{ status: string }>(`${this.getBridgeUrl(sandboxId)}/history`);
   }
 
   listFiles(sandboxId: string): Observable<{ files: ProjectFile[]; path: string }> {
-    return this.http.get<{ files: ProjectFile[]; path: string }>(`${this.getBridgeUrl(sandboxId)}/project/files`, { headers: this.getAuthHeaders(sandboxId) });
+    return this.http.get<{ files: ProjectFile[]; path: string }>(`${this.getBridgeUrl(sandboxId)}/project/files`);
   }
 
   readFile(sandboxId: string, filepath: string): Observable<{ content: string; path: string }> {
     return this.http.post<{ content: string; path: string }>(
       `${this.getBridgeUrl(sandboxId)}/project/read`,
-      { path: filepath },
-      { headers: this.getAuthHeaders(sandboxId) }
+      { path: filepath }
     );
   }
 
@@ -281,8 +271,7 @@ export class SandboxBridgeService {
         pr_title: params.prTitle,
         pr_body: params.prBody ?? '',
         git_credentials: params.gitCredentials
-      },
-      { headers: this.getAuthHeaders(sandboxId) }
+      }
     );
   }
 
@@ -291,7 +280,7 @@ export class SandboxBridgeService {
   // ============================================================
 
   getZedConversations(sandboxId: string): Observable<ZedConversationsResponse> {
-    return this.http.get<ZedConversationsResponse>(`${this.getBridgeUrl(sandboxId)}/zed/conversations`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
+    return this.http.get<ZedConversationsResponse>(`${this.getBridgeUrl(sandboxId)}/zed/conversations`).pipe(
       catchError(error => {
         console.error('Failed to get Zed conversations:', error);
         return of({ conversations: [], count: 0 });
@@ -300,7 +289,7 @@ export class SandboxBridgeService {
   }
 
   getLatestZedConversation(sandboxId: string): Observable<ZedConversation | null> {
-    return this.http.get<ZedConversation>(`${this.getBridgeUrl(sandboxId)}/zed/latest`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
+    return this.http.get<ZedConversation>(`${this.getBridgeUrl(sandboxId)}/zed/latest`).pipe(
       catchError(error => {
         console.error('Failed to get latest conversation:', error);
         return of(null);
@@ -324,7 +313,7 @@ export class SandboxBridgeService {
   // ============================================================
 
   getAcpConversations(sandboxId: string): Observable<ZedConversationsResponse> {
-    return this.http.get<ZedConversationsResponse>(`${this.getBridgeUrl(sandboxId)}/acp/conversations`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
+    return this.http.get<ZedConversationsResponse>(`${this.getBridgeUrl(sandboxId)}/acp/conversations`).pipe(
       catchError(error => {
         console.error('Failed to get ACP conversations:', error);
         return of({ conversations: [], count: 0 });
@@ -333,7 +322,7 @@ export class SandboxBridgeService {
   }
 
   getLatestAcpConversation(sandboxId: string): Observable<ZedConversation | null> {
-    return this.http.get<ZedConversation>(`${this.getBridgeUrl(sandboxId)}/acp/latest`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
+    return this.http.get<ZedConversation>(`${this.getBridgeUrl(sandboxId)}/acp/latest`).pipe(
       catchError(error => {
         console.error('Failed to get latest ACP conversation:', error);
         return of(null);
@@ -341,13 +330,9 @@ export class SandboxBridgeService {
     );
   }
 
+  /** Fails the observable on HTTP errors so callers can stop polling when the sandbox is gone. */
   getAllConversations(sandboxId: string): Observable<ZedConversationsResponse> {
-    return this.http.get<ZedConversationsResponse>(`${this.getBridgeUrl(sandboxId)}/all-conversations`, { headers: this.getAuthHeaders(sandboxId) }).pipe(
-      catchError(error => {
-        console.error('Failed to get all conversations:', error);
-        return of({ conversations: [], count: 0 });
-      })
-    );
+    return this.http.get<ZedConversationsResponse>(`${this.getBridgeUrl(sandboxId)}/all-conversations`);
   }
 
   /**
@@ -445,17 +430,13 @@ export class SandboxBridgeService {
   }
 
   checkHealth(sandboxId: string): Observable<HealthResponse | null> {
-    return this.http.get<HealthResponse>(`${this.getBridgeUrl(sandboxId)}/health`, {
-      headers: this.getAuthHeaders(sandboxId)
-    }).pipe(
+    return this.http.get<HealthResponse>(`${this.getBridgeUrl(sandboxId)}/health`).pipe(
       catchError(() => of(null))
     );
   }
 
   getSystemInfo(sandboxId: string): Observable<SandboxStats | null> {
-    return this.http.get<SandboxStats>(`${this.getBridgeUrl(sandboxId)}/system-info`, {
-      headers: this.getAuthHeaders(sandboxId)
-    }).pipe(
+    return this.http.get<SandboxStats>(`${this.getBridgeUrl(sandboxId)}/system-info`).pipe(
       catchError(() => of(null))
     );
   }

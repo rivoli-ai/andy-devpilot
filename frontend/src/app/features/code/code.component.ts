@@ -252,7 +252,7 @@ export class CodeComponent implements OnInit, OnDestroy {
       v.implementationContext?.repositoryId === currentRepoId
     );
 
-    if (analysisViewer && analysisViewer.bridgeUrl) {
+    if (analysisViewer) {
       console.log('Found existing analysis sandbox for this repo, reconnecting...', analysisViewer.id);
 
       this.analysisSandboxId.set(analysisViewer.id);
@@ -638,60 +638,31 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.analysisError.set(null);
     this.analysisStatus.set('Checking AI configuration...');
 
-    // Use effective AI config for this repository (default or repo override)
-    this.aiConfigService.getEffectiveConfig(repo.id).then((aiProviderConfig) => {
-      if (!aiProviderConfig.apiKey) {
-        this.analysisLoading.set(false);
-        this.analysisStatus.set('');
-        this.analysisError.set('AI is not configured. Please configure AI settings first.');
-        return;
+    this.analysisStatus.set('Creating sandbox...');
+    this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+      next: (result) => {
+        this.createAnalysisSandbox(repo, result.cloneUrl, branch, result.archiveUrl);
+      },
+      error: (err) => {
+        console.error('Failed to get authenticated clone URL:', err);
+        this.createAnalysisSandbox(repo, repo.cloneUrl, branch);
       }
-      this.analysisStatus.set('Creating sandbox...');
-      const aiConfig = {
-        provider: aiProviderConfig.provider,
-        api_key: aiProviderConfig.apiKey,
-        model: aiProviderConfig.model,
-        base_url: aiProviderConfig.baseUrl
-      };
-      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-        next: (result) => {
-          this.createAnalysisSandbox(repo, result.cloneUrl, branch, aiConfig, result.archiveUrl);
-        },
-        error: (err) => {
-          console.error('Failed to get authenticated clone URL:', err);
-          this.createAnalysisSandbox(repo, repo.cloneUrl, branch, aiConfig);
-        }
-      });
-    }).catch((err) => {
-      console.error('Failed to get AI config:', err);
-      this.analysisLoading.set(false);
-      this.analysisStatus.set('');
-      this.analysisError.set('AI is not configured. Please configure AI settings first.');
     });
   }
 
-  private createAnalysisSandbox(repo: Repository, cloneUrl: string, branch: string, aiConfig: any, repoArchiveUrl?: string): void {
+  private createAnalysisSandbox(repo: Repository, cloneUrl: string, branch: string, repoArchiveUrl?: string): void {
     this.sandboxService.createSandbox({
       repo_url: cloneUrl,
       repo_name: repo.name,
       repo_branch: branch,
       repo_archive_url: repoArchiveUrl,
-      ai_config: aiConfig,
     }).subscribe({
       next: (sandbox) => {
         this.analysisSandboxId.set(sandbox.id);
         this.analysisStatus.set('Waiting for environment...');
 
-        // Open VNC viewer in minimized state after delay
         setTimeout(() => {
-          const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
           this.vncViewerService.open(
-            {
-              url: vncUrl,
-              autoConnect: true,
-              scalingMode: 'local',
-              useIframe: true
-            },
             sandbox.id,
             `${repo.name} - Analysis`,
             {
@@ -701,8 +672,6 @@ export class CodeComponent implements OnInit, OnDestroy {
               storyTitle: 'Code Analysis',
               storyId: `analysis-${this.repositoryId()}`
             },
-            sandbox.sandbox_token,
-            sandbox.bridge_url,
             sandbox.vnc_password
           );
 
@@ -719,8 +688,8 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   private async waitForZedAndAnalyze(sandbox: CreateSandboxResponse, repoName: string, branch: string): Promise<void> {
-    if (!sandbox.bridge_url) {
-      this.analysisError.set('Sandbox bridge URL not available');
+    if (!sandbox.id) {
+      this.analysisError.set('Sandbox ID not available');
       this.analysisLoading.set(false);
       this.cleanupAnalysisSandbox();
       return;

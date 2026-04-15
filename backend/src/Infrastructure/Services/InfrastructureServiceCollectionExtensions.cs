@@ -104,9 +104,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IACPClient, ACPClient>();
         services.AddScoped<IVPSAnalysisService, VPSAnalysisService>();
 
-        // Register sandbox manager proxy (authenticated via API key)
+        // Register sandbox manager proxy (authenticated via API key).
+        // Singleton because SandboxService holds in-memory ownership + credential maps.
         services.AddHttpClient("VPSManager");
-        services.AddScoped<ISandboxService, SandboxService>();
+        services.AddSingleton<SandboxService>();
+        services.AddSingleton<ISandboxService>(sp => sp.GetRequiredService<SandboxService>());
 
         return services;
     }

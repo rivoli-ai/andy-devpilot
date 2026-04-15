@@ -320,20 +320,11 @@ export class AppComponent implements OnInit, OnDestroy {
             });
             return;
           }
-          const config = {
-            url: stored.vncUrl || sandbox.url || '',
-            autoConnect: true,
-            scalingMode: 'local' as const,
-            useIframe: true
-          };
           const title = stored.title ?? `Sandbox ${sandbox.id.slice(0, 6)}`;
           this.vncViewerService.open(
-            config,
             sandbox.id,
             title,
             stored.implementationContext ?? undefined,
-            stored.sandboxToken,
-            stored.bridgeUrl ?? sandbox.bridge_url,
             stored.vncPassword
           );
         });

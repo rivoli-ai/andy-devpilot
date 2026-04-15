@@ -127,6 +127,7 @@ static void ConfigureHttpPipeline(WebApplication app)
 
     app.UseHttpsRedirection();
     app.UseCors();
+    app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(25) });
     app.UseAuthentication();
     app.UseAuthorization();
 

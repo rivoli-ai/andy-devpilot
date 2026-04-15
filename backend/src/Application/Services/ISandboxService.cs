@@ -69,25 +69,18 @@ public record SandboxAiConfig
 public record SandboxCreateResult
 {
     public string Id { get; init; } = string.Empty;
-    public string Url { get; init; } = string.Empty;
-    public string BridgeUrl { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
-    public string SandboxToken { get; init; } = string.Empty;
     public string VncPassword { get; init; } = string.Empty;
 }
 
 public record SandboxListItem
 {
     public string Id { get; init; } = string.Empty;
-    public string Url { get; init; } = string.Empty;
-    public string BridgeUrl { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
 }
 
 public record SandboxStatusResult
 {
     public string Id { get; init; } = string.Empty;
-    public string Url { get; init; } = string.Empty;
-    public string BridgeUrl { get; init; } = string.Empty;
     public string Status { get; init; } = string.Empty;
 }

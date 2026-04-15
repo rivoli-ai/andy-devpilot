@@ -11,7 +11,6 @@ import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { SandboxService } from '../../core/services/sandbox.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
-import { McpConfigService } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
 import { Repository } from '../../shared/models/repository.model';
@@ -136,7 +135,6 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     private vncViewerService: VncViewerService,
     private sandboxService: SandboxService,
     private aiConfigService: AIConfigService,
-    private mcpConfigService: McpConfigService,
     private artifactFeedService: ArtifactFeedService,
     private sandboxBridgeService: SandboxBridgeService,
     private elementRef: ElementRef
@@ -811,12 +809,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     this.creatingSandboxFor.set(repositoryId);
     this.error.set(null);
 
-    const aiConfig = this.aiConfigService.defaultProvider();
-    Promise.all([
-      this.mcpConfigService.getEnabledServers(),
-      this.artifactFeedService.getEnabledFeeds(),
-    ]).then(([mcpServers, artifactFeeds]) => {
-      const zedSettings = this.aiConfigService.getZedSettingsJson(undefined, mcpServers);
+    this.artifactFeedService.getEnabledFeeds().then((artifactFeeds) => {
       const feedsPayload = artifactFeeds.map(f => ({
         name: f.name, organization: f.organization, feedName: f.feedName,
         projectName: f.projectName, feedType: f.feedType,
@@ -824,30 +817,23 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
 
       this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
         next: (result) => {
-          this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl, feedsPayload);
+          this.createSandboxWithUrl(repo, result.cloneUrl, result.archiveUrl, feedsPayload);
         },
         error: (err) => {
           console.error('Failed to get authenticated clone URL:', err);
           const repoUrl = this.buildRepoCloneUrl(repo);
-          this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings, undefined, feedsPayload);
+          this.createSandboxWithUrl(repo, repoUrl, undefined, feedsPayload);
         }
       });
     });
   }
 
-  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
+  private createSandboxWithUrl(repo: Repository, repoUrl: string, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
       repo_archive_url: repoArchiveUrl,
-      ai_config: {
-        provider: aiConfig.provider,
-        api_key: aiConfig.apiKey,
-        model: aiConfig.model,
-        base_url: aiConfig.baseUrl
-      },
-      zed_settings: zedSettings,
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
       agent_rules: repo.agentRules || DEFAULT_AGENT_RULES,
     }).subscribe({
@@ -859,40 +845,28 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
         setTimeout(() => {
           this.creatingSandboxFor.set(null);
           console.log('Opening VNC viewer for sandbox:', sandbox.id);
-          console.log('Bridge URL:', sandbox.bridge_url);
 
-          const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
           this.vncViewerService.open(
-            {
-              url: vncUrl,
-              autoConnect: true,
-              scalingMode: 'local',
-              useIframe: true
-            },
             sandbox.id,
             `${repo.name}`,
             undefined,
-            sandbox.sandbox_token,
-            sandbox.bridge_url,
             sandbox.vnc_password
           );
 
-          if (sandbox.bridge_url) {
-            setTimeout(() => {
-              console.log('Triggering auto-analysis via Bridge API...');
-              this.sandboxBridgeService.sendZedPrompt(
-                sandbox.id,
-                'Please analyze this repository. Give me an overview of the project structure, main technologies used, and any potential improvements or issues you notice.'
-              ).subscribe({
-                next: (result) => {
-                  console.log('Analysis prompt sent to Zed:', result);
-                },
-                error: (err) => {
-                  console.warn('Failed to send analysis prompt (Zed may not be ready yet):', err);
-                }
-              });
-            }, 15000);
-          }
+          setTimeout(() => {
+            console.log('Triggering auto-analysis via Bridge API...');
+            this.sandboxBridgeService.sendZedPrompt(
+              sandbox.id,
+              'Please analyze this repository. Give me an overview of the project structure, main technologies used, and any potential improvements or issues you notice.'
+            ).subscribe({
+              next: (result) => {
+                console.log('Analysis prompt sent to Zed:', result);
+              },
+              error: (err) => {
+                console.warn('Failed to send analysis prompt (Zed may not be ready yet):', err);
+              }
+            });
+          }, 15000);
         }, VPS_CONFIG.sandboxReadyDelayMs);
       },
       error: (err) => {

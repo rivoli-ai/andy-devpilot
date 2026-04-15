@@ -665,10 +665,19 @@ public class AuthController : ControllerBase
         if (userId == null) return Unauthorized();
 
         var config = await _effectiveAiConfigResolver.GetEffectiveConfigAsync(userId.Value, repositoryId, cancellationToken);
+
+        // Never return the raw API key to the browser.
+        // The frontend only needs to know whether a key is configured.
+        var masked = !string.IsNullOrEmpty(config.ApiKey)
+            ? config.ApiKey.Length > 8
+                ? config.ApiKey[..4] + "****" + config.ApiKey[^4..]
+                : "****"
+            : null;
+
         return Ok(new AiSettingsFullDto
         {
             Provider = config.Provider,
-            ApiKey = config.ApiKey,
+            ApiKey = masked,
             Model = config.Model,
             BaseUrl = config.BaseUrl
         });

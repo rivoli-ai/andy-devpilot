@@ -7,8 +7,6 @@ import { SandboxService } from '../../core/services/sandbox.service';
 import { BacklogService } from '../../core/services/backlog.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { RepositoryService } from '../../core/services/repository.service';
-import { AIConfigService } from '../../core/services/ai-config.service';
-import { McpConfigService } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { Repository } from '../../shared/models/repository.model';
 import { VPS_CONFIG } from '../../core/config/vps.config';
@@ -421,8 +419,6 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
     private backlogService: BacklogService,
     private vncViewerService: VncViewerService,
     private repositoryService: RepositoryService,
-    private aiConfigService: AIConfigService,
-    private mcpConfigService: McpConfigService,
     private artifactFeedService: ArtifactFeedService
   ) { }
 
@@ -432,7 +428,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
 
     // Get the current last conversation ID to detect new responses
     const sandbox = this.activeSandbox();
-    if (sandbox?.bridgeUrl) {
+    if (sandbox) {
       this.sandboxBridgeService.getLatestZedConversation(sandbox.id).subscribe({
         next: (conv) => {
           if (conv) {
@@ -468,7 +464,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
   generateBacklog(): void {
     const sandbox = this.activeSandbox();
 
-    if (!sandbox?.bridgeUrl) {
+    if (!sandbox) {
       this.createSandboxAndGenerate();
       return;
     }
@@ -520,83 +516,44 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
     this.state.set('creating_sandbox');
     this.errorMessage.set('');
 
-    // Use effective AI config for this repository (default or repo override)
-    this.aiConfigService.getEffectiveConfig(repo.id).then((aiConfig) => {
-      if (!aiConfig.apiKey) {
-        this.state.set('error');
-        this.errorMessage.set('AI is not configured. Please configure AI settings first.');
-        return;
-      }
-      Promise.all([
-        this.mcpConfigService.getEnabledServers(),
-        this.artifactFeedService.getEnabledFeeds(),
-      ]).then(([mcpServers, artifactFeeds]) => {
-        const zedSettings = this.aiConfigService.getZedSettingsJson(aiConfig, mcpServers);
-        const feedsPayload = artifactFeeds.map(f => ({
-          name: f.name, organization: f.organization, feedName: f.feedName,
-          projectName: f.projectName, feedType: f.feedType,
-        }));
-        this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
-          next: (result) => {
-            this.createSandboxWithUrl(repo, result.cloneUrl, aiConfig, zedSettings, result.archiveUrl, feedsPayload);
-          },
-          error: (err) => {
-            console.error('Failed to get authenticated clone URL:', err);
-            const repoUrl = this.buildRepoCloneUrl(repo);
-            this.createSandboxWithUrl(repo, repoUrl, aiConfig, zedSettings, undefined, feedsPayload);
-          }
-        });
+    this.artifactFeedService.getEnabledFeeds().then((artifactFeeds) => {
+      const feedsPayload = artifactFeeds.map(f => ({
+        name: f.name, organization: f.organization, feedName: f.feedName,
+        projectName: f.projectName, feedType: f.feedType,
+      }));
+      this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+        next: (result) => {
+          this.createSandboxWithUrl(repo, result.cloneUrl, result.archiveUrl, feedsPayload);
+        },
+        error: (err) => {
+          console.error('Failed to get authenticated clone URL:', err);
+          const repoUrl = this.buildRepoCloneUrl(repo);
+          this.createSandboxWithUrl(repo, repoUrl, undefined, feedsPayload);
+        }
       });
-    }).catch((err) => {
-      console.error('Failed to get AI config:', err);
-      this.state.set('error');
-      this.errorMessage.set('AI is not configured. Please configure AI settings first.');
     });
   }
 
-  private createSandboxWithUrl(repo: Repository, repoUrl: string, aiConfig: any, zedSettings: object, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
+  private createSandboxWithUrl(repo: Repository, repoUrl: string, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
     this.sandboxService.createSandbox({
       repo_url: repoUrl,
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
       repo_archive_url: repoArchiveUrl,
-      ai_config: {
-        provider: aiConfig.provider,
-        api_key: aiConfig.apiKey,
-        model: aiConfig.model,
-        base_url: aiConfig.baseUrl
-      },
-      zed_settings: zedSettings,
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created for backlog generation:', sandbox);
 
-        if (!sandbox.bridge_url) {
-          this.state.set('error');
-          this.errorMessage.set('Sandbox created but bridge URL not available.');
-          return;
-        }
-
         this.createdSandboxId = sandbox.id;
-        const vncUrl = sandbox.url ? `${sandbox.url}${sandbox.url.includes("?") ? "&" : "?"}autoconnect=true&resize=scale` : '';
 
         setTimeout(() => {
           console.log('Opening VNC viewer for backlog generation, sandbox:', sandbox.id);
-          console.log('Bridge URL:', sandbox.bridge_url);
 
           this.vncViewerService.open(
-            {
-              url: vncUrl,
-              autoConnect: true,
-              scalingMode: 'local',
-              useIframe: true
-            },
             sandbox.id,
             `${repo.name}`,
             undefined,
-            sandbox.sandbox_token,
-            sandbox.bridge_url,
             sandbox.vnc_password
           );
 

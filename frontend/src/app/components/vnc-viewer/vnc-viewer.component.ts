@@ -16,7 +16,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
-import { Subject, interval, takeUntil, switchMap, filter, startWith, EMPTY, catchError } from 'rxjs';
+import { Subject, takeUntil } from 'rxjs';
 import { VncService } from '../../core/services/vnc.service';
 import { VncViewerService, DockPosition } from '../../core/services/vnc-viewer.service';
 import {
@@ -528,10 +528,6 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     const poll = () => {
       if (!this.sandboxId()) return;
       this.sandboxBridgeService.getAllConversations(this.sandboxId()!).pipe(
-        catchError(_err => {
-          consecutiveErrors++;
-          return EMPTY;
-        }),
         takeUntil(this.destroy$)
       ).subscribe({
         next: (response) => {
@@ -585,6 +581,18 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
           }
 
           schedulePoll(streaming ? FAST_MS : SLOW_MS);
+        },
+        error: (err) => {
+          console.warn('[VNC] all-conversations poll failed:', err?.status ?? err);
+          consecutiveErrors++;
+          if (consecutiveErrors >= 5) {
+            if (pollTimer) {
+              clearTimeout(pollTimer);
+              pollTimer = null;
+            }
+            return;
+          }
+          schedulePoll(SLOW_MS);
         }
       });
     };
@@ -932,8 +940,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       clearTimeout(this.connectionTimeout);
     }
 
-    const vncPassword = this.vncViewerService.getViewer(this.viewerId())?.vncPassword;
-    const finalUrl = this.vncService.buildIframeUrl(config, vncPassword);
+    const finalUrl = config.url;
     console.log('VNC iframe URL:', finalUrl);
 
     // Set connection state and URL
@@ -1333,6 +1340,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   close(): void {
+    this.destroy$.next();
     this.disconnect();
     // Close popup window if open
     if (this.vncPopupWindow && !this.vncPopupWindow.closed) {

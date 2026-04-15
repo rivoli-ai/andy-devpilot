@@ -1,6 +1,7 @@
-import { Injectable } from '@angular/core';
+import { Injectable, Inject } from '@angular/core';
 import { BehaviorSubject, Observable, Subject } from 'rxjs';
 import { VncConfig } from '../../shared/models/vnc-config.model';
+import { APP_CONFIG, AppConfig } from './config.service';
 
 /** tiled = dock grid in bottom tray; floating = free window; new sandboxes start minimized */
 export type DockPosition = 'floating' | 'tiled' | 'right' | 'bottom' | 'minimized';
@@ -22,8 +23,6 @@ export interface VncViewer {
   dockPosition: DockPosition;
   title?: string;
   createdAt: number;
-  bridgeUrl?: string;
-  sandboxToken?: string;
   vncPassword?: string;
   implementationContext?: ImplementationContext;
   readyForPr?: boolean;
@@ -40,9 +39,6 @@ const SANDBOX_CONTEXTS_KEY = 'devpilot_sandbox_contexts';
 export interface StoredSandboxContext {
   implementationContext?: ImplementationContext;
   title?: string;
-  bridgeUrl?: string;
-  sandboxToken?: string;
-  vncUrl?: string;
   vncPassword?: string;
 }
 
@@ -51,76 +47,73 @@ export interface StoredSandboxContext {
 })
 export class VncViewerService {
   private readonly MAX_SANDBOXES = 5;
-  
+  private readonly apiUrl: string;
+
   private viewersSubject = new BehaviorSubject<VncViewer[]>([]);
-  private viewerClosedSubject = new Subject<string>(); // Emits sandbox ID when closed
-  
-  /**
-   * Observable for all open viewers
-   */
+  private viewerClosedSubject = new Subject<string>();
+
   viewers$: Observable<VncViewer[]> = this.viewersSubject.asObservable();
-  
-  /**
-   * Observable that emits when a viewer is closed (for sandbox cleanup)
-   */
   viewerClosed$: Observable<string> = this.viewerClosedSubject.asObservable();
 
+  constructor(@Inject(APP_CONFIG) config: AppConfig) {
+    this.apiUrl = config.apiUrl;
+  }
+
   /**
-   * Get all open viewers
+   * Build the proxied VNC iframe URL for a given sandbox ID.
+   * noVNC static files are served through /api/sandboxes/{id}/vnc/…
+   * and websockify goes through /api/sandboxes/{id}/vnc/websockify.
    */
+  buildVncUrl(sandboxId: string, vncPassword?: string): string {
+    const wsPath = `api/sandboxes/${sandboxId}/vnc/websockify`;
+    let url = `${this.apiUrl}/sandboxes/${sandboxId}/vnc/vnc_lite.html?autoconnect=true&reconnect=true&reconnect_delay=3000&scale=true&path=${wsPath}`;
+    if (vncPassword) {
+      url += `&password=${encodeURIComponent(vncPassword)}`;
+    }
+    return url;
+  }
+
   get viewers(): VncViewer[] {
     return this.viewersSubject.value;
   }
 
-  /**
-   * Get current count
-   */
   get count(): number {
     return this.viewersSubject.value.length;
   }
 
-  /**
-   * Check if at capacity
-   */
   get isAtCapacity(): boolean {
     return this.count >= this.MAX_SANDBOXES;
   }
 
-  open(config: VncConfig, id?: string, title?: string, implementationContext?: ImplementationContext, sandboxToken?: string, bridgeUrl?: string, vncPassword?: string): string {
-    const viewerId = id || `sandbox-${Date.now()}`;
+  open(sandboxId: string, title?: string, implementationContext?: ImplementationContext, vncPassword?: string): string {
+    const vncUrl = this.buildVncUrl(sandboxId, vncPassword);
+    const config: VncConfig = { url: vncUrl, autoConnect: true, scalingMode: 'local', useIframe: true };
 
     console.log('VncViewerService.open called:', {
-      viewerId,
+      sandboxId,
       currentCount: this.count,
       maxSandboxes: this.MAX_SANDBOXES,
-      bridgeUrl,
-      hasSandboxToken: !!sandboxToken
     });
 
-    const existingIndex = this.viewersSubject.value.findIndex(v => v.id === viewerId);
+    const existingIndex = this.viewersSubject.value.findIndex(v => v.id === sandboxId);
     if (existingIndex >= 0) {
-      console.log('Viewer already exists, updating:', viewerId);
+      console.log('Viewer already exists, updating:', sandboxId);
       const viewers = [...this.viewersSubject.value];
       const merged = implementationContext ?? viewers[existingIndex].implementationContext;
       const mergedTitle = title ?? viewers[existingIndex].title;
-      const mergedToken = sandboxToken ?? viewers[existingIndex].sandboxToken;
-      const mergedBridgeUrl = bridgeUrl ?? viewers[existingIndex].bridgeUrl;
       const mergedVncPassword = vncPassword ?? viewers[existingIndex].vncPassword;
-      const mergedVncUrl = config.url || viewers[existingIndex].config.url;
       viewers[existingIndex] = {
         ...viewers[existingIndex],
         config,
-        sandboxToken: mergedToken,
-        bridgeUrl: mergedBridgeUrl,
         vncPassword: mergedVncPassword,
         implementationContext: merged,
         title: mergedTitle
       };
-      if (merged || mergedTitle || mergedBridgeUrl) {
-        this.setStoredContext(viewerId, { implementationContext: merged, title: mergedTitle, sandboxToken: mergedToken, bridgeUrl: mergedBridgeUrl, vncUrl: mergedVncUrl, vncPassword: mergedVncPassword });
+      if (merged || mergedTitle) {
+        this.setStoredContext(sandboxId, { implementationContext: merged, title: mergedTitle, vncPassword: mergedVncPassword });
       }
       this.viewersSubject.next(viewers);
-      return viewerId;
+      return sandboxId;
     }
 
     if (this.isAtCapacity) {
@@ -132,29 +125,33 @@ export class VncViewerService {
     }
 
     const newViewer: VncViewer = {
-      id: viewerId,
+      id: sandboxId,
       config,
       dockPosition: 'minimized',
-      title: title || `Sandbox ${viewerId.slice(0, 6)}`,
+      title: title || `Sandbox ${sandboxId.slice(0, 6)}`,
       createdAt: Date.now(),
-      sandboxToken,
-      bridgeUrl,
       vncPassword,
       implementationContext
     };
 
-    if (implementationContext || title || bridgeUrl) {
-      this.setStoredContext(viewerId, { implementationContext, title, sandboxToken, bridgeUrl, vncUrl: config.url, vncPassword });
+    if (implementationContext || title) {
+      this.setStoredContext(sandboxId, { implementationContext, title, vncPassword });
     }
 
     console.log('Creating new viewer:', newViewer.id, 'Total will be:', this.count + 1);
     this.viewersSubject.next([...this.viewersSubject.value, newViewer]);
-    return viewerId;
+    return sandboxId;
   }
 
   /**
-   * Close a specific viewer and emit event for sandbox cleanup
+   * Restore a viewer from stored context (e.g. after page refresh).
    */
+  restore(sandboxId: string): string | null {
+    const stored = this.getStoredContext(sandboxId);
+    if (!stored) return null;
+    return this.open(sandboxId, stored.title, stored.implementationContext, stored.vncPassword);
+  }
+
   close(viewerId: string): void {
     const viewer = this.viewersSubject.value.find(v => v.id === viewerId);
     if (viewer) {
@@ -162,33 +159,24 @@ export class VncViewerService {
       this.removeStoredContext(viewerId);
       const viewers = this.viewersSubject.value.filter(v => v.id !== viewerId);
       this.viewersSubject.next(viewers);
-      // Emit for sandbox cleanup
       this.viewerClosedSubject.next(viewerId);
     }
   }
 
-  /**
-   * Close all viewers and emit events for sandbox cleanup
-   */
   closeAll(): void {
     const viewerIds = this.viewersSubject.value.map(v => v.id);
     viewerIds.forEach(id => this.removeStoredContext(id));
     this.viewersSubject.next([]);
-    // Emit for each sandbox cleanup
     viewerIds.forEach(id => this.viewerClosedSubject.next(id));
   }
 
-  /**
-   * Update dock position for a viewer
-   */
   setDockPosition(viewerId: string, position: DockPosition): void {
-    const viewers = this.viewersSubject.value.map(v => 
+    const viewers = this.viewersSubject.value.map(v =>
       v.id === viewerId ? { ...v, dockPosition: position } : v
     );
     this.viewersSubject.next(viewers);
   }
 
-  /** All dock-tile viewers back to minimized chips (one emission). */
   minimizeAllTiled(): void {
     const viewers = this.viewersSubject.value.map(v =>
       v.dockPosition === 'tiled' ? { ...v, dockPosition: 'minimized' as const } : v
@@ -196,19 +184,13 @@ export class VncViewerService {
     this.viewersSubject.next(viewers);
   }
 
-  /**
-   * Set "ready for PR" state for a viewer (shows alert on minimized widget)
-   */
   setReadyForPr(viewerId: string, ready: boolean): void {
-    const viewers = this.viewersSubject.value.map(v => 
+    const viewers = this.viewersSubject.value.map(v =>
       v.id === viewerId ? { ...v, readyForPr: ready } : v
     );
     this.viewersSubject.next(viewers);
   }
 
-  /**
-   * Set connection state for a viewer (persists when viewer moves floating↔minimized)
-   */
   setConnectionState(viewerId: string, state: string): void {
     const viewers = this.viewersSubject.value.map(v =>
       v.id === viewerId ? { ...v, connectionState: state } : v
@@ -223,66 +205,42 @@ export class VncViewerService {
     this.viewersSubject.next(viewers);
   }
 
-  /**
-   * Set "ready for PR" state for a viewer by story ID
-   */
   setReadyForPrByStoryId(storyId: string, ready: boolean): void {
-    const viewers = this.viewersSubject.value.map(v => 
+    const viewers = this.viewersSubject.value.map(v =>
       v.implementationContext?.storyId === storyId ? { ...v, readyForPr: ready } : v
     );
     this.viewersSubject.next(viewers);
   }
 
-  /**
-   * Get a specific viewer
-   */
   getViewer(viewerId: string): VncViewer | undefined {
     return this.viewersSubject.value.find(v => v.id === viewerId);
   }
 
-  /**
-   * Get all viewers (snapshot)
-   */
   getViewers(): VncViewer[] {
     return [...this.viewersSubject.value];
   }
 
-  /**
-   * Check if a sandbox is open for a specific story
-   */
   getViewerByStoryId(storyId: string): VncViewer | undefined {
     return this.viewersSubject.value.find(v => v.implementationContext?.storyId === storyId);
   }
 
-  /**
-   * Check if any sandbox is open for a story
-   */
   hasOpenSandboxForStory(storyId: string): boolean {
     return this.viewersSubject.value.some(v => v.implementationContext?.storyId === storyId);
   }
 
-  /**
-   * Get all story IDs that have open sandboxes
-   */
   getOpenStoryIds(): string[] {
     return this.viewersSubject.value
       .filter(v => v.implementationContext?.storyId)
       .map(v => v.implementationContext!.storyId);
   }
 
-  /**
-   * Get the oldest viewer (for auto-closing when at capacity)
-   */
   private getOldestViewer(): VncViewer | undefined {
     if (this.viewersSubject.value.length === 0) return undefined;
-    return this.viewersSubject.value.reduce((oldest, current) => 
+    return this.viewersSubject.value.reduce((oldest, current) =>
       current.createdAt < oldest.createdAt ? current : oldest
     );
   }
 
-  /**
-   * Get stored context for a sandbox (for restore after page refresh)
-   */
   getStoredContext(sandboxId: string): StoredSandboxContext | null {
     try {
       const raw = localStorage.getItem(SANDBOX_CONTEXTS_KEY);
@@ -315,9 +273,6 @@ export class VncViewerService {
     } catch {}
   }
 
-  /**
-   * Bring a viewer to front (set to floating, minimize others)
-   */
   bringToFront(viewerId: string): void {
     const viewers = this.viewersSubject.value.map(v => ({
       ...v,
