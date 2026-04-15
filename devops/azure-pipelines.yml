@@ -179,12 +179,9 @@ stages:
                     MANAGER_API_KEY=$(MANAGER_API_KEY)
                     PUBLIC_IP=$(PUBLIC_IP)
                     VPS__GatewayUrl=http://sandbox-manager:8090
-                    # HTTPS proxy base — makes sandbox manager return https:// URLs so the
-                    # browser (on HTTPS) can reach VNC/bridge without mixed-content errors.
+                    # HTTPS proxy base for sandbox-manager (optional): makes manager return
+                    # https:// URLs for VNC/bridge when the SPA is on HTTPS (mixed content).
                     HTTPS_PROXY_BASE=https://$(PUBLIC_IP)
-
-                    # ── Backend sandbox proxy (same value — backend builds proxy URLs) ──
-                    VPS__HttpsProxyBase=https://$(PUBLIC_IP)
 
                     # ── Super-admin designation ────────────────────────────────────────
                     # Users logging in with this email receive the "admin" JWT role claim
