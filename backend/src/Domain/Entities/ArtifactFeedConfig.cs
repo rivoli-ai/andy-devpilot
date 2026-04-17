@@ -1,9 +1,8 @@
 namespace DevPilot.Domain.Entities;
 
 /// <summary>
-/// Admin-managed Azure DevOps Artifacts feed configuration.
-/// All records are shared (visible to all users). The user's own PAT is used
-/// for authentication when the sandbox injects the config files.
+/// Azure DevOps Artifacts feed configuration (organization, feed identity, type). Does not store PATs.
+/// <see cref="OwnerUserId"/> null = team catalog entry created by admins (what regular users consume). Non-null = legacy/personal row (admins may remove).
 /// Supports feed types: "nuget", "npm", "pip".
 /// </summary>
 public class ArtifactFeedConfig : Entity
@@ -15,6 +14,8 @@ public class ArtifactFeedConfig : Entity
     /// <summary>"nuget", "npm", or "pip"</summary>
     public string FeedType { get; private set; }
     public bool IsEnabled { get; private set; }
+    /// <summary>Null = organization-wide shared feed (admin only). Non-null = personal feed.</summary>
+    public Guid? OwnerUserId { get; private set; }
 
     private ArtifactFeedConfig() { }
 
@@ -24,7 +25,8 @@ public class ArtifactFeedConfig : Entity
         string feedName,
         string? projectName,
         string feedType,
-        bool isEnabled = true)
+        bool isEnabled = true,
+        Guid? ownerUserId = null)
     {
         Name = name ?? throw new ArgumentNullException(nameof(name));
         Organization = organization ?? throw new ArgumentNullException(nameof(organization));
@@ -32,6 +34,7 @@ public class ArtifactFeedConfig : Entity
         ProjectName = projectName;
         FeedType = ValidateFeedType(feedType);
         IsEnabled = isEnabled;
+        OwnerUserId = ownerUserId;
     }
 
     public void Update(

@@ -18,6 +18,18 @@ public class InMemoryUserRepository : IUserRepository
         return System.Threading.Tasks.Task.FromResult<User?>(user);
     }
 
+    public System.Threading.Tasks.Task<User?> GetByIdForUpdateAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        _users.TryGetValue(id, out var user);
+        return System.Threading.Tasks.Task.FromResult<User?>(user);
+    }
+
+    public System.Threading.Tasks.Task<IReadOnlyList<User>> ListAllOrderedByEmailAsync(CancellationToken cancellationToken = default)
+    {
+        var list = _users.Values.OrderBy(u => u.Email).ToList();
+        return System.Threading.Tasks.Task.FromResult<IReadOnlyList<User>>(list);
+    }
+
     public System.Threading.Tasks.Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default)
     {
         _usersByEmail.TryGetValue(email, out var user);

@@ -25,10 +25,22 @@ public class PostgresArtifactFeedConfigRepository : IArtifactFeedConfigRepositor
             .ToListAsync(cancellationToken);
     }
 
-    public async Task<IReadOnlyList<ArtifactFeedConfig>> GetEnabledAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<ArtifactFeedConfig>> GetAllVisibleAsync(Guid currentUserId, bool isAdmin, CancellationToken cancellationToken = default)
+    {
+        if (isAdmin)
+            return await GetAllAsync(cancellationToken);
+        // Non-admins only see organization-wide feeds created by admins (shared catalog).
+        return await _context.ArtifactFeedConfigs
+            .Where(f => f.OwnerUserId == null)
+            .OrderBy(f => f.Name)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>Enabled shared feeds only (admin-defined catalog). Sandboxes use the user’s PAT against these endpoints.</summary>
+    public async Task<IReadOnlyList<ArtifactFeedConfig>> GetEnabledSharedAsync(CancellationToken cancellationToken = default)
     {
         return await _context.ArtifactFeedConfigs
-            .Where(f => f.IsEnabled)
+            .Where(f => f.IsEnabled && f.OwnerUserId == null)
             .OrderBy(f => f.Name)
             .ToListAsync(cancellationToken);
     }

@@ -11,6 +11,19 @@ export interface User {
   githubUsername?: string;
 }
 
+/** Row from GET /users/all (admin only). */
+export interface AdminUserListItem {
+  id: string;
+  email: string;
+  name?: string | null;
+  /** Effective administrator (app flag or AdminEmail bootstrap). */
+  isAdmin: boolean;
+  /** Always receives admin role from AdminEmail configuration. */
+  isBootstrapAdmin: boolean;
+  /** Persisted application-admin flag (editable unless bootstrap). */
+  isAppAdmin: boolean;
+}
+
 export interface AuthResponse {
   token: string;
   user: User;
@@ -348,6 +361,26 @@ export class AuthService {
 
   adminDeleteSharedLlmSetting(id: string): Observable<{ message: string }> {
     return this.apiService.delete<{ message: string }>(`/auth/admin/llm/${id}`);
+  }
+
+  // ============================================
+  // Admin — user roles
+  // ============================================
+
+  adminListUsers(): Observable<AdminUserListItem[]> {
+    return this.apiService.get<AdminUserListItem[]>('/users/all');
+  }
+
+  adminSetUserAdmin(
+    id: string,
+    isAdmin: boolean
+  ): Observable<{ message: string; auth?: AuthResponse }> {
+    return this.apiService.patch<{ message: string; auth?: AuthResponse }>(`/users/${id}/admin`, { isAdmin });
+  }
+
+  /** Apply a new JWT/user payload (e.g. after updating the signed-in user’s admin flag). */
+  applyAuthResponse(response: AuthResponse): void {
+    this.setAuthState(response);
   }
 }
 

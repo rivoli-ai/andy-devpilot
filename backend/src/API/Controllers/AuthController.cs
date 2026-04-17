@@ -156,7 +156,7 @@ public class AuthController : ControllerBase
             var user = UserEntity.CreateWithPassword(request.Email, passwordHash, request.Name);
             await _userRepository.AddAsync(user, cancellationToken);
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, UserHasEffectiveAdmin(user));
             _logger.LogInformation("New user registered: {Email}", request.Email);
 
             return Ok(new AuthResponse
@@ -196,7 +196,7 @@ public class AuthController : ControllerBase
             if (!_authenticationService.VerifyPassword(request.Password, user.PasswordHash!))
                 return Unauthorized(new { message = "Invalid email or password" });
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, UserHasEffectiveAdmin(user));
             _logger.LogInformation("User logged in: {Email}", request.Email);
 
             return Ok(new AuthResponse
@@ -289,7 +289,7 @@ public class AuthController : ControllerBase
                 await _userRepository.UpdateAsync(user, cancellationToken);
             }
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, UserHasEffectiveAdmin(user));
             _logger.LogInformation("User authenticated via {Provider}: {Email}", provider, email);
 
             var response = new AuthResponse
@@ -351,7 +351,7 @@ public class AuthController : ControllerBase
                 await _userRepository.UpdateAsync(user, cancellationToken);
             }
 
-            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, IsAdminEmail(user.Email));
+            var jwtToken = _authenticationService.GenerateToken(user.Id, user.Email, UserHasEffectiveAdmin(user));
             _logger.LogInformation("User authenticated via {Provider} (OIDC token): {Email}", provider, email);
 
             return Ok(new AuthResponse
@@ -924,37 +924,9 @@ public class AuthController : ControllerBase
     private bool IsCurrentUserAdmin()
         => User.IsInRole("admin");
 
-    /// <summary>
-    /// Returns true when the given email is designated as super-admin via the ADMIN_EMAIL env var / config.
-    /// Handles Microsoft Azure AD external users whose email is stored as
-    /// "original_email_gmail.com#EXT#@tenant.onmicrosoft.com" — the original email is extracted
-    /// by replacing the last underscore before "#EXT#" with "@".
-    /// </summary>
-    private bool IsAdminEmail(string email)
-    {
-        var adminEmail = (_configuration["AdminEmail"] ?? string.Empty).Trim();
-        if (string.IsNullOrEmpty(adminEmail)) return false;
-
-        var candidate = email.Trim();
-        if (string.Equals(adminEmail, candidate, StringComparison.OrdinalIgnoreCase))
-            return true;
-
-        // Unwrap Microsoft #EXT# external user format → recover original email
-        var extIdx = candidate.IndexOf("#EXT#", StringComparison.OrdinalIgnoreCase);
-        if (extIdx > 0)
-        {
-            var localPart = candidate[..extIdx]; // e.g. "user_gmail.com"
-            var lastUnderscore = localPart.LastIndexOf('_');
-            if (lastUnderscore > 0)
-            {
-                var recovered = localPart[..lastUnderscore] + "@" + localPart[(lastUnderscore + 1)..];
-                if (string.Equals(adminEmail, recovered, StringComparison.OrdinalIgnoreCase))
-                    return true;
-            }
-        }
-
-        return false;
-    }
+    /// <summary>JWT admin role: stored <see cref="UserEntity.IsAdmin"/> or configured <c>AdminEmail</c> bootstrap.</summary>
+    private bool UserHasEffectiveAdmin(UserEntity user)
+        => user.IsAdmin || AdminEmailBootstrap.IsMatch(_configuration, user.Email);
 
     private static UserDto MapUserDto(UserEntity user) => new()
     {

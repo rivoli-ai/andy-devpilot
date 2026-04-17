@@ -70,8 +70,19 @@ services:
       - /bin/sh
       - -c
       - >-
-        mkdir -p /mnt/.sandbox-cache/npm /mnt/.sandbox-cache/nuget /mnt/.sandbox-cache/pip &&
-        chmod 1777 /mnt/.sandbox-cache/npm /mnt/.sandbox-cache/nuget /mnt/.sandbox-cache/pip 2>/dev/null || true
+        mkdir -p /mnt/.sandbox-cache/npm
+                 /mnt/.sandbox-cache/pip
+                 /mnt/.sandbox-cache/nuget/packages
+                 /mnt/.sandbox-cache/nuget/http-cache
+                 /mnt/.sandbox-cache/nuget/plugins-cache
+                 /mnt/.sandbox-cache/nuget/scratch &&
+        chmod 1777 /mnt/.sandbox-cache/npm
+                   /mnt/.sandbox-cache/pip
+                   /mnt/.sandbox-cache/nuget
+                   /mnt/.sandbox-cache/nuget/packages
+                   /mnt/.sandbox-cache/nuget/http-cache
+                   /mnt/.sandbox-cache/nuget/plugins-cache
+                   /mnt/.sandbox-cache/nuget/scratch 2>/dev/null || true
     restart: "no"
 
   # ── Sandbox Manager (Python Flask) ───────────────────────────────────────────

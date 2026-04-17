@@ -10,6 +10,12 @@ export interface ArtifactFeedDto {
   projectName?: string;
   feedType: 'nuget' | 'npm' | 'pip';
   isEnabled: boolean;
+  /** Present when API returns it: null = organization-wide shared feed. */
+  ownerUserId?: string | null;
+  /** True when this feed is shared (not tied to a single user). */
+  isShared?: boolean;
+  /** Whether the current user may edit, enable/disable, or delete this feed. */
+  canManage?: boolean;
 }
 
 export interface AzureDevOpsFeedDto {

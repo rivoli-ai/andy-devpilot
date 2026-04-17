@@ -138,6 +138,31 @@ else:
             return container_mount
         return None
 
+    # NuGet requires these subdirs to exist and be writable by the sandbox user
+    # (NUGET_SCRATCH holds the global mutex lock; without it restores fail with
+    # "unable to obtain lock file access"). We create them through the manager's
+    # own bind mount so the host sees 1777 perms, which survives host cleanups.
+    _CACHE_SUBDIRS = {
+        "/opt/nuget-cache": ("packages", "http-cache", "plugins-cache", "scratch"),
+        "/opt/npm-cache": (),
+        "/opt/pip-cache": (),
+    }
+
+    def _ensure_cache_subdirs(container_path: str) -> None:
+        if not os.path.isdir(container_path):
+            return
+        try:
+            os.chmod(container_path, 0o1777)
+        except OSError:
+            pass
+        for sub in _CACHE_SUBDIRS.get(container_path, ()):
+            path = os.path.join(container_path, sub)
+            try:
+                os.makedirs(path, exist_ok=True)
+                os.chmod(path, 0o1777)
+            except OSError as exc:
+                print(f"[Docker] WARN: could not prepare {path}: {exc}")
+
     def _docker_mount_package_caches(volumes: dict) -> None:
         if not SANDBOX_PACKAGE_CACHE_MOUNTS:
             return
@@ -148,6 +173,7 @@ else:
         ):
             src = _host_bind_source_for_sandbox_cache(container_path, override_env)
             if src:
+                _ensure_cache_subdirs(container_path)
                 volumes[src] = {"bind": container_path, "mode": "rw"}
                 print(f"[Docker] Sandbox package cache: {src} -> {container_path}")
 

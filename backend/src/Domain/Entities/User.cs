@@ -26,6 +26,11 @@ public class User : Entity
     /// </summary>
     public Guid? PreferredSharedLlmSettingId { get; private set; }
 
+    /// <summary>
+    /// Application administrator (JWT "admin" role). May also be granted via <c>AdminEmail</c> configuration.
+    /// </summary>
+    public bool IsAdmin { get; private set; }
+
     // Navigation properties
     public List<Repository> Repositories { get; private set; } = new();
     public List<LinkedProvider> LinkedProviders { get; private set; } = new();
@@ -116,6 +121,12 @@ public class User : Entity
     public void SetPreferredSharedLlm(Guid? llmSettingId)
     {
         PreferredSharedLlmSettingId = llmSettingId;
+        MarkAsUpdated();
+    }
+
+    public void SetIsAdmin(bool isAdmin)
+    {
+        IsAdmin = isAdmin;
         MarkAsUpdated();
     }
 }

@@ -54,6 +54,7 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.AzureDevOpsTokenExpiresAt).HasColumnName("azure_devops_token_expires_at");
             entity.Property(e => e.AzureDevOpsOrganization).HasColumnName("azure_devops_organization").HasMaxLength(256);
             entity.Property(e => e.PreferredSharedLlmSettingId).HasColumnName("preferred_shared_llm_setting_id");
+            entity.Property(e => e.IsAdmin).HasColumnName("is_admin").HasDefaultValue(false);
             entity.HasIndex(e => e.Email).IsUnique();
             entity.HasMany(u => u.LinkedProviders).WithOne(lp => lp.User).HasForeignKey(lp => lp.UserId).OnDelete(DeleteBehavior.Cascade);
         });
@@ -171,6 +172,8 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.ProjectName).HasColumnName("project_name").HasMaxLength(256);
             entity.Property(e => e.FeedType).HasColumnName("feed_type").HasMaxLength(16).IsRequired();
             entity.Property(e => e.IsEnabled).HasColumnName("is_enabled").HasDefaultValue(true);
+            entity.Property(e => e.OwnerUserId).HasColumnName("owner_user_id");
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.OwnerUserId).IsRequired(false).OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<RepositoryShare>(entity =>

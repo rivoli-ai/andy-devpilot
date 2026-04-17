@@ -3,6 +3,7 @@ using System;
 using DevPilot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DevPilot.Infrastructure.Migrations
 {
     [DbContext(typeof(DevPilotDbContext))]
-    partial class DevPilotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260417192117_AddUserIsAdminFlag")]
+    partial class AddUserIsAdminFlag
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -63,10 +66,6 @@ namespace DevPilot.Infrastructure.Migrations
                         .HasColumnType("character varying(256)")
                         .HasColumnName("organization");
 
-                    b.Property<Guid?>("OwnerUserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("owner_user_id");
-
                     b.Property<string>("ProjectName")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)")
@@ -77,8 +76,6 @@ namespace DevPilot.Infrastructure.Migrations
                         .HasColumnName("updated_at");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("OwnerUserId");
 
                     b.ToTable("artifact_feed_configs", (string)null);
                 });
@@ -927,14 +924,6 @@ namespace DevPilot.Infrastructure.Migrations
                     b.HasIndex("RepositoryAgentRuleId");
 
                     b.ToTable("user_stories", (string)null);
-                });
-
-            modelBuilder.Entity("DevPilot.Domain.Entities.ArtifactFeedConfig", b =>
-                {
-                    b.HasOne("DevPilot.Domain.Entities.User", null)
-                        .WithMany()
-                        .HasForeignKey("OwnerUserId")
-                        .OnDelete(DeleteBehavior.Cascade);
                 });
 
             modelBuilder.Entity("DevPilot.Domain.Entities.CodeAnalysis", b =>

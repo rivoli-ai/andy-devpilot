@@ -3,7 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Router, ActivatedRoute } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
-import { AuthService, LinkedProvider, ProviderSettings, LlmSettingDto } from '../../core/services/auth.service';
+import { AuthService, AdminUserListItem, LinkedProvider, ProviderSettings, LlmSettingDto } from '../../core/services/auth.service';
 import { AuthProviderConfig } from '../../core/auth/oidc-config.loader';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { McpConfigService, McpServerDto, McpToolInfo } from '../../core/services/mcp-config.service';
@@ -18,7 +18,7 @@ import {
   siPypi
 } from 'simple-icons';
 
-export type SettingsSectionTab = 'sourceControl' | 'ai' | 'mcp' | 'artifacts';
+export type SettingsSectionTab = 'sourceControl' | 'ai' | 'mcp' | 'artifacts' | 'users';
 
 /**
  * Settings page for managing source-control links, AI, MCP, and artifact feeds.
@@ -39,6 +39,9 @@ export class SettingsComponent implements OnInit {
   readonly settingsTabIconAi = siAnthropic;
   readonly settingsTabIconMcp = siModelcontextprotocol;
   readonly settingsTabIconArtifacts = siNuget;
+  /** Tab icon path (Material-style “people”, 24×24). */
+  readonly settingsTabIconUsersPath =
+    'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z';
 
   linkedProviders = signal<LinkedProvider[]>([]);
   loading = signal<boolean>(true);
@@ -110,6 +113,22 @@ export class SettingsComponent implements OnInit {
   /** Filter list after “Browse Feeds” loads Azure DevOps feeds */
   artifactBrowseSearchQuery = signal('');
 
+  adminUsers = signal<AdminUserListItem[]>([]);
+  adminUsersLoading = signal(false);
+  /** Filter users list (email and name). */
+  adminUserSearchQuery = signal('');
+
+  filteredAdminUsers = computed(() => {
+    const q = this.adminUserSearchQuery().trim().toLowerCase();
+    const list = this.adminUsers();
+    if (!q) return list;
+    return list.filter(u => {
+      const email = (u.email ?? '').toLowerCase();
+      const name = (u.name ?? '').toLowerCase();
+      return email.includes(q) || name.includes(q);
+    });
+  });
+
   filteredArtifactBrowseFeeds = computed(() => {
     const q = this.artifactBrowseSearchQuery().trim().toLowerCase();
     const list = this.artifactBrowseFeeds();
@@ -124,6 +143,9 @@ export class SettingsComponent implements OnInit {
 
   setSettingsTab(tab: SettingsSectionTab): void {
     this.settingsTab.set(tab);
+    if (tab === 'users' && this.authService.isAdmin()) {
+      void this.loadAdminUsers();
+    }
   }
 
   constructor(
@@ -387,6 +409,48 @@ export class SettingsComponent implements OnInit {
 
   /** Whether the current user is a super-admin. */
   isAdmin = this.authService.isAdmin;
+
+  async loadAdminUsers(): Promise<void> {
+    this.adminUsersLoading.set(true);
+    this.error.set(null);
+    try {
+      const rows = await firstValueFrom(this.authService.adminListUsers());
+      this.adminUsers.set(rows);
+    } catch (err: any) {
+      console.error(err);
+      this.error.set(err.error?.message || 'Failed to load users');
+      this.adminUsers.set([]);
+    } finally {
+      this.adminUsersLoading.set(false);
+    }
+  }
+
+  async updateUserAppAdmin(row: AdminUserListItem, event: Event): Promise<void> {
+    if (row.isBootstrapAdmin) return;
+    const el = event.target as HTMLInputElement;
+    const next = el.checked;
+    if (next === row.isAppAdmin) return;
+    this.actionLoading.set('admin-user-' + row.id);
+    this.error.set(null);
+    try {
+      const res = await firstValueFrom(this.authService.adminSetUserAdmin(row.id, next));
+      if (res.auth) {
+        this.authService.applyAuthResponse(res.auth);
+      }
+      await this.loadAdminUsers();
+      this.successMessage.set('User roles updated');
+      setTimeout(() => this.successMessage.set(null), 4000);
+    } catch (err: any) {
+      el.checked = row.isAppAdmin;
+      this.error.set(err.error?.message || 'Failed to update administrator role');
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  adminUserActionKey(id: string): string {
+    return 'admin-user-' + id;
+  }
 
   llmSettings(): LlmSettingDto[] {
     return this.aiConfigService.llmSettings().filter(s => !s.isShared);
@@ -808,6 +872,7 @@ export class SettingsComponent implements OnInit {
   }
 
   openAddArtifactForm(): void {
+    if (!this.authService.isAdmin()) return;
     this.artifactFormId.set(null);
     this.artifactFormName.set('');
     this.artifactFormOrg.set(this.azureDevOpsOrg() || '');
@@ -821,6 +886,7 @@ export class SettingsComponent implements OnInit {
   }
 
   openEditArtifactForm(feed: ArtifactFeedDto): void {
+    if (!this.authService.isAdmin() || !feed.canManage) return;
     this.artifactFormId.set(feed.id);
     this.artifactFormName.set(feed.name);
     this.artifactFormOrg.set(feed.organization);
@@ -866,6 +932,7 @@ export class SettingsComponent implements OnInit {
   }
 
   async saveArtifactFeed(): Promise<void> {
+    if (!this.authService.isAdmin()) return;
     const id = this.artifactFormId();
     const name = this.artifactFormName().trim();
     const organization = this.artifactFormOrg().trim();
@@ -898,6 +965,7 @@ export class SettingsComponent implements OnInit {
   }
 
   async deleteArtifactFeed(id: string): Promise<void> {
+    if (!this.authService.isAdmin()) return;
     if (!confirm('Delete this artifact feed configuration?')) return;
     this.actionLoading.set('artifact-delete');
     this.error.set(null);
@@ -913,6 +981,7 @@ export class SettingsComponent implements OnInit {
   }
 
   async toggleArtifactFeed(feed: ArtifactFeedDto): Promise<void> {
+    if (!this.authService.isAdmin() || !feed.canManage) return;
     try {
       await this.artifactFeedService.update(feed.id, { isEnabled: !feed.isEnabled });
     } catch (err: any) {

@@ -61,6 +61,17 @@
       </svg>
       Artifact feeds
     </button>
+    @if (isAdmin()) {
+      <button type="button" class="settings-tabs__tab" role="tab" id="settings-tab-users"
+        [class.settings-tabs__tab--active]="settingsTab() === 'users'"
+        [attr.aria-selected]="settingsTab() === 'users'"
+        (click)="setSettingsTab('users')">
+        <svg class="settings-tabs__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+          <path [attr.d]="settingsTabIconUsersPath" fill="currentColor" />
+        </svg>
+        Users
+      </button>
+    }
   </nav>
 
   <div class="settings-page__panels">
@@ -575,9 +586,14 @@
     <header class="card__header">
       <h2>Artifact Feeds</h2>
       @if (isAdmin()) {
-        <p>Configure private Azure DevOps artifact feeds. Each user's own PAT will be used for authentication in the sandbox.</p>
+        <p>
+          Define Azure DevOps <strong>locations</strong> (org, feed, package type) for the whole team—no PAT is stored here.
+          Sandboxes use <strong>each user’s</strong> PAT from <strong>Source control</strong> to authenticate to those feeds.
+        </p>
       } @else {
-        <p>Private artifact feeds configured by your administrator. Your Azure DevOps PAT is used for authentication when downloading packages.</p>
+        <p>
+          These feeds are defined by an administrator. Each row is only <strong>where</strong> packages live in Azure DevOps; sandboxes use <strong>your</strong> PAT from <strong>Source control</strong> to access them.
+        </p>
       }
     </header>
     @if (isAdmin() && artifactFormOpen()) {
@@ -620,10 +636,11 @@
               <span class="llm-row__name">{{ feed.name }}</span>
               <span class="llm-row__detail">
                 {{ feed.organization }}{{ feed.projectName ? ' / ' + feed.projectName : '' }} / {{ feed.feedName }}
+                @if (!isAdmin()) { · Team catalog }
                 @if (!feed.isEnabled) { · Disabled }
               </span>
             </div>
-            @if (isAdmin()) {
+            @if (feed.canManage) {
               <div class="llm-row__actions">
                 <button type="button" class="llm-row__btn" (click)="toggleArtifactFeed(feed)" [title]="feed.isEnabled ? 'Disable' : 'Enable'">
                   @if (feed.isEnabled) {
@@ -643,9 +660,13 @@
           </li>
         }
       </ul>
-    } @else if (!isAdmin()) {
+    } @else if (artifactFeeds().length === 0 && !artifactFormOpen()) {
       <div class="llm-empty">
-        <p class="llm-empty__p">No artifact feeds have been configured yet. Contact your administrator.</p>
+        @if (isAdmin()) {
+          <p class="llm-empty__p">No artifact feeds yet. Use <strong>Add artifact feed</strong> below (Azure DevOps PAT required in Source control for browse).</p>
+        } @else {
+          <p class="llm-empty__p">No artifact feeds have been configured yet. Contact your administrator.</p>
+        }
       </div>
     }
 
@@ -789,6 +810,86 @@
       </footer>
     }
   </section>
+        </div>
+      }
+      @case ('users') {
+        <div class="settings-panel" role="tabpanel" id="settings-panel-users" aria-labelledby="settings-tab-users">
+          <section class="card card--panel">
+            <header class="card__header">
+              <h2>Users</h2>
+              <p>Grant or revoke the application administrator role. Users matching <code>AdminEmail</code> in server configuration always remain administrators.</p>
+            </header>
+            <div class="card__scroll">
+              @if (adminUsersLoading()) {
+                <div class="loading">
+                  <span class="spinner"></span> Loading…
+                </div>
+              } @else if (adminUsers().length === 0) {
+                <div class="llm-empty">
+                  <p class="llm-empty__p">No users found.</p>
+                </div>
+              } @else {
+                <div class="browse-feeds-filter admin-user-search">
+                  <label class="sr-only" for="admin-user-search">Search users by email or name</label>
+                  <input
+                    id="admin-user-search"
+                    type="search"
+                    class="browse-feeds-search-input"
+                    placeholder="Search by email or name…"
+                    autocomplete="off"
+                    [ngModel]="adminUserSearchQuery()"
+                    (ngModelChange)="adminUserSearchQuery.set($event)"
+                  />
+                  @if (adminUserSearchQuery().trim()) {
+                    <span class="browse-feeds-search-meta">
+                      {{ filteredAdminUsers().length }} of {{ adminUsers().length }} shown
+                    </span>
+                  }
+                </div>
+                @if (filteredAdminUsers().length === 0) {
+                  <div class="browse-feeds-empty">
+                    <p>No users match “{{ adminUserSearchQuery().trim() }}”.</p>
+                    <button type="button" class="btn btn--ghost btn--sm" (click)="adminUserSearchQuery.set('')">Clear search</button>
+                  </div>
+                } @else {
+                <ul class="llm-rows">
+                  @for (u of filteredAdminUsers(); track u.id) {
+                    <li class="llm-row">
+                      <div class="llm-row__main">
+                        <span class="llm-row__name">{{ u.email }}</span>
+                        <span class="llm-row__detail">{{ u.name || '—' }}</span>
+                      </div>
+                      <div class="llm-row__actions admin-user-row__actions">
+                        @if (u.isBootstrapAdmin) {
+                          <span class="admin-user-badge" title="This account always has admin from AdminEmail configuration.">Config admin</span>
+                        }
+                        <label
+                          class="admin-user-toggle"
+                          [class.admin-user-toggle--disabled]="u.isBootstrapAdmin || actionLoading() === adminUserActionKey(u.id)">
+                          <span class="sr-only">Administrator for {{ u.email }}</span>
+                          <span class="admin-user-toggle__switch">
+                            <input
+                              type="checkbox"
+                              role="switch"
+                              [attr.aria-checked]="u.isAppAdmin || u.isBootstrapAdmin"
+                              [checked]="u.isAppAdmin || u.isBootstrapAdmin"
+                              [disabled]="u.isBootstrapAdmin || actionLoading() === adminUserActionKey(u.id)"
+                              (change)="updateUserAppAdmin(u, $event)"
+                            />
+                            <span class="admin-user-toggle__track" aria-hidden="true">
+                              <span class="admin-user-toggle__thumb"></span>
+                            </span>
+                          </span>
+                          <span class="admin-user-toggle__label">Admin</span>
+                        </label>
+                      </div>
+                    </li>
+                  }
+                </ul>
+                }
+              }
+            </div>
+          </section>
         </div>
       }
     }

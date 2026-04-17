@@ -1,5 +1,6 @@
 namespace DevPilot.API.Controllers;
 
+using System.Net.Http;
 using System.Security.Claims;
 using DevPilot.Application.Services;
 using DevPilot.Domain.Entities;
@@ -29,7 +30,7 @@ public class ArtifactController : ControllerBase
         _logger = logger;
     }
 
-    // ── Browse Azure DevOps feeds (admin) ──────────────────────────────
+    // ── Browse Azure DevOps feeds (admin only — used when defining feeds) ─
 
     [HttpGet("feeds")]
     [Authorize(Roles = "admin")]
@@ -50,18 +51,50 @@ public class ArtifactController : ControllerBase
         var encodedPat = Convert.ToBase64String(
             System.Text.Encoding.ASCII.GetBytes($":{user.AzureDevOpsAccessToken}"));
 
-        var feeds = await _adoService.GetFeedsAsync(organization, encodedPat, ct);
-        return Ok(feeds);
+        try
+        {
+            var feeds = await _adoService.GetFeedsAsync(organization, encodedPat, ct);
+            return Ok(feeds);
+        }
+        catch (HttpRequestException ex)
+        {
+            _logger.LogWarning(ex, "Azure DevOps list feeds failed for organization {Organization}", organization);
+            if (ex.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new
+                {
+                    message =
+                        "Azure DevOps returned 401 Unauthorized. Check the organization name, that your PAT is still valid, and that it can access Packaging feeds (e.g. Packaging > Read scope)."
+                });
+            }
+
+            if (ex.Message.Contains("Forbidden", StringComparison.OrdinalIgnoreCase))
+            {
+                return BadRequest(new
+                {
+                    message =
+                        "Azure DevOps returned 403 Forbidden. Your PAT may lack permission for this organization or for artifact feeds."
+                });
+            }
+
+            return BadRequest(new { message = "Could not load feeds from Azure DevOps. Verify the organization and PAT, then try again." });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
-    // ── CRUD (admin-only) ──────────────────────────────────────────────
+    // ── Catalog: admins see all rows; others see shared (admin-defined) only ─
 
     [HttpGet]
-    [Authorize(Roles = "admin")]
     public async Task<IActionResult> GetAll(CancellationToken ct)
     {
-        var list = await _repo.GetAllAsync(ct);
-        return Ok(list.Select(MapDto).ToList());
+        var userId = GetUserId();
+        if (userId == null) return Unauthorized();
+        var isAdmin = User.IsInRole("admin");
+        var list = await _repo.GetAllVisibleAsync(userId.Value, isAdmin, ct);
+        return Ok(list.Select(e => MapDto(e, isAdmin)).ToList());
     }
 
     [HttpPost]
@@ -77,17 +110,21 @@ public class ArtifactController : ControllerBase
         if (request.FeedType is not ("nuget" or "npm" or "pip"))
             return BadRequest(new { message = "FeedType must be 'nuget', 'npm', or 'pip'." });
 
+        var userId = GetUserId();
+        if (userId == null) return Unauthorized();
+
         var entity = new ArtifactFeedConfig(
             request.Name,
             request.Organization,
             request.FeedName,
             request.ProjectName,
             request.FeedType,
-            request.IsEnabled ?? true);
+            request.IsEnabled ?? true,
+            ownerUserId: null);
 
         entity = await _repo.AddAsync(entity, ct);
-        _logger.LogInformation("Admin created artifact feed config: {Name} ({FeedType})", request.Name, request.FeedType);
-        return Ok(MapDto(entity));
+        _logger.LogInformation("Admin created shared artifact feed config: {Name} ({FeedType})", request.Name, request.FeedType);
+        return Ok(MapDto(entity, isAdmin: true));
     }
 
     [HttpPatch("{id:guid}")]
@@ -108,7 +145,7 @@ public class ArtifactController : ControllerBase
             entity.SetEnabled(request.IsEnabled.Value);
 
         await _repo.UpdateAsync(entity, ct);
-        return Ok(MapDto(entity));
+        return Ok(MapDto(entity, isAdmin: true));
     }
 
     [HttpDelete("{id:guid}")]
@@ -122,13 +159,16 @@ public class ArtifactController : ControllerBase
         return Ok(new { message = "Artifact feed config deleted" });
     }
 
-    // ── Enabled feeds (all users) ──────────────────────────────────────
+    // ── Enabled shared feeds (sandboxes — all authenticated users) ─────
 
     [HttpGet("enabled")]
     public async Task<IActionResult> GetEnabled(CancellationToken ct)
     {
-        var list = await _repo.GetEnabledAsync(ct);
-        return Ok(list.Select(MapDto).ToList());
+        var userId = GetUserId();
+        if (userId == null) return Unauthorized();
+        var list = await _repo.GetEnabledSharedAsync(ct);
+        var isAdmin = User.IsInRole("admin");
+        return Ok(list.Select(e => MapDto(e, isAdmin)).ToList());
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────
@@ -139,16 +179,23 @@ public class ArtifactController : ControllerBase
         return Guid.TryParse(claim, out var id) ? id : null;
     }
 
-    private static ArtifactFeedDto MapDto(ArtifactFeedConfig entity) => new()
+    private static ArtifactFeedDto MapDto(ArtifactFeedConfig entity, bool isAdmin)
     {
-        Id = entity.Id,
-        Name = entity.Name,
-        Organization = entity.Organization,
-        FeedName = entity.FeedName,
-        ProjectName = entity.ProjectName,
-        FeedType = entity.FeedType,
-        IsEnabled = entity.IsEnabled,
-    };
+        var isShared = entity.OwnerUserId == null;
+        return new ArtifactFeedDto
+        {
+            Id = entity.Id,
+            Name = entity.Name,
+            Organization = entity.Organization,
+            FeedName = entity.FeedName,
+            ProjectName = entity.ProjectName,
+            FeedType = entity.FeedType,
+            IsEnabled = entity.IsEnabled,
+            OwnerUserId = entity.OwnerUserId,
+            IsShared = isShared,
+            CanManage = isAdmin,
+        };
+    }
 
     // ── DTOs ────────────────────────────────────────────────────────────
 
@@ -161,6 +208,9 @@ public class ArtifactController : ControllerBase
         public string? ProjectName { get; set; }
         public required string FeedType { get; set; }
         public bool IsEnabled { get; set; }
+        public Guid? OwnerUserId { get; set; }
+        public bool IsShared { get; set; }
+        public bool CanManage { get; set; }
     }
 
     public class CreateArtifactFeedRequest
