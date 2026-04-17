@@ -16,7 +16,7 @@ import {
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml, SafeResourceUrl } from '@angular/platform-browser';
-import { Subject, takeUntil } from 'rxjs';
+import { Subject, takeUntil, forkJoin, of, switchMap, map, catchError } from 'rxjs';
 import { VncService } from '../../core/services/vnc.service';
 import { VncViewerService, DockPosition } from '../../core/services/vnc-viewer.service';
 import {
@@ -31,6 +31,14 @@ import { RepositoryService } from '../../core/services/repository.service';
 import { BacklogService } from '../../core/services/backlog.service';
 import { VncConfig, VncConnectionState, DEFAULT_VNC_CONFIG } from '../../shared/models/vnc-config.model';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
+
+/** One past sandbox run for the same backlog story (from stored bridge snapshots). */
+export interface PriorSandboxSessionView {
+  sandboxId: string;
+  createdAt: string;
+  updatedAt: string | null;
+  conversations: ZedConversation[];
+}
 
 /**
  * VNC Remote Desktop Viewer Component
@@ -119,8 +127,9 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   /** Match backlog / VNC mobile breakpoint — agent chat sidebar is not shown on narrow viewports */
   private static readonly AGENT_CHAT_SIDEBAR_MEDIA = '(max-width: 768px)';
 
-  // Conversations state
+  // Conversations: current sandbox bridge poll vs earlier runs (same story) loaded from API
   conversations = signal<ZedConversation[]>([]);
+  priorStorySessions = signal<PriorSandboxSessionView[]>([]);
   liveResponse = signal<LiveResponse | null>(null);
   requestInProgress = signal<boolean>(false);
 
@@ -364,6 +373,7 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     effect(() => {
       this.liveResponse();
       this.conversations();
+      this.priorStorySessions();
       if (!this.showChat()) return;
       setTimeout(() => {
         const el = this.chatContentRef?.nativeElement;
@@ -479,6 +489,70 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
    * written when the payload actually changed, preventing unnecessary DOM
    * teardown/rebuild (especially expensive for the markdown pipe).
    */
+  /** Fingerprint so we re-sync when the latest turn is updated in place (same id / count). */
+  private conversationFingerprint(conversations: ZedConversation[] | undefined): string {
+    const list = conversations ?? [];
+    if (!list.length) return '';
+    return list
+      .map((c) => `${c.id}:${(c.user_message ?? '').length}:${(c.assistant_message ?? '').length}`)
+      .join('|');
+  }
+
+  /** Real user-story GUID only — backend stores bridge snapshots keyed by story + sandbox. */
+  private persistableStoryIdForConversations(): string | undefined {
+    const id = this.implementationContext()?.storyId?.trim();
+    if (!id) return undefined;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) return undefined;
+    return id;
+  }
+
+  /** Loads stored `/all-conversations` snapshots per earlier sandbox run (same story GUID). */
+  private loadPriorStorySessionHistoryForOpenSandbox(sandboxId: string): void {
+    const storyId = this.persistableStoryIdForConversations();
+    if (!storyId) return;
+
+    this.backlogService
+      .listStorySandboxAgentSessions(storyId)
+      .pipe(
+        takeUntil(this.destroy$),
+        switchMap((res) => {
+          const rows = (res.sessions ?? []).filter((s) => s.sandboxId !== sandboxId);
+          if (!rows.length) return of([] as PriorSandboxSessionView[]);
+          const sorted = [...rows].sort(
+            (a, b) =>
+              new Date(a.updatedAt ?? a.createdAt).getTime() -
+              new Date(b.updatedAt ?? b.createdAt).getTime()
+          );
+          return forkJoin(
+            sorted.map((r) =>
+              this.backlogService.getStorySandboxAgentSessionPayload(storyId, r.sandboxId).pipe(
+                catchError(() => of({ conversations: [], count: 0 } as ZedConversationsResponse))
+              )
+            )
+          ).pipe(
+            map((payloads) =>
+              sorted
+                .map((r, idx) => ({
+                  sandboxId: r.sandboxId,
+                  createdAt: r.createdAt,
+                  updatedAt: r.updatedAt,
+                  conversations: [...(payloads[idx]?.conversations ?? [])]
+                }))
+                .filter((s) => s.conversations.length > 0)
+            )
+          );
+        })
+      )
+      .subscribe({
+        next: (sessions) => {
+          if (this.sandboxId() !== sandboxId) return;
+          if (this.persistableStoryIdForConversations() !== storyId) return;
+          this.priorStorySessions.set(sessions);
+        },
+        error: (err) => console.warn('[VNC] Could not load prior sandbox session history', err)
+      });
+  }
+
   /**
    * Render the live streaming content with throttling to avoid DOM thrash.
    * Called from the polling loop each time liveResponse changes.
@@ -516,66 +590,115 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     const sid = this.sandboxId();
     if (!sid) return;
 
+    this.loadPriorStorySessionHistoryForOpenSandbox(sid);
+
     let consecutiveErrors = 0;
     let streaming = false;
     let pollTimer: ReturnType<typeof setTimeout> | null = null;
 
-    let prevConvCount = 0;
+    let prevConvFingerprint: string | null = null;
     let prevLiveLen = 0;
+    let pollSandboxId = sid;
 
     const FAST_MS = 600;
     const SLOW_MS = 3000;
 
     const poll = () => {
-      if (!this.sandboxId()) return;
-      this.sandboxBridgeService.getAllConversations(this.sandboxId()!).pipe(
+      const currentSid = this.sandboxId();
+      if (!currentSid) return;
+
+      if (currentSid !== pollSandboxId) {
+        pollSandboxId = currentSid;
+        prevConvFingerprint = null;
+        prevLiveLen = 0;
+        streaming = false;
+        this.lastConversationId = '';
+        this.conversations.set([]);
+        this.priorStorySessions.set([]);
+        this.requestInProgress.set(false);
+        this.liveResponse.set(null);
+        this.renderLiveStream(null);
+        this.loadPriorStorySessionHistoryForOpenSandbox(currentSid);
+      }
+
+      this.sandboxBridgeService.getAllConversations(
+        currentSid,
+        this.persistableStoryIdForConversations()
+      ).pipe(
         takeUntil(this.destroy$)
       ).subscribe({
         next: (response) => {
+          if (this.sandboxId() !== currentSid) {
+            schedulePoll(this.sandboxId() ? FAST_MS : SLOW_MS);
+            return;
+          }
+
           consecutiveErrors = 0;
 
-          // ── Conversations: only update when the list actually changed ──
-          const convs = response.conversations;
-          const newLatestId = convs.length > 0 ? convs[convs.length - 1].id : '';
-          if (convs.length !== prevConvCount || newLatestId !== this.lastConversationId) {
-            prevConvCount = convs.length;
+          const apiConvs = response.conversations ?? [];
+          let convs = apiConvs;
+          if (
+            apiConvs.length === 0 &&
+            untracked(() => this.conversations().length) > 0
+          ) {
+            convs = untracked(() => this.conversations());
+          }
+          const fp = this.conversationFingerprint(convs);
+          if (prevConvFingerprint === null || fp !== prevConvFingerprint) {
+            prevConvFingerprint = fp;
             this.conversations.set(convs);
+            const newLatestId = convs.length > 0 ? convs[convs.length - 1].id : '';
             if (newLatestId && newLatestId !== this.lastConversationId) {
               this.lastConversationId = newLatestId;
             }
           }
 
-          // ── Streaming state ───────────────────────────────────────────
           const wasStreaming = streaming;
           streaming = response.request_in_progress === true;
+
+          if (!wasStreaming && streaming) {
+            if (this._liveRenderTimer) {
+              clearTimeout(this._liveRenderTimer);
+              this._liveRenderTimer = null;
+            }
+            this._liveLastRenderedLen = 0;
+            prevLiveLen = 0;
+          }
 
           if (streaming !== this.requestInProgress()) {
             this.requestInProgress.set(streaming);
           }
 
-          // ── Live response: only write when content length changed ─────
-          const liveContent = streaming ? (response.live_response?.content ?? '') : '';
-          if (liveContent.length !== prevLiveLen) {
-            prevLiveLen = liveContent.length;
-            this.liveResponse.set(streaming && response.live_response ? response.live_response : null);
-            this.renderLiveStream(liveContent || null);
-          }
+          const liveFromApi = response.live_response?.content ?? '';
 
-          // When streaming just ended, do a final full render then clear
-          if (wasStreaming && !streaming && prevLiveLen > 0) {
-            if (liveContent) {
-              this.liveStreamHtml.set(this.markdownPipe.transform(liveContent));
+          if (streaming) {
+            const liveContent = liveFromApi;
+            if (liveContent.length !== prevLiveLen) {
+              prevLiveLen = liveContent.length;
+              this.liveResponse.set(response.live_response ?? null);
+              this.renderLiveStream(liveContent || null);
             }
-            prevLiveLen = 0;
-            setTimeout(() => {
-              if (!this.requestInProgress()) {
-                this.liveResponse.set(null);
-                this.renderLiveStream(null);
+          } else {
+            if (wasStreaming) {
+              if (this._liveRenderTimer) {
+                clearTimeout(this._liveRenderTimer);
+                this._liveRenderTimer = null;
               }
-            }, SLOW_MS + 200);
+              prevLiveLen = 0;
+              this.liveResponse.set(null);
+              this.renderLiveStream(null);
+            } else if (prevLiveLen !== 0) {
+              prevLiveLen = 0;
+              this.liveResponse.set(null);
+              this.renderLiveStream(null);
+            }
           }
 
-          this.updatePushPrEligibility(response);
+          this.updatePushPrEligibility({
+            ...response,
+            conversations: convs,
+            count: convs.length
+          });
 
           schedulePoll(streaming ? FAST_MS : SLOW_MS);
         },

@@ -33,6 +33,7 @@ public class BacklogController : ControllerBase
     private readonly IEffectiveAiConfigResolver _effectiveAiConfigResolver;
     private readonly IConfiguration _configuration;
     private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
+    private readonly IStorySandboxConversationRepository _storySandboxConversationRepository;
 
     public BacklogController(
         IMediator mediator, 
@@ -47,7 +48,8 @@ public class BacklogController : ControllerBase
         IRepositoryRepository repositoryRepository,
         IEffectiveAiConfigResolver effectiveAiConfigResolver,
         IConfiguration configuration,
-        IRepositoryAgentRuleRepository repositoryAgentRuleRepository)
+        IRepositoryAgentRuleRepository repositoryAgentRuleRepository,
+        IStorySandboxConversationRepository storySandboxConversationRepository)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -62,6 +64,63 @@ public class BacklogController : ControllerBase
         _effectiveAiConfigResolver = effectiveAiConfigResolver ?? throw new ArgumentNullException(nameof(effectiveAiConfigResolver));
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
         _repositoryAgentRuleRepository = repositoryAgentRuleRepository ?? throw new ArgumentNullException(nameof(repositoryAgentRuleRepository));
+        _storySandboxConversationRepository = storySandboxConversationRepository ?? throw new ArgumentNullException(nameof(storySandboxConversationRepository));
+    }
+
+    /// <summary>
+    /// Stored sandbox agent chat snapshots for this story (one entry per sandbox container run).
+    /// </summary>
+    [HttpGet("story/{storyId:guid}/sandbox-agent-sessions")]
+    [Authorize]
+    public async Task<IActionResult> ListSandboxAgentSessions(Guid storyId, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+
+        var story = await _userStoryRepository.GetByIdAsync(storyId, cancellationToken);
+        if (story?.Feature?.Epic?.Repository is null)
+            return NotFound(new { error = "User story not found" });
+        if (story.Feature.Epic.Repository.UserId != userId)
+            return Forbid();
+
+        var list = await _storySandboxConversationRepository.ListByUserStoryIdAsync(storyId, cancellationToken);
+        return Ok(new
+        {
+            sessions = list.Select(s => new
+            {
+                sandboxId = s.SandboxId,
+                createdAt = s.CreatedAt,
+                updatedAt = s.UpdatedAt
+            })
+        });
+    }
+
+    /// <summary>
+    /// Full JSON snapshot from the sandbox bridge <c>/all-conversations</c> for one story and sandbox run.
+    /// </summary>
+    [HttpGet("story/{storyId:guid}/sandbox-agent-sessions/{sandboxId}/payload")]
+    [Authorize]
+    public async Task<IActionResult> GetSandboxAgentSessionPayload(
+        Guid storyId,
+        string sandboxId,
+        CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized();
+
+        var story = await _userStoryRepository.GetByIdAsync(storyId, cancellationToken);
+        if (story?.Feature?.Epic?.Repository is null)
+            return NotFound(new { error = "User story not found" });
+        if (story.Feature.Epic.Repository.UserId != userId)
+            return Forbid();
+
+        var snap = await _storySandboxConversationRepository.GetAsync(storyId, sandboxId, cancellationToken);
+        if (snap is null)
+            return NotFound(new { error = "No stored snapshot for this sandbox" });
+
+        return Content(snap.PayloadJson, "application/json");
     }
 
     /// <summary>

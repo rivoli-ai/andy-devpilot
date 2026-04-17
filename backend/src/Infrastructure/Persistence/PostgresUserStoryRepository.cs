@@ -21,6 +21,7 @@ public class PostgresUserStoryRepository : IUserStoryRepository
         return await _context.UserStories
             .Include(us => us.Feature)
                 .ThenInclude(f => f.Epic)
+                    .ThenInclude(e => e.Repository)
             .FirstOrDefaultAsync(us => us.Id == id, cancellationToken);
     }
 

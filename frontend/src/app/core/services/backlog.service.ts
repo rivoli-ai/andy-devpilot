@@ -1,12 +1,20 @@
 import { Injectable, signal } from '@angular/core';
 import { Observable, tap, switchMap, firstValueFrom } from 'rxjs';
 import { ApiService } from './api.service';
+import type { ZedConversationsResponse } from './sandbox-bridge.service';
 import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
 
 /** Epic title used for standalone user stories (no epic/feature parent). Rendered without tree. */
 export const STANDALONE_EPIC_TITLE = '__Standalone__';
+
+/** Prior sandbox runs for a user story (backend-stored bridge snapshots). */
+export interface StorySandboxAgentSessionRow {
+  sandboxId: string;
+  createdAt: string;
+  updatedAt: string | null;
+}
 
 export interface CreateBacklogRequest {
   epics: {
@@ -104,6 +112,21 @@ export class BacklogService {
    */
   getPrHeadBranch(prUrl: string): Observable<{ branch: string }> {
     return this.apiService.post<{ branch: string }>('/backlog/pr-head-branch', { prUrl });
+  }
+
+  /** Lists stored sandbox agent chat snapshots for a backlog story (excludes nothing — caller filters). */
+  listStorySandboxAgentSessions(storyId: string): Observable<{ sessions: StorySandboxAgentSessionRow[] }> {
+    return this.apiService.get<{ sessions: StorySandboxAgentSessionRow[] }>(
+      `/backlog/story/${storyId}/sandbox-agent-sessions`
+    );
+  }
+
+  /** Full stored bridge `/all-conversations` JSON for one story + sandbox run. */
+  getStorySandboxAgentSessionPayload(storyId: string, sandboxId: string): Observable<ZedConversationsResponse> {
+    const enc = encodeURIComponent(sandboxId);
+    return this.apiService.get<ZedConversationsResponse>(
+      `/backlog/story/${storyId}/sandbox-agent-sessions/${enc}/payload`
+    );
   }
 
   /**

@@ -52,6 +52,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<ILlmSettingRepository, PostgresLlmSettingRepository>();
         services.AddScoped<IMcpServerConfigRepository, PostgresMcpServerConfigRepository>();
         services.AddScoped<IArtifactFeedConfigRepository, PostgresArtifactFeedConfigRepository>();
+        services.AddScoped<IStorySandboxConversationRepository, PostgresStorySandboxConversationRepository>();
         services.AddScoped<IEffectiveAiConfigResolver, EffectiveAiConfigResolver>();
 
         // Register authentication service

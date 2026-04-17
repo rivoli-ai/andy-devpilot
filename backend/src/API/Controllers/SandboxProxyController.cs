@@ -3,6 +3,8 @@ namespace DevPilot.API.Controllers;
 using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Security.Claims;
+using System.Text;
+using DevPilot.Domain.Interfaces;
 using DevPilot.Infrastructure.Sandbox;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -20,15 +22,21 @@ public class SandboxProxyController : ControllerBase
 {
     private readonly SandboxService _sandboxService;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IUserStoryRepository _userStoryRepository;
+    private readonly IStorySandboxConversationRepository _storySandboxConversationRepository;
     private readonly ILogger<SandboxProxyController> _logger;
 
     public SandboxProxyController(
         SandboxService sandboxService,
         IHttpClientFactory httpClientFactory,
+        IUserStoryRepository userStoryRepository,
+        IStorySandboxConversationRepository storySandboxConversationRepository,
         ILogger<SandboxProxyController> logger)
     {
         _sandboxService = sandboxService;
         _httpClientFactory = httpClientFactory;
+        _userStoryRepository = userStoryRepository;
+        _storySandboxConversationRepository = storySandboxConversationRepository;
         _logger = logger;
     }
 
@@ -44,7 +52,17 @@ public class SandboxProxyController : ControllerBase
         var info = await ResolveInfoAsync(sandboxId);
         if (info is null) return NotFound(new { error = "Sandbox not found" });
 
-        var target = BuildUpstreamUrl(info.InternalBridgeUrl, subpath, Request.QueryString.Value);
+        var upstreamQuery = BuildBridgeQueryStringExcludingStoryId(Request.Query);
+        var target = BuildUpstreamUrl(info.InternalBridgeUrl, subpath, upstreamQuery);
+
+        var storyIdRaw = Request.Query["storyId"].FirstOrDefault();
+        var persistStoryId = Guid.TryParse(storyIdRaw, out var storyGuid) ? storyGuid : (Guid?)null;
+        var isGetAllConversations = HttpMethods.IsGet(Request.Method)
+            && string.Equals(subpath, "all-conversations", StringComparison.OrdinalIgnoreCase);
+
+        if (isGetAllConversations && persistStoryId is not null)
+            return await ForwardBridgeGetBufferedAndPersistAsync(target, info.SandboxToken, persistStoryId.Value, sandboxId);
+
         return await ForwardHttpAsync(target, info.SandboxToken);
     }
 
@@ -153,6 +171,88 @@ public class SandboxProxyController : ControllerBase
         if (!string.IsNullOrEmpty(queryString))
             url += queryString;
         return url;
+    }
+
+    /// <summary>
+    /// <c>storyId</c> is only for backend persistence; the sandbox bridge must not receive it.
+    /// </summary>
+    private static string BuildBridgeQueryStringExcludingStoryId(IQueryCollection query)
+    {
+        var parts = new List<string>();
+        foreach (var kv in query)
+        {
+            if (string.Equals(kv.Key, "storyId", StringComparison.OrdinalIgnoreCase))
+                continue;
+            foreach (var v in kv.Value)
+                parts.Add($"{Uri.EscapeDataString(kv.Key)}={Uri.EscapeDataString(v ?? string.Empty)}");
+        }
+
+        return parts.Count == 0 ? string.Empty : "?" + string.Join("&", parts);
+    }
+
+    private async Task<IActionResult> ForwardBridgeGetBufferedAndPersistAsync(
+        string targetUrl,
+        string? sandboxToken,
+        Guid userStoryId,
+        string sandboxId)
+    {
+        var userId = GetUserId();
+        if (userId == Guid.Empty)
+            return Unauthorized();
+
+        var story = await _userStoryRepository.GetByIdAsync(userStoryId, HttpContext.RequestAborted);
+        if (story?.Feature?.Epic?.Repository is null)
+            return NotFound(new { error = "User story not found" });
+        if (story.Feature.Epic.Repository.UserId != userId)
+            return Forbid();
+
+        var client = _httpClientFactory.CreateClient();
+        client.Timeout = TimeSpan.FromSeconds(120);
+        using var req = new HttpRequestMessage(HttpMethod.Get, targetUrl);
+        if (!string.IsNullOrEmpty(sandboxToken))
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", sandboxToken);
+
+        HttpResponseMessage upstream;
+        try
+        {
+            upstream = await client.SendAsync(req, HttpCompletionOption.ResponseContentRead, HttpContext.RequestAborted);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Proxy request to {Url} failed", targetUrl);
+            return StatusCode(502, new { error = "Upstream unreachable" });
+        }
+
+        var bytes = await upstream.Content.ReadAsByteArrayAsync(HttpContext.RequestAborted);
+
+        if (upstream.IsSuccessStatusCode)
+        {
+            try
+            {
+                var json = Encoding.UTF8.GetString(bytes);
+                await _storySandboxConversationRepository.UpsertAsync(userStoryId, sandboxId, json, HttpContext.RequestAborted);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex,
+                    "Failed to persist sandbox conversation snapshot for story {StoryId} sandbox {SandboxId}",
+                    userStoryId, sandboxId);
+            }
+        }
+
+        Response.StatusCode = (int)upstream.StatusCode;
+
+        foreach (var header in upstream.Content.Headers)
+            Response.Headers[header.Key] = header.Value.ToArray();
+        foreach (var header in upstream.Headers)
+        {
+            if (header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase))
+                continue;
+            Response.Headers[header.Key] = header.Value.ToArray();
+        }
+
+        await Response.Body.WriteAsync(bytes, HttpContext.RequestAborted);
+        return new EmptyResult();
     }
 
     /// <summary>

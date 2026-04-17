@@ -316,7 +316,7 @@
             </div>
             
             <div class="conversations-content" #chatContent>
-              @if (conversations().length === 0 && !liveResponse() && !requestInProgress()) {
+              @if (priorStorySessions().length === 0 && conversations().length === 0 && !liveResponse() && !requestInProgress()) {
                 <div class="no-conversations">
                   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
                     <circle cx="12" cy="12" r="10"/>
@@ -326,56 +326,104 @@
                   <small>Type a message below or use Zed's agent panel</small>
                 </div>
               } @else {
-                <div class="conversations-list">
-                  @for (conv of conversations(); track conv.id) {
-                    <div class="conversation-item">
-                      <div class="conv-user">
-                        <span class="role-badge user">You</span>
-                        <p class="user-msg">{{ cleanUserMessage(conv.user_message) }}</p>
-                      </div>
-                      @if (conv.assistant_message) {
-                        <div class="conv-assistant">
-                          <span class="role-badge assistant">AI</span>
-                          <div class="assistant-msg markdown-content" [innerHTML]="conv.assistant_message | markdown"></div>
-                        </div>
-                      }
-                      <div class="conv-meta">
-                        <span class="conv-model">{{ conv.model }}</span>
-                      </div>
-                    </div>
-                  }
-                  @if (requestInProgress()) {
-                    <div class="conversation-item conversation-item--streaming">
-                      @if (liveResponse(); as live) {
-                        <div class="conv-user">
-                          <span class="role-badge user">You</span>
-                          <p class="user-msg">{{ cleanUserMessage(live.user_message) }}</p>
-                        </div>
-                        <div class="conv-assistant">
-                          <span class="role-badge assistant streaming">AI
-                            <span class="streaming-dot"></span>
-                          </span>
-                          @if (liveStreamRendered()) {
-                            <div class="assistant-msg markdown-content streaming-content" [innerHTML]="liveStreamHtml()"></div>
-                          } @else {
-                            <div class="assistant-msg typing-indicator">
-                              <span></span><span></span><span></span>
+                @if (priorStorySessions().length > 0) {
+                  <section class="session-history" aria-label="Earlier sandbox runs">
+                    <h3 class="session-history-heading">Session history</h3>
+                    <p class="session-history-hint">Earlier sandbox runs for this story. Open a run to read the saved thread.</p>
+                    @for (session of priorStorySessions(); track session.sandboxId) {
+                      <details class="session-history-details">
+                        <summary class="session-history-summary">
+                          <span class="session-history-run-label">Sandbox</span>
+                          <code class="session-history-id">{{ session.sandboxId.slice(0, 8) }}…</code>
+                          <span class="session-history-meta">{{ (session.updatedAt ?? session.createdAt) | date:'short' }}</span>
+                          <span class="session-history-turns">{{ session.conversations.length }} turns</span>
+                        </summary>
+                        <div class="conversations-list conversations-list--history">
+                          @for (conv of session.conversations; track conv.id) {
+                            <div class="conversation-item">
+                              <div class="conv-user">
+                                <span class="role-badge user">You</span>
+                                <p class="user-msg">{{ cleanUserMessage(conv.user_message) }}</p>
+                              </div>
+                              @if (conv.assistant_message) {
+                                <div class="conv-assistant">
+                                  <span class="role-badge assistant">AI</span>
+                                  <div class="assistant-msg markdown-content" [innerHTML]="conv.assistant_message | markdown"></div>
+                                </div>
+                              }
+                              <div class="conv-meta">
+                                <span class="conv-model">{{ conv.model }}</span>
+                              </div>
                             </div>
                           }
                         </div>
-                      } @else {
-                        <div class="conv-assistant">
-                          <span class="role-badge assistant streaming">AI
-                            <span class="streaming-dot"></span>
-                          </span>
-                          <div class="assistant-msg typing-indicator">
-                            <span></span><span></span><span></span>
+                      </details>
+                    }
+                  </section>
+                }
+
+                <section class="current-session" [class.current-session--with-history]="priorStorySessions().length > 0" aria-label="This sandbox">
+                  @if (priorStorySessions().length > 0) {
+                    <h3 class="current-session-heading">Current session</h3>
+                  }
+                  @if (conversations().length === 0 && !liveResponse() && !requestInProgress()) {
+                    <div class="no-conversations no-conversations--current">
+                      <p>No messages in this sandbox yet.</p>
+                      <small>Type below or use Zed's agent panel</small>
+                    </div>
+                  } @else {
+                    <div class="conversations-list">
+                      @for (conv of conversations(); track conv.id) {
+                        <div class="conversation-item">
+                          <div class="conv-user">
+                            <span class="role-badge user">You</span>
+                            <p class="user-msg">{{ cleanUserMessage(conv.user_message) }}</p>
                           </div>
+                          @if (conv.assistant_message) {
+                            <div class="conv-assistant">
+                              <span class="role-badge assistant">AI</span>
+                              <div class="assistant-msg markdown-content" [innerHTML]="conv.assistant_message | markdown"></div>
+                            </div>
+                          }
+                          <div class="conv-meta">
+                            <span class="conv-model">{{ conv.model }}</span>
+                          </div>
+                        </div>
+                      }
+                      @if (requestInProgress()) {
+                        <div class="conversation-item conversation-item--streaming">
+                          @if (liveResponse(); as live) {
+                            <div class="conv-user">
+                              <span class="role-badge user">You</span>
+                              <p class="user-msg">{{ cleanUserMessage(live.user_message) }}</p>
+                            </div>
+                            <div class="conv-assistant">
+                              <span class="role-badge assistant streaming">AI
+                                <span class="streaming-dot"></span>
+                              </span>
+                              @if (liveStreamRendered()) {
+                                <div class="assistant-msg markdown-content streaming-content" [innerHTML]="liveStreamHtml()"></div>
+                              } @else {
+                                <div class="assistant-msg typing-indicator">
+                                  <span></span><span></span><span></span>
+                                </div>
+                              }
+                            </div>
+                          } @else {
+                            <div class="conv-assistant">
+                              <span class="role-badge assistant streaming">AI
+                                <span class="streaming-dot"></span>
+                              </span>
+                              <div class="assistant-msg typing-indicator">
+                                <span></span><span></span><span></span>
+                              </div>
+                            </div>
+                          }
                         </div>
                       }
                     </div>
                   }
-                </div>
+                </section>
               }
             </div>
             

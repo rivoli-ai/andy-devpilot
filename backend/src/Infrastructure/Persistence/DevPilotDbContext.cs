@@ -27,6 +27,7 @@ public class DevPilotDbContext : DbContext
     public DbSet<LlmSetting> LlmSettings => Set<LlmSetting>();
     public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
     public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
+    public DbSet<StorySandboxConversationSnapshot> StorySandboxConversationSnapshots => Set<StorySandboxConversationSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -244,6 +245,20 @@ public class DevPilotDbContext : DbContext
                 .HasForeignKey(e => e.RepositoryAgentRuleId)
                 .OnDelete(DeleteBehavior.SetNull);
             entity.HasMany(e => e.Tasks).WithOne(t => t.UserStory).HasForeignKey(t => t.UserStoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<StorySandboxConversationSnapshot>(entity =>
+        {
+            entity.ToTable("story_sandbox_conversation_snapshots");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.UserStoryId).HasColumnName("user_story_id");
+            entity.Property(e => e.SandboxId).HasColumnName("sandbox_id").HasMaxLength(64).IsRequired();
+            entity.Property(e => e.PayloadJson).HasColumnName("payload_json").IsRequired();
+            entity.HasOne<UserStory>().WithMany().HasForeignKey(e => e.UserStoryId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasIndex(e => new { e.UserStoryId, e.SandboxId }).IsUnique();
         });
 
         modelBuilder.Entity<Task>(entity =>

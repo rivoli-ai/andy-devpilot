@@ -331,8 +331,13 @@ export class SandboxBridgeService {
   }
 
   /** Fails the observable on HTTP errors so callers can stop polling when the sandbox is gone. */
-  getAllConversations(sandboxId: string): Observable<ZedConversationsResponse> {
-    return this.http.get<ZedConversationsResponse>(`${this.getBridgeUrl(sandboxId)}/all-conversations`);
+  getAllConversations(sandboxId: string, storyIdForPersistence?: string): Observable<ZedConversationsResponse> {
+    const base = `${this.getBridgeUrl(sandboxId)}/all-conversations`;
+    const sid = storyIdForPersistence?.trim() ?? '';
+    const isStoryGuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sid);
+    const url = sid && isStoryGuid ? `${base}?storyId=${encodeURIComponent(sid)}` : base;
+    return this.http.get<ZedConversationsResponse>(url);
   }
 
   /**
