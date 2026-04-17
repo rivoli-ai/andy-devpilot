@@ -13,5 +13,8 @@ backend/src/API/appsettings.Development.json
 __pycache__/
 *.pyc
 
+# Docker Desktop–friendly sandbox package caches (see docker-compose.yml)
+.sandbox-cache/
+
 # OS files
 .DS_Store

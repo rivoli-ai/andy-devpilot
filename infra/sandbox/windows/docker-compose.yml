@@ -1,5 +1,21 @@
 services:
+  sandbox-cache-init:
+    image: alpine:3.20
+    pull_policy: if_not_present
+    volumes:
+      - ../../../:/mnt:rw
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        mkdir -p /mnt/.sandbox-cache/npm /mnt/.sandbox-cache/nuget /mnt/.sandbox-cache/pip &&
+        chmod 1777 /mnt/.sandbox-cache/npm /mnt/.sandbox-cache/nuget /mnt/.sandbox-cache/pip 2>/dev/null || true
+    restart: "no"
+
   sandbox-manager:
+    depends_on:
+      sandbox-cache-init:
+        condition: service_completed_successfully
     build:
       context: ../../..
       dockerfile: infra/sandbox/windows/Dockerfile.manager
@@ -12,6 +28,10 @@ services:
       # This works for both WSL2 and Hyper-V backends.
       - /var/run/docker.sock:/var/run/docker.sock
       - ../../../certs:/certs:ro
+      # Defaults under repo root (Docker Desktop file sharing). Override DEVPILOT_*_HOST for /opt on Linux.
+      - ${DEVPILOT_NPM_CACHE_HOST:-../../../.sandbox-cache/npm}:/opt/npm-cache
+      - ${DEVPILOT_NUGET_CACHE_HOST:-../../../.sandbox-cache/nuget}:/opt/nuget-cache
+      - ${DEVPILOT_PIP_CACHE_HOST:-../../../.sandbox-cache/pip}:/opt/pip-cache
     env_file:
       - .env
     restart: unless-stopped

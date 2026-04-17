@@ -137,6 +137,39 @@ This is the image that runs **once on the host** (or as a single K8s Pod). It is
 **Source:** `infra/sandbox/manager/`  
 **Built by:** `setup-local.sh` / `setup-local.ps1` (K8s), or `docker-compose` (Windows Docker mode)
 
+### Host package caches (npm / NuGet / pip)
+
+Each `devpilot-desktop` sandbox uses **`/opt/npm-cache`**, **`/opt/nuget-cache`**, and **`/opt/pip-cache`** inside the container (see `setup.sh`). The manager bind-mounts host directories there and sets **`NPM_CONFIG_CACHE`**, **`NUGET_*`**, **`PIP_CACHE_DIR`** when mounts are present (`manager.py`).
+
+| Tool | In-container paths | Env vars (set by manager when caches are mounted) |
+|------|--------------------|---------------------------------------------------|
+| npm | `/opt/npm-cache` | `NPM_CONFIG_CACHE=/opt/npm-cache` |
+| NuGet | `/opt/nuget-cache/packages`, `.../http-cache`, `.../plugins-cache`, `.../scratch` | `NUGET_PACKAGES`, `NUGET_HTTP_CACHE_PATH`, `NUGET_PLUGINS_CACHE_PATH`, `NUGET_SCRATCH` ([NuGet cache layout](https://learn.microsoft.com/en-us/nuget/consume-packages/managing-the-global-packages-and-cache-folders)) |
+| pip | `/opt/pip-cache` | `PIP_CACHE_DIR=/opt/pip-cache` |
+
+**Compose (host paths → manager):** root `docker-compose.yml` defaults to **`.sandbox-cache/{npm,nuget,pip}`** under the repo so **Docker Desktop** can bind-mount without adding `/opt` under *Settings → Resources → File Sharing*. A one-shot service **`sandbox-cache-init`** runs before **`sandbox-manager`** so those directories exist (avoids Docker failing to create the bind source and **`POST /sandboxes` returning 500**). Override in `.env` with **`DEVPILOT_NPM_CACHE_HOST`**, **`DEVPILOT_NUGET_CACHE_HOST`**, **`DEVPILOT_PIP_CACHE_HOST`** if you use global `/opt/...` instead.
+
+If sandboxes are stuck in **`Created`** state from a failed start, remove them: `docker rm -f sandbox-<id>` (or `docker container prune`).
+
+**Manager on the host** (Python not in Docker): if **`/opt/npm-cache`** (and siblings) exist on the host, they are mounted into sandboxes automatically.
+
+**Linux VPS (full `setup.sh`, not `BUILD_ONLY`):** the script creates **`/opt/npm-cache`**, **`/opt/nuget-cache/...`**, **`/opt/pip-cache`** with **`chmod 1777`** on the host so the native manager can bind-mount them into sandboxes.
+
+**Repo-local caches:** `deploy.sh` and **`infra/sandbox/setup.sh`** both ensure **`<repo>/.sandbox-cache/{npm,nuget,pip}`** exists (same paths as `docker-compose.yml`). Run **`bash deploy.sh`** before starting the manager, or run setup from the repo so those dirs exist.
+
+**Manager overrides (optional):**
+
+| Variable | Purpose |
+|----------|---------|
+| `SANDBOX_PACKAGE_CACHE_MOUNTS` | `false` / `0` / `off` — disable cache bind mounts into sandboxes. |
+| `SANDBOX_NPM_CACHE_HOST` | Explicit Docker-host path for npm cache (overrides discovery). |
+| `SANDBOX_NUGET_CACHE_HOST` | Explicit host path for NuGet tree. |
+| `SANDBOX_PIP_CACHE_HOST` | Explicit host path for pip cache. |
+
+If you use **`sudo docker compose`**, Docker may create **`.sandbox-cache`** as root; fix with `sudo chown -R "$(whoami)" .sandbox-cache` (or run compose without sudo).
+
+**npm note:** cached artifacts live under **`_cacache`** inside the npm cache directory, not as a flat list of package names. Use `npm cache ls` inside a sandbox to see logical cache keys.
+
 ---
 
 ## Run modes

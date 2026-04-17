@@ -59,12 +59,30 @@ services:
     ports:
       - "8000:80"
 
+  # One-shot: creates ./.sandbox-cache/* on the host so Docker can bind-mount them into the manager
+  # (avoids POST /sandboxes 500 when the daemon cannot mkdir the mount source path).
+  sandbox-cache-init:
+    image: alpine:3.20
+    pull_policy: if_not_present
+    volumes:
+      - .:/mnt:rw
+    command:
+      - /bin/sh
+      - -c
+      - >-
+        mkdir -p /mnt/.sandbox-cache/npm /mnt/.sandbox-cache/nuget /mnt/.sandbox-cache/pip &&
+        chmod 1777 /mnt/.sandbox-cache/npm /mnt/.sandbox-cache/nuget /mnt/.sandbox-cache/pip 2>/dev/null || true
+    restart: "no"
+
   # ── Sandbox Manager (Python Flask) ───────────────────────────────────────────
   sandbox-manager:
     image: devpilot-manager:latest
     build:
       context: .
       dockerfile: infra/sandbox/manager/Dockerfile
+    depends_on:
+      sandbox-cache-init:
+        condition: service_completed_successfully
     environment:
       MANAGER_API_KEY: ${MANAGER_API_KEY}
       HOST_IP:         ${PUBLIC_IP:-localhost}
@@ -74,6 +92,12 @@ services:
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - ./certs:/certs:ro
+      # Host tool caches → manager discovers these mounts and re-binds into each sandbox.
+      # Defaults live under the repo so Docker Desktop for Mac can bind-mount without adding /opt
+      # under Settings → Resources → File Sharing. Override with DEVPILOT_*_HOST for /opt/... on Linux.
+      - ${DEVPILOT_NPM_CACHE_HOST:-./.sandbox-cache/npm}:/opt/npm-cache
+      - ${DEVPILOT_NUGET_CACHE_HOST:-./.sandbox-cache/nuget}:/opt/nuget-cache
+      - ${DEVPILOT_PIP_CACHE_HOST:-./.sandbox-cache/pip}:/opt/pip-cache
     ports:
       - "8090:8090"
 

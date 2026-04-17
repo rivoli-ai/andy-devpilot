@@ -111,6 +111,12 @@ else
     compose build "$MANAGER_SERVICE"
 fi
 
+step "Package cache dirs for compose bind mounts (${REPO_ROOT}/.sandbox-cache)..."
+mkdir -p "$REPO_ROOT/.sandbox-cache"
+mkdir -p "$REPO_ROOT/.sandbox-cache/npm" "$REPO_ROOT/.sandbox-cache/nuget" "$REPO_ROOT/.sandbox-cache/pip"
+chmod 1777 "$REPO_ROOT/.sandbox-cache/npm" "$REPO_ROOT/.sandbox-cache/nuget" "$REPO_ROOT/.sandbox-cache/pip" 2>/dev/null || true
+info "Ready (chmod 1777 may require fixing ownership if dirs were created by root)."
+
 step "Starting ${MANAGER_SERVICE} (frontend/backend/postgres are not started)..."
 compose up -d --no-build "$MANAGER_SERVICE"
 

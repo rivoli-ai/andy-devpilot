@@ -15,6 +15,7 @@ import threading
 import time
 import os
 import json
+import traceback
 import requests as http_requests
 import websocket as ws_client
 
@@ -43,6 +44,15 @@ def _running_inside_docker() -> bool:
         return False
 
 MANAGER_IN_DOCKER = _running_inside_docker()
+
+# Propagate host bind mounts into each devpilot-desktop container (npm / NuGet / pip).
+# See infra/sandbox/README.md (Host package caches).
+SANDBOX_PACKAGE_CACHE_MOUNTS = os.environ.get("SANDBOX_PACKAGE_CACHE_MOUNTS", "true").lower() in (
+    "1",
+    "true",
+    "yes",
+    "on",
+)
 
 
 def _build_sandbox_urls(sandbox_id: str, vnc_port: int = 0, bridge_port: int = 0) -> tuple[str, str]:
@@ -88,23 +98,73 @@ else:
     import socket as _socket
     docker_client = docker_sdk.from_env()
 
-    def _discover_host_certs_dir() -> str | None:
-        """Find the host path that is bind-mounted to /certs on this container."""
+    def _discover_host_bind_mount(destination: str) -> str | None:
+        """Return the host path bind-mounted to *destination* on this container, if any."""
         try:
             hostname = _socket.gethostname()
             info = docker_client.api.inspect_container(hostname)
             for mount in info.get("Mounts", []):
-                if mount.get("Destination") == "/certs" and mount.get("Type") == "bind":
-                    return mount["Source"]
+                if mount.get("Destination") == destination and mount.get("Type") == "bind":
+                    return mount.get("Source")
         except Exception:
             pass
         return None
+
+    def _discover_host_certs_dir() -> str | None:
+        """Find the host path that is bind-mounted to /certs on this container."""
+        return _discover_host_bind_mount("/certs")
 
     HOST_CERTS_DIR = _discover_host_certs_dir()
     if HOST_CERTS_DIR:
         print(f"[Docker] Host certs directory: {HOST_CERTS_DIR}")
     else:
         print("[Docker] No host certs mount detected — sandbox containers won't get extra CAs")
+
+    def _host_bind_source_for_sandbox_cache(container_mount: str, override_env: str) -> str | None:
+        """Resolve the host path to bind into the sandbox for a shared tool cache.
+
+        Precedence:
+        1) *override_env* if set (absolute path on the Docker host).
+        2) Inspect this container for a bind mount at *container_mount* (manager-in-Docker).
+        3) If the manager runs on the host, use *container_mount* when that directory exists.
+        """
+        explicit = os.environ.get(override_env, "").strip()
+        if explicit:
+            return explicit
+        discovered = _discover_host_bind_mount(container_mount)
+        if discovered:
+            return discovered
+        if not MANAGER_IN_DOCKER and os.path.isdir(container_mount):
+            return container_mount
+        return None
+
+    def _docker_mount_package_caches(volumes: dict) -> None:
+        if not SANDBOX_PACKAGE_CACHE_MOUNTS:
+            return
+        for container_path, override_env in (
+            ("/opt/npm-cache", "SANDBOX_NPM_CACHE_HOST"),
+            ("/opt/nuget-cache", "SANDBOX_NUGET_CACHE_HOST"),
+            ("/opt/pip-cache", "SANDBOX_PIP_CACHE_HOST"),
+        ):
+            src = _host_bind_source_for_sandbox_cache(container_path, override_env)
+            if src:
+                volumes[src] = {"bind": container_path, "mode": "rw"}
+                print(f"[Docker] Sandbox package cache: {src} -> {container_path}")
+
+    def _docker_env_for_package_cache_mounts(volumes: dict) -> dict:
+        """Set tool cache env vars for any package-cache bind mounts (works with older desktop images)."""
+        binds = {spec["bind"] for spec in volumes.values() if isinstance(spec, dict) and spec.get("bind")}
+        env: dict[str, str] = {}
+        if "/opt/npm-cache" in binds:
+            env["NPM_CONFIG_CACHE"] = "/opt/npm-cache"
+        if "/opt/nuget-cache" in binds:
+            env["NUGET_PACKAGES"] = "/opt/nuget-cache/packages"
+            env["NUGET_HTTP_CACHE_PATH"] = "/opt/nuget-cache/http-cache"
+            env["NUGET_PLUGINS_CACHE_PATH"] = "/opt/nuget-cache/plugins-cache"
+            env["NUGET_SCRATCH"] = "/opt/nuget-cache/scratch"
+        if "/opt/pip-cache" in binds:
+            env["PIP_CACHE_DIR"] = "/opt/pip-cache"
+        return env
 
     def _ensure_sandbox_network():
         """Create the shared Docker bridge network if it doesn't exist, and attach this manager container."""
@@ -315,6 +375,8 @@ def _docker_create_sandbox():
     volumes = {}
     if HOST_CERTS_DIR:
         volumes[HOST_CERTS_DIR] = {"bind": "/usr/local/share/ca-certificates/custom", "mode": "ro"}
+    _docker_mount_package_caches(volumes)
+    environment = {**environment, **_docker_env_for_package_cache_mounts(volumes)}
 
     ports = None
     if not MANAGER_IN_DOCKER:
@@ -352,6 +414,8 @@ def _docker_create_sandbox():
         }), 201
 
     except Exception as e:
+        print(f"[Docker] create_sandbox failed: {e!r}")
+        traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 

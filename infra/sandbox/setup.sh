@@ -91,6 +91,21 @@ else
 
     log_info "Cleanup complete!"
 fi
+
+# Repo-local package caches (same paths as root docker-compose.yml bind mounts).
+if [ -n "${SCRIPT_SOURCE_DIR:-}" ]; then
+    _REPO_FOR_CACHE="$(cd "$SCRIPT_SOURCE_DIR/../.." && pwd 2>/dev/null)"
+    if [ -f "$_REPO_FOR_CACHE/docker-compose.yml" ]; then
+        mkdir -p "$_REPO_FOR_CACHE/.sandbox-cache"
+        mkdir -p "$_REPO_FOR_CACHE/.sandbox-cache/npm" "$_REPO_FOR_CACHE/.sandbox-cache/nuget" "$_REPO_FOR_CACHE/.sandbox-cache/pip"
+        if chmod 1777 "$_REPO_FOR_CACHE/.sandbox-cache/npm" "$_REPO_FOR_CACHE/.sandbox-cache/nuget" "$_REPO_FOR_CACHE/.sandbox-cache/pip" 2>/dev/null; then
+            log_info "Package cache dirs (compose): $_REPO_FOR_CACHE/.sandbox-cache/{npm,nuget,pip}"
+        else
+            log_warn "Could not chmod 1777 .sandbox-cache (fix: chmod -R 1777 $_REPO_FOR_CACHE/.sandbox-cache or chown to your user)."
+        fi
+    fi
+fi
+
 echo ""
 
 # ============================================================
@@ -109,6 +124,18 @@ fi
 log_info "Creating project: $PROJECT_DIR"
 mkdir -p "$PROJECT_DIR"
 cd "$PROJECT_DIR"
+
+# Global /opt caches on Linux VPS (native manager auto-mounts when these paths exist).
+if [ "$IS_LINUX" = true ] && [ "${BUILD_ONLY:-0}" != "1" ]; then
+    log_info "Creating /opt package cache directories for sandboxes..."
+    mkdir -p /opt/npm-cache \
+        /opt/nuget-cache/packages /opt/nuget-cache/http-cache \
+        /opt/nuget-cache/plugins-cache /opt/nuget-cache/scratch \
+        /opt/pip-cache
+    chmod 1777 /opt/npm-cache /opt/pip-cache /opt/nuget-cache \
+        /opt/nuget-cache/packages /opt/nuget-cache/http-cache \
+        /opt/nuget-cache/plugins-cache /opt/nuget-cache/scratch
+fi
 
 # ============================================================
 # Create Desktop Dockerfile (the actual sandbox environment)
@@ -419,6 +446,22 @@ ENV DOTNET_NUGET_SIGNATURE_VERIFICATION=false
 # npm: disable strict SSL validation
 ENV NODE_TLS_REJECT_UNAUTHORIZED=0
 ENV NPM_CONFIG_STRICT_SSL=false
+
+# Writable dirs for host-bind-mounted package caches (manager re-binds same host paths).
+RUN mkdir -p /opt/npm-cache \
+      /opt/nuget-cache/packages /opt/nuget-cache/http-cache \
+      /opt/nuget-cache/plugins-cache /opt/nuget-cache/scratch \
+      /opt/pip-cache \
+    && chmod 1777 /opt/npm-cache /opt/pip-cache /opt/nuget-cache \
+      /opt/nuget-cache/packages /opt/nuget-cache/http-cache \
+      /opt/nuget-cache/plugins-cache /opt/nuget-cache/scratch
+
+ENV NPM_CONFIG_CACHE=/opt/npm-cache \
+    NUGET_PACKAGES=/opt/nuget-cache/packages \
+    NUGET_HTTP_CACHE_PATH=/opt/nuget-cache/http-cache \
+    NUGET_PLUGINS_CACHE_PATH=/opt/nuget-cache/plugins-cache \
+    NUGET_SCRATCH=/opt/nuget-cache/scratch \
+    PIP_CACHE_DIR=/opt/pip-cache
 
 # Install Firefox directly from Mozilla (Ubuntu snap packages don't work in Docker)
 # Uses retry and fallback to handle SSL/network issues

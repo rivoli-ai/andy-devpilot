@@ -62,6 +62,10 @@ services:
       HTTPS_PROXY_BASE: ${HTTPS_PROXY_BASE:-}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # Linux VPS: default /opt/... Override DEVPILOT_*_HOST if your host uses other paths.
+      - ${DEVPILOT_NPM_CACHE_HOST:-/opt/npm-cache}:/opt/npm-cache
+      - ${DEVPILOT_NUGET_CACHE_HOST:-/opt/nuget-cache}:/opt/nuget-cache
+      - ${DEVPILOT_PIP_CACHE_HOST:-/opt/pip-cache}:/opt/pip-cache
     ports:
       - "8090:8090"
 
