@@ -3,8 +3,8 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection } from '../../core/services/backlog.service';
-import { RepositoryService, DEFAULT_AGENT_RULES } from '../../core/services/repository.service';
+import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection, ApplyGitHubSyncRequest } from '../../core/services/backlog.service';
+import { RepositoryService, DEFAULT_AGENT_RULES, ReplaceRepositoryAgentRuleItem } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
 import { SandboxService } from '../../core/services/sandbox.service';
 import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
@@ -16,12 +16,25 @@ import { VPS_CONFIG } from '../../core/config/vps.config';
 import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
 import { UserStory } from '../../shared/models/user-story.model';
-import { AddBacklogItemModalComponent, AddItemType, EditItemData } from '../../components/add-backlog-item-modal/add-backlog-item-modal.component';
+import {
+  AddBacklogItemModalComponent,
+  AddItemType,
+  EditItemData,
+  StoryAgentRuleOption
+} from '../../components/add-backlog-item-modal/add-backlog-item-modal.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
-import { Subject, interval, takeUntil, filter, switchMap, forkJoin, EMPTY, catchError } from 'rxjs';
+import { Subject, interval, takeUntil, filter, switchMap, forkJoin, EMPTY, catchError, map } from 'rxjs';
 
 type WorkItemType = 'epic' | 'feature' | 'story';
 type ViewMode = 'tree' | 'flat';
+
+interface RulesProfileRow {
+  id: string | null;
+  name: string;
+  body: string;
+  isDefault: boolean;
+  sortOrder: number;
+}
 
 interface ExpandedState {
   [key: string]: boolean;
@@ -52,7 +65,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   // Agent rules editor
   showRulesModal = signal<boolean>(false);
-  rulesEditText = signal<string>('');
+  /** Named rule rows shown in the rules modal (loaded from API or legacy + default). */
+  rulesProfiles = signal<RulesProfileRow[]>([]);
+  rulesActiveProfileIndex = signal<number>(0);
+  /** Options for the per-story rule dropdown (from GET agent-rules). */
+  repositoryStoryRuleOptions = signal<StoryAgentRuleOption[]>([]);
   rulesIsDefault = signal<boolean>(true);
   rulesSaving = signal<boolean>(false);
   rulesLoading = signal<boolean>(false);
@@ -124,13 +141,12 @@ export class BacklogComponent implements OnInit, OnDestroy {
   adoShowAllStatuses = signal<boolean>(false);
   adoNameFilter = signal<string>('');
 
-  // Sync to GitHub state
-  syncToGitHubLoading = signal<boolean>(false);
-  syncToGitHubError = signal<string | null>(null);
-  syncToGitHubSuccess = signal<{ syncedCount: number; failedCount: number } | null>(null);
   selectedSyncToAzureEpics = signal<Set<string>>(new Set());
   selectedSyncToAzureFeatures = signal<Set<string>>(new Set());
   selectedSyncToAzureStories = signal<Set<string>>(new Set());
+
+  /** Which external system the unified sync modal is targeting (Azure vs GitHub). */
+  backlogSyncProvider = signal<'azure' | 'github'>('azure');
 
   /** Unified Azure sync: plan per-item direction, then create / pull / push. */
   showAzureSyncModal = signal<boolean>(false);
@@ -593,6 +609,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
         }
         this.loading.set(false);
 
+        this.refreshStoryRuleOptions(repositoryId);
+
         // Auto-sync PR statuses if we have stories with PRs
         this.syncPrStatuses(repositoryId, epics);
       },
@@ -791,7 +809,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
       description: story.description,
       acceptanceCriteria: story.acceptanceCriteria,
       storyPoints: story.storyPoints,
-      status: story.status
+      status: story.status,
+      repositoryAgentRuleId: story.repositoryAgentRuleId != null ? String(story.repositoryAgentRuleId) : undefined
     });
   }
 
@@ -938,6 +957,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
     storyPoints?: number;
     parentId?: string;
     status?: string;
+    repositoryAgentRuleId?: string | null;
+    updateRepositoryAgentRule?: boolean;
   }): void {
     const type = this.addModalType();
     const parentId = data.parentId ?? this.addModalParentId();
@@ -1013,7 +1034,13 @@ export class BacklogComponent implements OnInit, OnDestroy {
           data.acceptanceCriteria,
           data.storyPoints,
           data.status,
-          repoId
+          repoId,
+          data.updateRepositoryAgentRule
+            ? {
+                updateRepositoryAgentRule: true,
+                repositoryAgentRuleId: data.repositoryAgentRuleId ?? null
+              }
+            : undefined
         ).subscribe({
           next: () => {
             this.backlogService.getBacklog(repoId).subscribe(epics => this.epics.set(epics));
@@ -1149,7 +1176,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
       repo_branch: branch,
       repo_archive_url: repoArchiveUrl,
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
-      agent_rules: repo.agentRules || DEFAULT_AGENT_RULES,
+      story_id: story.id
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created for user story:', story.title);
@@ -1955,6 +1982,8 @@ ${jsonFormatRequirement}`;
 
   openAzureSyncModal(): void {
     if (!this.hasSyncSelection()) return;
+    if (this.repository()?.provider !== 'AzureDevOps') return;
+    this.backlogSyncProvider.set('azure');
     this.showAzureSyncModal.set(true);
     this.azureSyncModalError.set(null);
     this.azureSyncPlanRows.set([]);
@@ -1997,6 +2026,7 @@ ${jsonFormatRequirement}`;
 
   closeAzureSyncModal(): void {
     this.showAzureSyncModal.set(false);
+    this.backlogSyncProvider.set('azure');
     this.azureSyncModalError.set(null);
     this.azureSyncStep.set('target');
     this.azureSyncPlanSuggestedSummary.set(null);
@@ -2038,6 +2068,7 @@ ${jsonFormatRequirement}`;
 
   /** Show project picker on plan step (non–Azure DevOps repo or project not inferred). */
   azureSyncShowProjectOnPlanStep(): boolean {
+    if (this.backlogSyncProvider() === 'github') return false;
     const repo = this.repository();
     if (repo?.provider !== 'AzureDevOps') return true;
     return !this.azureSyncProject().trim();
@@ -2104,46 +2135,60 @@ ${jsonFormatRequirement}`;
     const featureIds = Array.from(this.selectedSyncToAzureFeatures());
     const storyIds = Array.from(this.selectedSyncToAzureStories());
 
-    this.backlogService
-      .planAzureSync(repoId, { epicIds, featureIds, storyIds })
-      .subscribe({
-        next: (plan) => {
-          this.azureSyncPlanLoading.set(false);
-          if (!plan.items?.length) {
-            this.azureSyncModalError.set('No matching backlog rows for the current selection.');
-            if (this.azureSyncSkippedTarget()) {
-              this.azureSyncSkippedTarget.set(false);
-              this.azureSyncStep.set('target');
-            }
-            return;
-          }
-          const createCount = plan.summary?.create ?? 0;
-          if (createCount > 0 && this.azureSyncSkippedTarget()) {
-            this.azureSyncSkippedTarget.set(false);
-            this.azureSyncStep.set('target');
-            this.azureSyncModalError.set(
-              'Some selected items are not linked to Azure yet. Choose a project and team, then continue to plan.'
-            );
-            return;
-          }
-          this.azureSyncPlanRows.set(
-            plan.items.map((it) => ({
-              ...it,
-              direction: it.suggestedDirection
-            }))
-          );
-          this.azureSyncPlanSuggestedSummary.set(plan.summary ?? null);
-          this.azureSyncStep.set('plan');
-        },
-        error: (err) => {
-          this.azureSyncPlanLoading.set(false);
-          this.azureSyncModalError.set(err.error?.message || err.message || 'Could not build sync plan.');
+    const body = { epicIds, featureIds, storyIds };
+    const plan$ =
+      this.backlogSyncProvider() === 'github'
+        ? this.backlogService.planGitHubSync(repoId, body)
+        : this.backlogService.planAzureSync(repoId, body);
+
+    plan$.subscribe({
+      next: (plan) => {
+        this.azureSyncPlanLoading.set(false);
+        if (!plan.items?.length) {
+          this.azureSyncModalError.set('No matching backlog rows for the current selection.');
           if (this.azureSyncSkippedTarget()) {
             this.azureSyncSkippedTarget.set(false);
             this.azureSyncStep.set('target');
+          } else if (this.backlogSyncProvider() === 'github') {
+            this.azureSyncStep.set('plan');
           }
+          return;
         }
-      });
+        const createCount = plan.summary?.create ?? 0;
+        if (this.backlogSyncProvider() === 'azure' && createCount > 0 && this.azureSyncSkippedTarget()) {
+          this.azureSyncSkippedTarget.set(false);
+          this.azureSyncStep.set('target');
+          this.azureSyncModalError.set(
+            'Some selected items are not linked to Azure yet. Choose a project and team, then continue to plan.'
+          );
+          return;
+        }
+        this.azureSyncPlanRows.set(
+          plan.items.map((it) => ({
+            entityType: it.entityType,
+            id: it.id,
+            title: it.title,
+            source: it.source,
+            azureDevOpsWorkItemId: it.azureDevOpsWorkItemId,
+            gitHubIssueNumber: it.gitHubIssueNumber,
+            suggestedDirection: it.suggestedDirection,
+            direction: it.suggestedDirection
+          }))
+        );
+        this.azureSyncPlanSuggestedSummary.set(plan.summary ?? null);
+        this.azureSyncStep.set('plan');
+      },
+      error: (err) => {
+        this.azureSyncPlanLoading.set(false);
+        this.azureSyncModalError.set(err.error?.message || err.message || 'Could not build sync plan.');
+        if (this.azureSyncSkippedTarget()) {
+          this.azureSyncSkippedTarget.set(false);
+          this.azureSyncStep.set('target');
+        } else if (this.backlogSyncProvider() === 'github') {
+          this.azureSyncStep.set('plan');
+        }
+      }
+    });
   }
 
   setAzureSyncRowDirection(
@@ -2151,8 +2196,13 @@ ${jsonFormatRequirement}`;
     direction: AzureSyncDirection | string
   ): void {
     const d = direction as AzureSyncDirection;
-    if (!row.azureDevOpsWorkItemId && d !== 'create') return;
-    if (row.azureDevOpsWorkItemId && d === 'create') return;
+    if (this.backlogSyncProvider() === 'github') {
+      if (row.gitHubIssueNumber == null && d !== 'create') return;
+      if (row.gitHubIssueNumber != null && d === 'create') return;
+    } else {
+      if (!row.azureDevOpsWorkItemId && d !== 'create') return;
+      if (row.azureDevOpsWorkItemId && d === 'create') return;
+    }
     const rows = this.azureSyncPlanRows().map((r) =>
       r.id === row.id && r.entityType === row.entityType ? { ...r, direction: d } : r
     );
@@ -2160,6 +2210,10 @@ ${jsonFormatRequirement}`;
   }
 
   backToAzureSyncTarget(): void {
+    if (this.backlogSyncProvider() === 'github') {
+      this.closeAzureSyncModal();
+      return;
+    }
     if (this.azureSyncSkippedTarget()) {
       this.closeAzureSyncModal();
       return;
@@ -2171,12 +2225,6 @@ ${jsonFormatRequirement}`;
   submitAzureSyncApply(): void {
     const repoId = this.repositoryId();
     if (!repoId) return;
-    const project = this.azureSyncProject().trim();
-    if (!project) {
-      this.azureSyncModalError.set('Select an Azure project.');
-      return;
-    }
-    const teamId = this.azureSyncTeamId().trim();
     const rows = this.azureSyncPlanRows();
     const createEpicIds: string[] = [];
     const createFeatureIds: string[] = [];
@@ -2205,6 +2253,71 @@ ${jsonFormatRequirement}`;
       }
     }
 
+    const applyBody: ApplyGitHubSyncRequest = {
+      pullEpicIds,
+      pullFeatureIds,
+      pullStoryIds,
+      pushEpicIds,
+      pushFeatureIds,
+      pushStoryIds,
+      createEpicIds,
+      createFeatureIds,
+      createStoryIds
+    };
+
+    if (this.backlogSyncProvider() === 'github') {
+      this.azureSyncModalError.set(null);
+      this.azureSyncApplyLoading.set(true);
+      this.backlogService.applyGitHubSync(repoId, applyBody).subscribe({
+        next: (res) => {
+          this.azureSyncApplyLoading.set(false);
+          this.closeAzureSyncModal();
+          this.azureSyncBannerError.set(null);
+          const touched = res.createdCount + res.pulledCount + res.pushedCount > 0;
+          if (touched) {
+            this.loadBacklog(repoId);
+          }
+          if (res.success) {
+            this.azureSyncBannerSuccess.set({
+              createdCount: res.createdCount,
+              pulledCount: res.pulledCount,
+              pushedCount: res.pushedCount,
+              failedCount: res.failedCount
+            });
+          } else {
+            this.azureSyncBannerError.set(res.errors?.[0] || 'Some sync operations failed.');
+            this.azureSyncBannerSuccess.set(
+              touched
+                ? {
+                    createdCount: res.createdCount,
+                    pulledCount: res.pulledCount,
+                    pushedCount: res.pushedCount,
+                    failedCount: res.failedCount
+                  }
+                : null
+            );
+          }
+        },
+        error: (err) => {
+          this.azureSyncApplyLoading.set(false);
+          const msg =
+            err.error?.message ||
+            err.error?.errors?.[0] ||
+            (Array.isArray(err.error?.errors) ? err.error.errors.join(' ') : null) ||
+            err.message ||
+            'Request failed';
+          this.azureSyncModalError.set(msg);
+        }
+      });
+      return;
+    }
+
+    const project = this.azureSyncProject().trim();
+    if (!project) {
+      this.azureSyncModalError.set('Select an Azure project.');
+      return;
+    }
+    const teamId = this.azureSyncTeamId().trim();
     const anyCreate = createEpicIds.length + createFeatureIds.length + createStoryIds.length > 0;
     if (anyCreate && !teamId) {
       this.azureSyncModalError.set('Select a team — it is required to create new work items.');
@@ -2272,45 +2385,17 @@ ${jsonFormatRequirement}`;
       });
   }
 
-  syncToGitHub(): void {
-    const repoId = this.repositoryId();
-    if (!repoId) return;
-    this.syncToGitHubLoading.set(true);
-    this.syncToGitHubError.set(null);
-    this.syncToGitHubSuccess.set(null);
-    const epics = this.epics();
-    const epicIds = Array.from(this.selectedSyncToAzureEpics()).filter(() => false); // Epics don't have gitHubIssueNumber in our import
-    const featureIds = Array.from(this.selectedSyncToAzureFeatures()).filter(id => {
-      for (const e of epics) {
-        const f = e.features?.find(x => x.id === id);
-        if (f) return f.source === 'GitHub' && f.gitHubIssueNumber != null;
-      }
-      return false;
-    });
-    const storyIds = Array.from(this.selectedSyncToAzureStories()).filter(id => {
-      for (const e of epics) {
-        for (const f of e.features || []) {
-          const s = f.userStories?.find(x => x.id === id);
-          if (s) return s.source === 'GitHub' && s.gitHubIssueNumber != null;
-        }
-      }
-      return false;
-    });
-    this.backlogService.syncToGitHub(repoId, { epicIds, featureIds, storyIds }).subscribe({
-      next: (res) => {
-        this.syncToGitHubLoading.set(false);
-        if (res.success) {
-          this.syncToGitHubSuccess.set({ syncedCount: res.syncedCount, failedCount: res.failedCount });
-        } else {
-          this.syncToGitHubError.set(res.errors?.[0] || 'Sync failed');
-          this.syncToGitHubSuccess.set(res.syncedCount > 0 ? { syncedCount: res.syncedCount, failedCount: res.failedCount } : null);
-        }
-      },
-      error: (err) => {
-        this.syncToGitHubLoading.set(false);
-        this.syncToGitHubError.set(err.error?.message || err.message || 'Failed to sync to GitHub');
-      }
-    });
+  openGitHubSyncModal(): void {
+    if (!this.hasSyncSelection()) return;
+    if (this.repository()?.provider !== 'GitHub') return;
+    this.backlogSyncProvider.set('github');
+    this.showAzureSyncModal.set(true);
+    this.azureSyncModalError.set(null);
+    this.azureSyncPlanRows.set([]);
+    this.azureSyncPlanSuggestedSummary.set(null);
+    this.azureSyncSkippedTarget.set(false);
+    this.azureSyncStep.set('loading');
+    this.fetchAzureSyncPlan();
   }
 
   openAzureDevOpsImport(): void {
@@ -3115,6 +3200,112 @@ ${jsonFormatRequirement}`;
     });
   }
 
+  private refreshStoryRuleOptions(repositoryId: string): void {
+    this.repositoryService.getRepositoryAgentRules(repositoryId).subscribe({
+      next: res => {
+        const opts: StoryAgentRuleOption[] = (res.rules ?? []).map(r => ({
+          id: r.id,
+          name: r.isDefault ? `${r.name} (default)` : r.name,
+          isDefault: r.isDefault
+        }));
+        this.repositoryStoryRuleOptions.set(opts);
+      },
+      error: () => this.repositoryStoryRuleOptions.set([])
+    });
+  }
+
+  activeRulesProfile(): RulesProfileRow | null {
+    const rows = this.rulesProfiles();
+    const i = this.rulesActiveProfileIndex();
+    return rows[i] ?? null;
+  }
+
+  patchActiveRulesProfile(partial: Partial<RulesProfileRow>): void {
+    const idx = this.rulesActiveProfileIndex();
+    this.rulesProfiles.update(rows => {
+      if (!rows[idx]) return rows;
+      const next = [...rows];
+      next[idx] = { ...next[idx], ...partial };
+      return next;
+    });
+  }
+
+  selectRulesProfileIndex(i: number): void {
+    const rows = this.rulesProfiles();
+    if (i >= 0 && i < rows.length) {
+      this.rulesActiveProfileIndex.set(i);
+    }
+  }
+
+  addRulesProfileRow(): void {
+    this.rulesProfiles.update(rows => {
+      const isFirst = rows.length === 0;
+      const newRow: RulesProfileRow = {
+        id: null,
+        name: `Rule ${rows.length + 1}`,
+        body: '',
+        isDefault: isFirst,
+        sortOrder: rows.length
+      };
+      return [...rows, newRow];
+    });
+    this.rulesActiveProfileIndex.set(Math.max(0, this.rulesProfiles().length - 1));
+  }
+
+  removeRulesProfileRow(idx: number): void {
+    this.rulesProfiles.update(rows => {
+      if (rows.length <= 1) return rows;
+      const next = rows.filter((_, j) => j !== idx).map((r, j) => ({ ...r, sortOrder: j }));
+      if (!next.some(r => r.isDefault)) {
+        next[0] = { ...next[0], isDefault: true };
+      }
+      return next;
+    });
+    this.rulesActiveProfileIndex.update(cur => Math.min(cur, Math.max(0, this.rulesProfiles().length - 1)));
+  }
+
+  setRulesProfileDefault(idx: number): void {
+    this.rulesProfiles.update(rows => rows.map((r, j) => ({ ...r, isDefault: j === idx })));
+  }
+
+  onRulesDefaultProfileChange(checked: boolean): void {
+    const idx = this.rulesActiveProfileIndex();
+    if (checked) {
+      this.setRulesProfileDefault(idx);
+      return;
+    }
+    this.rulesProfiles.update(rows => {
+      if (rows.length <= 1) {
+        return rows.map(r => ({ ...r, isDefault: true }));
+      }
+      let next = rows.map((r, j) => ({ ...r, isDefault: j === idx ? false : r.isDefault }));
+      if (!next.some(r => r.isDefault)) {
+        const fallback = idx === 0 ? 1 : 0;
+        next = next.map((r, j) => ({ ...r, isDefault: j === fallback }));
+      }
+      return next;
+    });
+  }
+
+  private guidish(id: string | null): string | undefined {
+    if (!id || !/^[0-9a-f-]{36}$/i.test(id)) return undefined;
+    return id;
+  }
+
+  private buildReplaceRulesPayload(): ReplaceRepositoryAgentRuleItem[] {
+    return this.rulesProfiles().map((r, i) => {
+      const id = this.guidish(r.id);
+      const item: ReplaceRepositoryAgentRuleItem = {
+        name: (r.name || `Rule ${i + 1}`).trim(),
+        body: r.body ?? '',
+        isDefault: r.isDefault,
+        sortOrder: i
+      };
+      if (id) item.id = id;
+      return item;
+    });
+  }
+
   openRulesEditor(): void {
     const repo = this.repository();
     if (!repo) return;
@@ -3122,13 +3313,31 @@ ${jsonFormatRequirement}`;
     this.rulesViewMode.set('preview');
     this.showRulesModal.set(true);
     this.repositoryService.getRepositoryAgentRules(repo.id).subscribe({
-      next: (result) => {
-        this.rulesEditText.set(result.agentRules ?? DEFAULT_AGENT_RULES);
-        this.rulesIsDefault.set(result.isDefault);
+      next: result => {
+        let rows: RulesProfileRow[];
+        if (result.rules?.length) {
+          rows = result.rules.map(r => ({
+            id: r.id,
+            name: r.name,
+            body: r.body ?? '',
+            isDefault: r.isDefault,
+            sortOrder: r.sortOrder
+          }));
+        } else {
+          const body =
+            result.legacyAgentRules?.trim() ? result.legacyAgentRules : repo.agentRules?.trim() ? repo.agentRules! : DEFAULT_AGENT_RULES;
+          rows = [{ id: null, name: 'Default', body, isDefault: true, sortOrder: 0 }];
+        }
+        this.rulesProfiles.set(rows);
+        const defIdx = rows.findIndex(r => r.isDefault);
+        this.rulesActiveProfileIndex.set(defIdx >= 0 ? defIdx : 0);
+        this.rulesIsDefault.set(!!result.isDefault);
         this.rulesLoading.set(false);
       },
       error: () => {
-        this.rulesEditText.set(repo.agentRules ?? DEFAULT_AGENT_RULES);
+        const body = repo.agentRules?.trim() ? repo.agentRules : DEFAULT_AGENT_RULES;
+        this.rulesProfiles.set([{ id: null, name: 'Default', body, isDefault: true, sortOrder: 0 }]);
+        this.rulesActiveProfileIndex.set(0);
         this.rulesIsDefault.set(!repo.agentRules);
         this.rulesLoading.set(false);
       }
@@ -3137,7 +3346,8 @@ ${jsonFormatRequirement}`;
 
   closeRulesEditor(): void {
     this.showRulesModal.set(false);
-    this.rulesEditText.set('');
+    this.rulesProfiles.set([]);
+    this.rulesActiveProfileIndex.set(0);
     this.rulesViewMode.set('preview');
     this.rulesSaving.set(false);
     this.rulesLoading.set(false);
@@ -3147,17 +3357,38 @@ ${jsonFormatRequirement}`;
     const repo = this.repository();
     if (!repo) return;
     this.rulesSaving.set(true);
-    const text = this.rulesEditText();
-    this.repositoryService.updateRepositoryAgentRules(repo.id, text).subscribe({
-      next: () => {
-        this.rulesIsDefault.set(false);
-        this.rulesSaving.set(false);
-        this.repository.update(r => r ? { ...r, agentRules: text } : r);
-      },
-      error: () => {
-        this.rulesSaving.set(false);
-      }
-    });
+    const payload = this.buildReplaceRulesPayload();
+    this.repositoryService
+      .replaceRepositoryAgentRules(repo.id, payload)
+      .pipe(
+        switchMap(replaceRes =>
+          this.repositoryService.updateRepositoryAgentRules(repo.id, null).pipe(map(() => replaceRes))
+        )
+      )
+      .subscribe({
+        next: res => {
+          this.rulesIsDefault.set(false);
+          this.rulesSaving.set(false);
+          if (res?.rules?.length) {
+            this.rulesProfiles.set(
+              res.rules.map(r => ({
+                id: r.id,
+                name: r.name,
+                body: r.body ?? '',
+                isDefault: r.isDefault,
+                sortOrder: r.sortOrder
+              }))
+            );
+            const defIdx = this.rulesProfiles().findIndex(r => r.isDefault);
+            this.rulesActiveProfileIndex.set(defIdx >= 0 ? defIdx : 0);
+          }
+          this.repository.update(r => (r ? { ...r, agentRules: null } : r));
+          this.refreshStoryRuleOptions(repo.id);
+        },
+        error: () => {
+          this.rulesSaving.set(false);
+        }
+      });
   }
 
   private azureIdentityWarningDismissStorageKey(repositoryId: string): string {
@@ -3201,7 +3432,7 @@ ${jsonFormatRequirement}`;
 
   openAzureIdentityModal(): void {
     const repo = this.repository();
-    if (!repo) return;
+    if (!repo || repo.provider !== 'AzureDevOps') return;
     this.azureIdentityError.set(null);
     this.azureIdentityVerifySuccess.set(null);
     this.azureIdentityVerifyError.set(null);
@@ -3375,16 +3606,42 @@ ${jsonFormatRequirement}`;
     const repo = this.repository();
     if (!repo) return;
     this.rulesSaving.set(true);
-    this.repositoryService.updateRepositoryAgentRules(repo.id, null).subscribe({
-      next: () => {
-        this.rulesEditText.set(DEFAULT_AGENT_RULES);
-        this.rulesIsDefault.set(true);
-        this.rulesSaving.set(false);
-        this.repository.update(r => r ? { ...r, agentRules: null } : r);
-      },
-      error: () => {
-        this.rulesSaving.set(false);
-      }
-    });
+    const single: ReplaceRepositoryAgentRuleItem[] = [
+      { name: 'Default', body: DEFAULT_AGENT_RULES, isDefault: true, sortOrder: 0 }
+    ];
+    this.repositoryService
+      .replaceRepositoryAgentRules(repo.id, single)
+      .pipe(
+        switchMap(replaceRes =>
+          this.repositoryService.updateRepositoryAgentRules(repo.id, null).pipe(map(() => replaceRes))
+        )
+      )
+      .subscribe({
+        next: res => {
+          this.rulesIsDefault.set(true);
+          this.rulesSaving.set(false);
+          if (res?.rules?.length) {
+            this.rulesProfiles.set(
+              res.rules.map(r => ({
+                id: r.id,
+                name: r.name,
+                body: r.body ?? '',
+                isDefault: r.isDefault,
+                sortOrder: r.sortOrder
+              }))
+            );
+          } else {
+            this.rulesProfiles.set([
+              { id: null, name: 'Default', body: DEFAULT_AGENT_RULES, isDefault: true, sortOrder: 0 }
+            ]);
+          }
+          this.rulesActiveProfileIndex.set(0);
+          this.repository.update(r => (r ? { ...r, agentRules: null } : r));
+          this.refreshStoryRuleOptions(repo.id);
+        },
+        error: () => {
+          this.rulesSaving.set(false);
+        }
+      });
   }
 }

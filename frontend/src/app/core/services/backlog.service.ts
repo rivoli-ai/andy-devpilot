@@ -195,9 +195,19 @@ export class BacklogService {
     repositoryId?: string,
     source?: string,
     azureDevOpsWorkItemId?: number,
-    gitHubIssueNumber?: number
+    gitHubIssueNumber?: number,
+    repositoryAgentRuleId?: string | null
   ): Observable<UserStory> {
-    const body: { title: string; description?: string; acceptanceCriteria?: string; storyPoints?: number; source?: string; azureDevOpsWorkItemId?: number; gitHubIssueNumber?: number } = {
+    const body: {
+      title: string;
+      description?: string;
+      acceptanceCriteria?: string;
+      storyPoints?: number;
+      source?: string;
+      azureDevOpsWorkItemId?: number;
+      gitHubIssueNumber?: number;
+      repositoryAgentRuleId?: string;
+    } = {
       title,
       description,
       acceptanceCriteria,
@@ -206,6 +216,7 @@ export class BacklogService {
     if (source) body.source = source;
     if (azureDevOpsWorkItemId != null) body.azureDevOpsWorkItemId = azureDevOpsWorkItemId;
     if (gitHubIssueNumber != null) body.gitHubIssueNumber = gitHubIssueNumber;
+    if (repositoryAgentRuleId) body.repositoryAgentRuleId = repositoryAgentRuleId;
     return this.apiService.post<UserStory>(`/backlog/feature/${featureId}/story`, body).pipe(
       tap(() => repositoryId && this.getBacklog(repositoryId).subscribe())
     );
@@ -260,15 +271,29 @@ export class BacklogService {
     acceptanceCriteria?: string,
     storyPoints?: number,
     status?: string,
-    repositoryId?: string
+    repositoryId?: string,
+    ruleUpdate?: { updateRepositoryAgentRule: boolean; repositoryAgentRuleId?: string | null }
   ): Observable<UserStory> {
-    return this.apiService.put<UserStory>(`/backlog/story/${storyId}`, {
+    const body: {
+      title: string;
+      description?: string;
+      acceptanceCriteria?: string;
+      storyPoints?: number;
+      status?: string;
+      updateRepositoryAgentRule?: boolean;
+      repositoryAgentRuleId?: string | null;
+    } = {
       title,
       description,
       acceptanceCriteria,
       storyPoints,
       status
-    }).pipe(
+    };
+    if (ruleUpdate?.updateRepositoryAgentRule) {
+      body.updateRepositoryAgentRule = true;
+      body.repositoryAgentRuleId = ruleUpdate.repositoryAgentRuleId ?? null;
+    }
+    return this.apiService.put<UserStory>(`/backlog/story/${storyId}`, body).pipe(
       tap(() => repositoryId && this.getBacklog(repositoryId).subscribe())
     );
   }
@@ -292,6 +317,29 @@ export class BacklogService {
   applyAzureSync(repositoryId: string, body: ApplyAzureSyncRequest): Observable<ApplyAzureSyncResponse> {
     return this.apiService
       .post<ApplyAzureSyncResponse>(`/backlog/repository/${repositoryId}/azure-sync/apply`, body)
+      .pipe(
+        tap(res => {
+          if (res.createdCount > 0 || res.pulledCount > 0 || res.pushedCount > 0) {
+            this.getBacklog(repositoryId).subscribe();
+          }
+        })
+      );
+  }
+
+  /** Preview GitHub sync: per-row create / pull / push (same UX as Azure plan). */
+  planGitHubSync(
+    repositoryId: string,
+    body: { epicIds: string[]; featureIds: string[]; storyIds: string[] }
+  ): Observable<AzureSyncPlanResponse> {
+    return this.apiService.post<AzureSyncPlanResponse>(
+      `/backlog/repository/${repositoryId}/github-sync/plan`,
+      body
+    );
+  }
+
+  applyGitHubSync(repositoryId: string, body: ApplyGitHubSyncRequest): Observable<ApplyGitHubSyncResponse> {
+    return this.apiService
+      .post<ApplyGitHubSyncResponse>(`/backlog/repository/${repositoryId}/github-sync/apply`, body)
       .pipe(
         tap(res => {
           if (res.createdCount > 0 || res.pulledCount > 0 || res.pushedCount > 0) {
@@ -862,6 +910,8 @@ export interface AzureSyncPlanItemResponse {
   title: string;
   source?: string;
   azureDevOpsWorkItemId?: number;
+  /** Present for GitHub unified sync plan rows. */
+  gitHubIssueNumber?: number;
   suggestedDirection: AzureSyncDirection;
 }
 
@@ -885,6 +935,27 @@ export interface ApplyAzureSyncRequest {
 }
 
 export interface ApplyAzureSyncResponse {
+  success: boolean;
+  createdCount: number;
+  pulledCount: number;
+  pushedCount: number;
+  failedCount: number;
+  errors: string[];
+}
+
+export interface ApplyGitHubSyncRequest {
+  pullEpicIds: string[];
+  pullFeatureIds: string[];
+  pullStoryIds: string[];
+  pushEpicIds: string[];
+  pushFeatureIds: string[];
+  pushStoryIds: string[];
+  createEpicIds: string[];
+  createFeatureIds: string[];
+  createStoryIds: string[];
+}
+
+export interface ApplyGitHubSyncResponse {
   success: boolean;
   createdCount: number;
   pulledCount: number;

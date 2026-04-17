@@ -32,6 +32,7 @@ public class BacklogController : ControllerBase
     private readonly IRepositoryRepository _repositoryRepository;
     private readonly IEffectiveAiConfigResolver _effectiveAiConfigResolver;
     private readonly IConfiguration _configuration;
+    private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
 
     public BacklogController(
         IMediator mediator, 
@@ -45,7 +46,8 @@ public class BacklogController : ControllerBase
         IUserRepository userRepository,
         IRepositoryRepository repositoryRepository,
         IEffectiveAiConfigResolver effectiveAiConfigResolver,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IRepositoryAgentRuleRepository repositoryAgentRuleRepository)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
@@ -59,6 +61,7 @@ public class BacklogController : ControllerBase
         _repositoryRepository = repositoryRepository ?? throw new ArgumentNullException(nameof(repositoryRepository));
         _effectiveAiConfigResolver = effectiveAiConfigResolver ?? throw new ArgumentNullException(nameof(effectiveAiConfigResolver));
         _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _repositoryAgentRuleRepository = repositoryAgentRuleRepository ?? throw new ArgumentNullException(nameof(repositoryAgentRuleRepository));
     }
 
     /// <summary>
@@ -185,7 +188,8 @@ public class BacklogController : ControllerBase
             request.StoryPoints,
             request.Source,
             request.AzureDevOpsWorkItemId,
-            request.GitHubIssueNumber);
+            request.GitHubIssueNumber,
+            request.RepositoryAgentRuleId);
         var story = await _mediator.Send(command, cancellationToken);
         return Ok(story);
     }
@@ -336,6 +340,82 @@ public class BacklogController : ControllerBase
             userId,
             request.ProjectName.Trim(),
             request.TeamId?.Trim(),
+            request.PullEpicIds ?? Array.Empty<Guid>(),
+            request.PullFeatureIds ?? Array.Empty<Guid>(),
+            request.PullStoryIds ?? Array.Empty<Guid>(),
+            request.PushEpicIds ?? Array.Empty<Guid>(),
+            request.PushFeatureIds ?? Array.Empty<Guid>(),
+            request.PushStoryIds ?? Array.Empty<Guid>(),
+            request.CreateEpicIds ?? Array.Empty<Guid>(),
+            request.CreateFeatureIds ?? Array.Empty<Guid>(),
+            request.CreateStoryIds ?? Array.Empty<Guid>());
+
+        var result = await _mediator.Send(command, cancellationToken);
+
+        if (result.CreatedCount == 0 && result.PulledCount == 0 && result.PushedCount == 0 && result.FailedCount == 0)
+            return BadRequest(new { success = false, message = result.Errors.FirstOrDefault() ?? "No changes applied.", errors = result.Errors });
+
+        return Ok(new
+        {
+            success = result.Success,
+            createdCount = result.CreatedCount,
+            pulledCount = result.PulledCount,
+            pushedCount = result.PushedCount,
+            failedCount = result.FailedCount,
+            errors = result.Errors
+        });
+    }
+
+    /// <summary>
+    /// Preview GitHub sync for selected items: suggested create / push to GitHub / pull from GitHub per row.
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/github-sync/plan")]
+    [Authorize]
+    public async Task<IActionResult> PlanGitHubBacklogSync(Guid repositoryId, [FromBody] AzureSyncPlanRequest? request, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
+        var epicIds = request?.EpicIds ?? Array.Empty<Guid>();
+        var featureIds = request?.FeatureIds ?? Array.Empty<Guid>();
+        var storyIds = request?.StoryIds ?? Array.Empty<Guid>();
+
+        var plan = await _mediator.Send(
+            new PlanGitHubBacklogSyncQuery(repositoryId, userId, epicIds, featureIds, storyIds),
+            cancellationToken);
+        return Ok(plan);
+    }
+
+    /// <summary>
+    /// Apply unified GitHub sync: create new issues, pull from GitHub into DevPilot, push DevPilot to GitHub.
+    /// </summary>
+    [HttpPost("repository/{repositoryId}/github-sync/apply")]
+    [Authorize]
+    public async Task<IActionResult> ApplyGitHubBacklogSync(Guid repositoryId, [FromBody] ApplyGitHubSyncRequest? request, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo == null) return Forbid();
+
+        if (request == null)
+            return BadRequest(new { message = "Request body is required." });
+
+        var createN = (request.CreateEpicIds?.Length ?? 0) + (request.CreateFeatureIds?.Length ?? 0) + (request.CreateStoryIds?.Length ?? 0);
+        var pullN = (request.PullEpicIds?.Length ?? 0) + (request.PullFeatureIds?.Length ?? 0) + (request.PullStoryIds?.Length ?? 0);
+        var pushN = (request.PushEpicIds?.Length ?? 0) + (request.PushFeatureIds?.Length ?? 0) + (request.PushStoryIds?.Length ?? 0);
+        if (createN + pullN + pushN == 0)
+            return BadRequest(new { message = "Nothing to sync: assign at least one item to create, pull, or push." });
+
+        var command = new ApplyGitHubBacklogSyncCommand(
+            repositoryId,
+            userId,
             request.PullEpicIds ?? Array.Empty<Guid>(),
             request.PullFeatureIds ?? Array.Empty<Guid>(),
             request.PullStoryIds ?? Array.Empty<Guid>(),
@@ -518,6 +598,22 @@ public class BacklogController : ControllerBase
             story.ChangeStatus(request.Status);
         }
 
+        if (request.UpdateRepositoryAgentRule)
+        {
+            if (!request.RepositoryAgentRuleId.HasValue)
+            {
+                story.SetRepositoryAgentRuleId(null);
+            }
+            else
+            {
+                var rule = await _repositoryAgentRuleRepository.GetByIdAsync(request.RepositoryAgentRuleId.Value, cancellationToken);
+                var repositoryId = story.Feature?.Epic?.RepositoryId;
+                if (rule == null || repositoryId == null || rule.RepositoryId != repositoryId.Value)
+                    return BadRequest(new { error = "Invalid repositoryAgentRuleId for this story's repository." });
+                story.SetRepositoryAgentRuleId(request.RepositoryAgentRuleId);
+            }
+        }
+
         await _userStoryRepository.UpdateAsync(story, cancellationToken);
 
         return Ok(new
@@ -528,7 +624,8 @@ public class BacklogController : ControllerBase
             status = story.Status,
             acceptanceCriteria = story.AcceptanceCriteria,
             storyPoints = story.StoryPoints,
-            featureId = story.FeatureId
+            featureId = story.FeatureId,
+            repositoryAgentRuleId = story.RepositoryAgentRuleId
         });
     }
 
@@ -1128,6 +1225,19 @@ public class ApplyAzureSyncRequest
     public Guid[] CreateStoryIds { get; set; } = Array.Empty<Guid>();
 }
 
+public class ApplyGitHubSyncRequest
+{
+    public Guid[] PullEpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PullFeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PullStoryIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PushEpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PushFeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] PushStoryIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] CreateEpicIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] CreateFeatureIds { get; set; } = Array.Empty<Guid>();
+    public Guid[] CreateStoryIds { get; set; } = Array.Empty<Guid>();
+}
+
 public class PushManualToAzureDevOpsRequest
 {
     public required string ProjectName { get; set; }
@@ -1188,6 +1298,7 @@ public class AddUserStoryRequest
     public string? Source { get; set; }
     public int? AzureDevOpsWorkItemId { get; set; }
     public int? GitHubIssueNumber { get; set; }
+    public Guid? RepositoryAgentRuleId { get; set; }
 }
 
 /// <summary>
@@ -1220,6 +1331,9 @@ public class UpdateUserStoryRequest
     public string? AcceptanceCriteria { get; set; }
     public int? StoryPoints { get; set; }
     public string? Status { get; set; }
+    /// <summary>When true, <see cref="RepositoryAgentRuleId"/> updates the story's chosen named rule (null clears).</summary>
+    public bool UpdateRepositoryAgentRule { get; set; }
+    public Guid? RepositoryAgentRuleId { get; set; }
 }
 
 /// <summary>

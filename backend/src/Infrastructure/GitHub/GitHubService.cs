@@ -306,22 +306,7 @@ public class GitHubService : IGitHubService
                     continue;
                 }
 
-                var issueDto = new GitHubIssueDto
-                {
-                    Number = issue.Number,
-                    Title = issue.Title ?? $"Issue #{issue.Number}",
-                    Body = issue.Body,
-                    State = issue.State.StringValue,
-                    Assignee = issue.Assignee?.Login,
-                    Labels = issue.Labels?.Select(l => l.Name).ToList() ?? new List<string>(),
-                    MilestoneNumber = issue.Milestone?.Number,
-                    MilestoneTitle = issue.Milestone?.Title,
-                    Url = issue.HtmlUrl ?? $"https://github.com/{owner}/{repo}/issues/{issue.Number}",
-                    CreatedAt = issue.CreatedAt.DateTime,
-                    UpdatedAt = issue.UpdatedAt?.DateTime,
-                    ClosedAt = issue.ClosedAt?.DateTime,
-                    IsPullRequest = false
-                };
+                var issueDto = MapIssueToDto(issue, owner, repo);
 
                 result.Issues.Add(issueDto);
 
@@ -374,26 +359,31 @@ public class GitHubService : IGitHubService
         foreach (var issue in issues)
         {
             if (issue.PullRequest != null) continue;
-            var issueDto = new GitHubIssueDto
-            {
-                Number = issue.Number,
-                Title = issue.Title ?? $"Issue #{issue.Number}",
-                Body = issue.Body,
-                State = issue.State.StringValue,
-                Assignee = issue.Assignee?.Login,
-                Labels = issue.Labels?.Select(l => l.Name).ToList() ?? new List<string>(),
-                MilestoneNumber = issue.Milestone?.Number,
-                MilestoneTitle = issue.Milestone?.Title,
-                Url = issue.HtmlUrl ?? $"https://github.com/{owner}/{repo}/issues/{issue.Number}",
-                CreatedAt = issue.CreatedAt.DateTime,
-                UpdatedAt = issue.UpdatedAt?.DateTime,
-                ClosedAt = issue.ClosedAt?.DateTime,
-                IsPullRequest = false
-            };
+            var issueDto = MapIssueToDto(issue, owner, repo);
             result.Issues.Add(issueDto);
             if (issue.Milestone == null) result.UnassignedIssues.Add(issueDto);
         }
         return result;
+    }
+
+    private static GitHubIssueDto MapIssueToDto(Issue issue, string owner, string repo)
+    {
+        return new GitHubIssueDto
+        {
+            Number = issue.Number,
+            Title = issue.Title ?? $"Issue #{issue.Number}",
+            Body = issue.Body,
+            State = issue.State.StringValue,
+            Assignee = issue.Assignee?.Login,
+            Labels = issue.Labels?.Select(l => l.Name).ToList() ?? new List<string>(),
+            MilestoneNumber = issue.Milestone?.Number,
+            MilestoneTitle = issue.Milestone?.Title,
+            Url = issue.HtmlUrl ?? $"https://github.com/{owner}/{repo}/issues/{issue.Number}",
+            CreatedAt = issue.CreatedAt.DateTime,
+            UpdatedAt = issue.UpdatedAt?.DateTime,
+            ClosedAt = issue.ClosedAt?.DateTime,
+            IsPullRequest = issue.PullRequest != null
+        };
     }
 
     private GitHubRepositoryDto MapToDto(Octokit.Repository repository)
@@ -865,6 +855,53 @@ public class GitHubService : IGitHubService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error fetching pull requests from GitHub for {Owner}/{Repo}", owner, repo);
+            throw;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<GitHubIssueDto> GetIssueAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        int issueNumber,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClient(accessToken);
+
+        try
+        {
+            var issue = await client.Issue.Get(owner, repo, issueNumber);
+            if (issue.PullRequest != null)
+                throw new InvalidOperationException($"#{issueNumber} is a pull request, not a backlog issue.");
+
+            return MapIssueToDto(issue, owner, repo);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching GitHub issue {Owner}/{Repo}#{Number}", owner, repo, issueNumber);
+            throw;
+        }
+    }
+
+    public async System.Threading.Tasks.Task<int> CreateIssueAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string title,
+        string? body,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClient(accessToken);
+
+        try
+        {
+            var created = await client.Issue.Create(owner, repo, new NewIssue(title ?? "") { Body = body });
+            _logger.LogInformation("Created GitHub issue {Owner}/{Repo}#{Number}", owner, repo, created.Number);
+            return created.Number;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating GitHub issue in {Owner}/{Repo}", owner, repo);
             throw;
         }
     }

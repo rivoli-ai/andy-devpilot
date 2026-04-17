@@ -27,6 +27,8 @@ public class SandboxController : ControllerBase
     private readonly IRepositoryRepository _repositoryRepository;
     private readonly IEffectiveAiConfigResolver _aiConfigResolver;
     private readonly IMcpServerConfigRepository _mcpRepository;
+    private readonly IUserStoryRepository _userStoryRepository;
+    private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
     private readonly ILogger<SandboxController> _logger;
 
     public SandboxController(
@@ -35,6 +37,8 @@ public class SandboxController : ControllerBase
         IRepositoryRepository repositoryRepository,
         IEffectiveAiConfigResolver aiConfigResolver,
         IMcpServerConfigRepository mcpRepository,
+        IUserStoryRepository userStoryRepository,
+        IRepositoryAgentRuleRepository repositoryAgentRuleRepository,
         ILogger<SandboxController> logger)
     {
         _sandboxService = sandboxService;
@@ -42,6 +46,8 @@ public class SandboxController : ControllerBase
         _repositoryRepository = repositoryRepository;
         _aiConfigResolver = aiConfigResolver;
         _mcpRepository = mcpRepository;
+        _userStoryRepository = userStoryRepository;
+        _repositoryAgentRuleRepository = repositoryAgentRuleRepository;
         _logger = logger;
     }
 
@@ -81,21 +87,34 @@ public class SandboxController : ControllerBase
             }
 
             string? azureIdClientId = null, azureIdClientSecret = null, azureIdTenantId = null;
+            Repository? resolvedRepo = null;
             Guid? repositoryId = null;
             if (!string.IsNullOrEmpty(request.RepoName))
             {
                 var userRepos = await _repositoryRepository.GetByUserIdAsync(userId, cancellationToken);
-                var repo = userRepos.FirstOrDefault(r => r.Name == request.RepoName);
-                if (repo != null)
+                resolvedRepo = userRepos.FirstOrDefault(r => r.Name == request.RepoName);
+                if (resolvedRepo != null)
                 {
-                    repositoryId = repo.Id;
-                    if (!string.IsNullOrEmpty(repo.AzureIdentityClientId) && !string.IsNullOrEmpty(repo.AzureIdentityClientSecret) && !string.IsNullOrEmpty(repo.AzureIdentityTenantId))
+                    repositoryId = resolvedRepo.Id;
+                    if (!string.IsNullOrEmpty(resolvedRepo.AzureIdentityClientId) && !string.IsNullOrEmpty(resolvedRepo.AzureIdentityClientSecret) && !string.IsNullOrEmpty(resolvedRepo.AzureIdentityTenantId))
                     {
-                        azureIdClientId = repo.AzureIdentityClientId;
-                        azureIdClientSecret = repo.AzureIdentityClientSecret;
-                        azureIdTenantId = repo.AzureIdentityTenantId;
+                        azureIdClientId = resolvedRepo.AzureIdentityClientId;
+                        azureIdClientSecret = resolvedRepo.AzureIdentityClientSecret;
+                        azureIdTenantId = resolvedRepo.AzureIdentityTenantId;
                     }
                 }
+            }
+
+            string? agentRulesForSandbox = request.AgentRules;
+            if (resolvedRepo != null)
+            {
+                agentRulesForSandbox = await AgentRulesResolver.ResolveAsync(
+                    resolvedRepo,
+                    request.StoryId,
+                    request.AgentRules,
+                    _repositoryAgentRuleRepository,
+                    _userStoryRepository,
+                    cancellationToken);
             }
 
             // Resolve AI config entirely server-side (never trust frontend with API keys)
@@ -137,7 +156,7 @@ public class SandboxController : ControllerBase
                         ProjectName = f.ProjectName,
                         FeedType = f.FeedType,
                     }).ToList(),
-                    AgentRules = request.AgentRules,
+                    AgentRules = agentRulesForSandbox,
                     AzureIdentityClientId = azureIdClientId,
                     AzureIdentityClientSecret = azureIdClientSecret,
                     AzureIdentityTenantId = azureIdTenantId,
@@ -354,6 +373,10 @@ public class CreateSandboxRequest
 
     [JsonPropertyName("agent_rules")]
     public string? AgentRules { get; set; }
+
+    /// <summary>When set, agent rules are resolved from this story's chosen rule (or repo default).</summary>
+    [JsonPropertyName("story_id")]
+    public Guid? StoryId { get; set; }
 }
 
 public class ArtifactFeedPayload

@@ -360,10 +360,11 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
       untracked(() => this.syncReadyForPrFromService());
     }, { allowSignalWrites: true });
 
-    // Auto-scroll chat to bottom when live streaming or new conversations arrive
+    // Auto-scroll chat to bottom when live streaming or new conversations arrive (only if chat panel is shown)
     effect(() => {
       this.liveResponse();
       this.conversations();
+      if (!this.showChat()) return;
       setTimeout(() => {
         const el = this.chatContentRef?.nativeElement;
         if (el) el.scrollTop = el.scrollHeight;
@@ -575,10 +576,6 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
           }
 
           this.updatePushPrEligibility(response);
-
-          if (streaming && !wasStreaming && this.viewMode() === 'sandbox') {
-            this.viewMode.set('split');
-          }
 
           schedulePoll(streaming ? FAST_MS : SLOW_MS);
         },

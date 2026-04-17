@@ -3,6 +3,7 @@ using System;
 using DevPilot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DevPilot.Infrastructure.Migrations
 {
     [DbContext(typeof(DevPilotDbContext))]
-    partial class DevPilotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260417095036_AddEpicGitHubIssueNumber")]
+    partial class AddEpicGitHubIssueNumber
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -596,55 +599,6 @@ namespace DevPilot.Infrastructure.Migrations
                     b.ToTable("repositories", (string)null);
                 });
 
-            modelBuilder.Entity("DevPilot.Domain.Entities.RepositoryAgentRule", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<string>("Body")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("body");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<bool>("IsDefault")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("boolean")
-                        .HasDefaultValue(false)
-                        .HasColumnName("is_default");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(128)
-                        .HasColumnType("character varying(128)")
-                        .HasColumnName("name");
-
-                    b.Property<Guid>("RepositoryId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("repository_id");
-
-                    b.Property<int>("SortOrder")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0)
-                        .HasColumnName("sort_order");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryId");
-
-                    b.ToTable("repository_agent_rules", (string)null);
-                });
-
             modelBuilder.Entity("DevPilot.Domain.Entities.RepositoryShare", b =>
                 {
                     b.Property<Guid>("Id")
@@ -839,10 +793,6 @@ namespace DevPilot.Infrastructure.Migrations
                     b.Property<string>("PrUrl")
                         .HasColumnType("text");
 
-                    b.Property<Guid?>("RepositoryAgentRuleId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("repository_agent_rule_id");
-
                     b.Property<string>("Source")
                         .IsRequired()
                         .ValueGeneratedOnAdd()
@@ -873,8 +823,6 @@ namespace DevPilot.Infrastructure.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("FeatureId");
-
-                    b.HasIndex("RepositoryAgentRuleId");
 
                     b.ToTable("user_stories", (string)null);
                 });
@@ -959,17 +907,6 @@ namespace DevPilot.Infrastructure.Migrations
                         .IsRequired();
                 });
 
-            modelBuilder.Entity("DevPilot.Domain.Entities.RepositoryAgentRule", b =>
-                {
-                    b.HasOne("DevPilot.Domain.Entities.Repository", "Repository")
-                        .WithMany("RepositoryAgentRules")
-                        .HasForeignKey("RepositoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Repository");
-                });
-
             modelBuilder.Entity("DevPilot.Domain.Entities.RepositoryShare", b =>
                 {
                     b.HasOne("DevPilot.Domain.Entities.Repository", null)
@@ -1004,14 +941,7 @@ namespace DevPilot.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("DevPilot.Domain.Entities.RepositoryAgentRule", "RepositoryAgentRule")
-                        .WithMany()
-                        .HasForeignKey("RepositoryAgentRuleId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.Navigation("Feature");
-
-                    b.Navigation("RepositoryAgentRule");
                 });
 
             modelBuilder.Entity("DevPilot.Domain.Entities.Epic", b =>
@@ -1027,8 +957,6 @@ namespace DevPilot.Infrastructure.Migrations
             modelBuilder.Entity("DevPilot.Domain.Entities.Repository", b =>
                 {
                     b.Navigation("Epics");
-
-                    b.Navigation("RepositoryAgentRules");
                 });
 
             modelBuilder.Entity("DevPilot.Domain.Entities.User", b =>

@@ -98,21 +98,24 @@ public class AddFeatureCommandHandler : IRequestHandler<AddFeatureCommand, Featu
 }
 
 // Add User Story
-public record AddUserStoryCommand(Guid FeatureId, string Title, string? Description = null, string? AcceptanceCriteria = null, int? StoryPoints = null, string? Source = null, int? AzureDevOpsWorkItemId = null, int? GitHubIssueNumber = null) : IRequest<UserStoryDto>;
+public record AddUserStoryCommand(Guid FeatureId, string Title, string? Description = null, string? AcceptanceCriteria = null, int? StoryPoints = null, string? Source = null, int? AzureDevOpsWorkItemId = null, int? GitHubIssueNumber = null, Guid? RepositoryAgentRuleId = null) : IRequest<UserStoryDto>;
 
 public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, UserStoryDto>
 {
     private readonly IUserStoryRepository _userStoryRepository;
     private readonly IFeatureRepository _featureRepository;
+    private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
     private readonly ILogger<AddUserStoryCommandHandler> _logger;
 
     public AddUserStoryCommandHandler(
         IUserStoryRepository userStoryRepository,
         IFeatureRepository featureRepository,
+        IRepositoryAgentRuleRepository repositoryAgentRuleRepository,
         ILogger<AddUserStoryCommandHandler> logger)
     {
         _userStoryRepository = userStoryRepository ?? throw new ArgumentNullException(nameof(userStoryRepository));
         _featureRepository = featureRepository ?? throw new ArgumentNullException(nameof(featureRepository));
+        _repositoryAgentRuleRepository = repositoryAgentRuleRepository ?? throw new ArgumentNullException(nameof(repositoryAgentRuleRepository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -122,7 +125,14 @@ public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, U
         if (feature == null)
             throw new InvalidOperationException($"Feature {command.FeatureId} not found");
 
-        var userStory = new UserStory(command.Title, command.FeatureId, command.Description, command.AcceptanceCriteria, command.StoryPoints, command.Source, command.AzureDevOpsWorkItemId, command.GitHubIssueNumber);
+        if (command.RepositoryAgentRuleId.HasValue)
+        {
+            var rule = await _repositoryAgentRuleRepository.GetByIdAsync(command.RepositoryAgentRuleId.Value, cancellationToken);
+            if (rule == null || rule.RepositoryId != feature.Epic.RepositoryId)
+                throw new InvalidOperationException("Invalid repositoryAgentRuleId for this feature's repository.");
+        }
+
+        var userStory = new UserStory(command.Title, command.FeatureId, command.Description, command.AcceptanceCriteria, command.StoryPoints, command.Source, command.AzureDevOpsWorkItemId, command.GitHubIssueNumber, command.RepositoryAgentRuleId);
         userStory = await _userStoryRepository.AddAsync(userStory, cancellationToken);
         _logger.LogInformation("Added UserStory {StoryId}: {Title} to Feature {FeatureId}", userStory.Id, userStory.Title, command.FeatureId);
 
@@ -138,6 +148,7 @@ public class AddUserStoryCommandHandler : IRequestHandler<AddUserStoryCommand, U
             Source = userStory.Source,
             AzureDevOpsWorkItemId = userStory.AzureDevOpsWorkItemId,
             GitHubIssueNumber = userStory.GitHubIssueNumber,
+            RepositoryAgentRuleId = userStory.RepositoryAgentRuleId,
             CreatedAt = userStory.CreatedAt,
             UpdatedAt = userStory.UpdatedAt,
             Tasks = []

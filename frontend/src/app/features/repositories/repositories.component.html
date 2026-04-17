@@ -346,7 +346,7 @@
               <div class="repo-card__body">
                 <h3 class="repo-name">
                   {{ repo.name }}
-                  @if (repo.hasAzureIdentity) {
+                  @if (repo.provider === 'AzureDevOps' && repo.hasAzureIdentity) {
                     <span class="azure-id-badge" title="Azure Service Principal configured">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14">
                         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>

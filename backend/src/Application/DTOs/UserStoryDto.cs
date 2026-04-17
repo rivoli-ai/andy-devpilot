@@ -16,6 +16,7 @@ public class UserStoryDto
     public string Source { get; set; } = "Manual";
     public int? AzureDevOpsWorkItemId { get; set; }
     public int? GitHubIssueNumber { get; set; }
+    public Guid? RepositoryAgentRuleId { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<TaskDto> Tasks { get; set; } = new();

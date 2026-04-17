@@ -70,6 +70,20 @@ public class UpdateRepositoryAgentRulesRequest
     public string? AgentRules { get; set; }
 }
 
+public class RepositoryAgentRuleItemRequest
+{
+    public Guid? Id { get; set; }
+    public string Name { get; set; } = "";
+    public string Body { get; set; } = "";
+    public bool IsDefault { get; set; }
+    public int SortOrder { get; set; }
+}
+
+public class ReplaceRepositoryAgentRulesRequest
+{
+    public List<RepositoryAgentRuleItemRequest> Rules { get; set; } = new();
+}
+
 public class UpdateAzureIdentityRequest
 {
     public string? ClientId { get; set; }
@@ -103,6 +117,7 @@ public class RepositoriesController : ControllerBase
     private readonly ILlmSettingRepository _llmSettingRepository;
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
+    private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
     private readonly ILogger<RepositoriesController> _logger;
 
     public RepositoriesController(
@@ -114,6 +129,7 @@ public class RepositoriesController : ControllerBase
         ILlmSettingRepository llmSettingRepository,
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
+        IRepositoryAgentRuleRepository repositoryAgentRuleRepository,
         ILogger<RepositoriesController> logger)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
@@ -124,6 +140,7 @@ public class RepositoriesController : ControllerBase
         _llmSettingRepository = llmSettingRepository ?? throw new ArgumentNullException(nameof(llmSettingRepository));
         _gitHubService = gitHubService ?? throw new ArgumentNullException(nameof(gitHubService));
         _azureDevOpsService = azureDevOpsService ?? throw new ArgumentNullException(nameof(azureDevOpsService));
+        _repositoryAgentRuleRepository = repositoryAgentRuleRepository ?? throw new ArgumentNullException(nameof(repositoryAgentRuleRepository));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -257,7 +274,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Get repository's AI agent rules. Returns the custom rules or the default template if none set.
+    /// Get repository's AI agent rules: named profiles plus optional legacy single-field text.
     /// </summary>
     [HttpGet("{id}/agent-rules")]
     [Authorize]
@@ -270,7 +287,75 @@ public class RepositoriesController : ControllerBase
         var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
 
-        return Ok(new { agentRules = repo.AgentRules, isDefault = repo.AgentRules == null });
+        var rules = await _repositoryAgentRuleRepository.GetByRepositoryIdAsync(id, cancellationToken);
+        return Ok(new
+        {
+            rules = rules.Select(r => new
+            {
+                id = r.Id,
+                name = r.Name,
+                body = r.Body,
+                isDefault = r.IsDefault,
+                sortOrder = r.SortOrder
+            }),
+            legacyAgentRules = repo.AgentRules,
+            isDefault = repo.AgentRules == null && rules.Count == 0
+        });
+    }
+
+    /// <summary>
+    /// Replace all named agent rules for a repository (owner only). At most one rule should have isDefault true.
+    /// </summary>
+    [HttpPut("{id}/agent-rules")]
+    [Authorize]
+    public async Task<IActionResult> ReplaceRepositoryAgentRules(
+        Guid id,
+        [FromBody] ReplaceRepositoryAgentRulesRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+
+        var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
+        if (repo == null) return NotFound(new { message = "Repository not found" });
+        if (repo.UserId != userId) return Forbid();
+
+        if (request?.Rules == null)
+            return BadRequest(new { message = "rules array is required." });
+
+        foreach (var r in request.Rules)
+        {
+            if (string.IsNullOrWhiteSpace(r.Name))
+                return BadRequest(new { message = "Each rule must have a non-empty name." });
+        }
+
+        var normalized = request.Rules.Select((r, i) =>
+                (Id: r.Id, Name: r.Name.Trim(), Body: r.Body ?? "", IsDefault: r.IsDefault, SortOrder: r.SortOrder != 0 ? r.SortOrder : i))
+            .ToList();
+
+        var defaultCount = normalized.Count(x => x.IsDefault);
+        if (defaultCount > 1)
+        {
+            var firstDef = normalized.FindIndex(x => x.IsDefault);
+            normalized = normalized.Select((x, idx) => (x.Id, x.Name, x.Body, IsDefault: idx == firstDef, x.SortOrder)).ToList();
+        }
+        else if (defaultCount == 0 && normalized.Count > 0)
+        {
+            normalized = normalized.Select((x, idx) => (x.Id, x.Name, x.Body, IsDefault: idx == 0, x.SortOrder)).ToList();
+        }
+
+        await _repositoryAgentRuleRepository.ReplaceForRepositoryAsync(
+            id,
+            normalized.Select(x => (x.Id, x.Name, x.Body, x.IsDefault, x.SortOrder)).ToList(),
+            cancellationToken);
+
+        var rules = await _repositoryAgentRuleRepository.GetByRepositoryIdAsync(id, cancellationToken);
+        return Ok(new
+        {
+            message = "Repository agent rules updated",
+            rules = rules.Select(r => new { id = r.Id, name = r.Name, body = r.Body, isDefault = r.IsDefault, sortOrder = r.SortOrder })
+        });
     }
 
     /// <summary>

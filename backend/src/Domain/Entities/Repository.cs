@@ -28,6 +28,7 @@ public class Repository : Entity
 
     // Navigation properties
     public List<Epic> Epics { get; private set; } = new();
+    public List<RepositoryAgentRule> RepositoryAgentRules { get; private set; } = new();
 
     private Repository() { }
 

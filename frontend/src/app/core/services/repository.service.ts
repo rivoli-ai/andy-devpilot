@@ -119,6 +119,30 @@ export interface FileAnalysisResult {
   model?: string;
 }
 
+/** Named agent rule profile for a repository (sandbox / Zed instructions). */
+export interface RepositoryAgentRuleDto {
+  id: string;
+  name: string;
+  body: string;
+  isDefault: boolean;
+  sortOrder: number;
+}
+
+export interface RepositoryAgentRulesGetResponse {
+  rules: RepositoryAgentRuleDto[];
+  legacyAgentRules: string | null;
+  /** True when there is no legacy text and no named rows (server falls back to built-in template). */
+  isDefault: boolean;
+}
+
+export interface ReplaceRepositoryAgentRuleItem {
+  id?: string | null;
+  name: string;
+  body: string;
+  isDefault: boolean;
+  sortOrder: number;
+}
+
 export const DEFAULT_AGENT_RULES = `# DevPilot AI Agent Instructions
 
 ## Before Making Changes
@@ -393,10 +417,13 @@ export class RepositoryService {
   }
 
   /**
-   * Update the AI agent rules for a repository. Pass null to reset to default.
+   * Update legacy single-field agent rules (optional). Prefer {@link replaceRepositoryAgentRules} for named profiles.
    */
-  updateRepositoryAgentRules(repositoryId: string, agentRules: string | null): Observable<any> {
-    return this.apiService.patch<any>(`/repositories/${repositoryId}/agent-rules`, { agentRules }).pipe(
+  updateRepositoryAgentRules(repositoryId: string, agentRules: string | null): Observable<{ message?: string; agentRules?: string | null }> {
+    return this.apiService.patch<{ message?: string; agentRules?: string | null }>(
+      `/repositories/${repositoryId}/agent-rules`,
+      { agentRules }
+    ).pipe(
       tap(() => {
         this.repositoriesSignal.update(repos =>
           repos.map(r => (String(r.id) === String(repositoryId) ? { ...r, agentRules } : r))
@@ -406,10 +433,23 @@ export class RepositoryService {
   }
 
   /**
-   * Get the AI agent rules for a repository.
+   * Get named agent rule profiles plus optional legacy single-field text.
    */
-  getRepositoryAgentRules(repositoryId: string): Observable<{ agentRules: string | null; isDefault: boolean }> {
-    return this.apiService.get<{ agentRules: string | null; isDefault: boolean }>(`/repositories/${repositoryId}/agent-rules`);
+  getRepositoryAgentRules(repositoryId: string): Observable<RepositoryAgentRulesGetResponse> {
+    return this.apiService.get<RepositoryAgentRulesGetResponse>(`/repositories/${repositoryId}/agent-rules`);
+  }
+
+  /**
+   * Replace all named agent rules for a repository (PUT). At least one rule should be default (server normalizes if needed).
+   */
+  replaceRepositoryAgentRules(
+    repositoryId: string,
+    rules: ReplaceRepositoryAgentRuleItem[]
+  ): Observable<{ message?: string; rules: RepositoryAgentRuleDto[] }> {
+    return this.apiService.put<{ message?: string; rules: RepositoryAgentRuleDto[] }>(
+      `/repositories/${repositoryId}/agent-rules`,
+      { rules }
+    );
   }
 
   getAzureIdentity(repositoryId: string): Observable<{ clientId: string | null; tenantId: string | null; hasSecret: boolean; hasAzureIdentity: boolean }> {

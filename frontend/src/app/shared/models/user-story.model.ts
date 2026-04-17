@@ -14,6 +14,8 @@ export interface UserStory {
   source?: string;
   azureDevOpsWorkItemId?: number;
   gitHubIssueNumber?: number;
+  /** When set, sandbox agent rules use this named repository profile instead of the repo default. */
+  repositoryAgentRuleId?: string | null;
   createdAt: string;
   updatedAt?: string;
   tasks: Task[];

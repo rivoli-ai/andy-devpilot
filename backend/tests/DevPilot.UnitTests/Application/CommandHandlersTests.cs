@@ -127,7 +127,12 @@ public class AddBacklogItemHandlersTests
         var mockUs = new Mock<IUserStoryRepository>();
         mockUs.Setup(x => x.AddAsync(It.IsAny<UserStory>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((UserStory u, CancellationToken _) => u);
-        var hu = new AddUserStoryCommandHandler(mockUs.Object, mockF2.Object, NullLogger<AddUserStoryCommandHandler>.Instance);
+        var mockRules = new Mock<IRepositoryAgentRuleRepository>();
+        var hu = new AddUserStoryCommandHandler(
+            mockUs.Object,
+            mockF2.Object,
+            mockRules.Object,
+            NullLogger<AddUserStoryCommandHandler>.Instance);
         (await hu.Handle(new AddUserStoryCommand(feat.Id, "US"), default)).Title.Should().Be("US");
     }
 }

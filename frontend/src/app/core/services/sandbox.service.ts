@@ -31,7 +31,10 @@ export interface CreateSandboxRequest {
   github_token?: string;
   azure_devops_pat?: string;
   artifact_feeds?: { name: string; organization: string; feedName: string; projectName?: string; feedType: string }[];
+  /** Optional override; prefer passing story_id so rules resolve server-side. */
   agent_rules?: string;
+  /** When set with repo_name, agent rules resolve from this story's profile or repository default. */
+  story_id?: string;
 }
 
 /**

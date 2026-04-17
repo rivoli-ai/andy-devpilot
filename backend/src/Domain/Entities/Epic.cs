@@ -13,6 +13,8 @@ public class Epic : Entity
     public string Source { get; private set; } = "Manual";
     /// <summary>Azure DevOps work item ID when imported from ADO; null for manual/GitHub items</summary>
     public int? AzureDevOpsWorkItemId { get; private set; }
+    /// <summary>GitHub issue number when linked to a repo issue; null otherwise</summary>
+    public int? GitHubIssueNumber { get; private set; }
 
     // Navigation properties
     public Repository Repository { get; private set; } = null!;
@@ -20,7 +22,7 @@ public class Epic : Entity
 
     private Epic() { }
 
-    public Epic(string title, Guid repositoryId, string? description = null, string? source = null, int? azureDevOpsWorkItemId = null)
+    public Epic(string title, Guid repositoryId, string? description = null, string? source = null, int? azureDevOpsWorkItemId = null, int? githubIssueNumber = null)
     {
         Title = title ?? throw new ArgumentNullException(nameof(title));
         RepositoryId = repositoryId;
@@ -28,6 +30,7 @@ public class Epic : Entity
         Status = "Backlog";
         Source = source ?? "Manual";
         AzureDevOpsWorkItemId = azureDevOpsWorkItemId;
+        GitHubIssueNumber = githubIssueNumber;
     }
 
     public void UpdateTitle(string title)
@@ -54,6 +57,12 @@ public class Epic : Entity
     public void SetAzureDevOpsWorkItemId(int? id)
     {
         AzureDevOpsWorkItemId = id;
+        MarkAsUpdated();
+    }
+
+    public void SetGitHubIssueNumber(int? number)
+    {
+        GitHubIssueNumber = number;
         MarkAsUpdated();
     }
 

@@ -18,9 +18,12 @@ public class UserStory : Entity
     public int? AzureDevOpsWorkItemId { get; private set; }
     /// <summary>GitHub issue number when imported from GitHub; null for manual/ADO items</summary>
     public int? GitHubIssueNumber { get; private set; }
+    /// <summary>Optional named agent rules profile for sandboxes opened from this story.</summary>
+    public Guid? RepositoryAgentRuleId { get; private set; }
 
     // Navigation properties
     public Feature Feature { get; private set; } = null!;
+    public RepositoryAgentRule? RepositoryAgentRule { get; private set; }
     public List<Task> Tasks { get; private set; } = new();
 
     private UserStory() { }
@@ -33,7 +36,8 @@ public class UserStory : Entity
         int? storyPoints = null,
         string? source = null,
         int? azureDevOpsWorkItemId = null,
-        int? githubIssueNumber = null)
+        int? githubIssueNumber = null,
+        Guid? repositoryAgentRuleId = null)
     {
         Title = title ?? throw new ArgumentNullException(nameof(title));
         FeatureId = featureId;
@@ -44,6 +48,7 @@ public class UserStory : Entity
         Source = source ?? "Manual";
         AzureDevOpsWorkItemId = azureDevOpsWorkItemId;
         GitHubIssueNumber = githubIssueNumber;
+        RepositoryAgentRuleId = repositoryAgentRuleId;
     }
 
     public void SetStoryPoints(int? storyPoints)
@@ -106,6 +111,12 @@ public class UserStory : Entity
         if (string.IsNullOrWhiteSpace(source))
             throw new ArgumentException("Source cannot be empty", nameof(source));
         Source = source;
+        MarkAsUpdated();
+    }
+
+    public void SetRepositoryAgentRuleId(Guid? id)
+    {
+        RepositoryAgentRuleId = id;
         MarkAsUpdated();
     }
 }

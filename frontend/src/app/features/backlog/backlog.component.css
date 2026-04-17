@@ -4869,6 +4869,31 @@ a.source-badge.gh:hover {
   cursor: not-allowed;
 }
 
+.sync-github-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  background: transparent;
+  border: 1px solid rgba(36, 41, 47, 0.45);
+  color: var(--text-primary, #e6edf3);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.sync-github-btn:hover:not(:disabled) {
+  background: rgba(110, 118, 129, 0.15);
+  border-color: rgba(110, 118, 129, 0.65);
+}
+
+.sync-github-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .sync-delete-btn {
   display: inline-flex;
   align-items: center;
@@ -4941,6 +4966,25 @@ a.source-badge.gh:hover {
   cursor: not-allowed;
   border-color: rgba(0, 120, 212, 0.22);
   color: rgba(0, 120, 212, 0.45);
+}
+
+.sync-icon-btn--github {
+  color: var(--text-primary, #e6edf3);
+  border-color: rgba(110, 118, 129, 0.55);
+  background: transparent;
+}
+
+.sync-icon-btn--github:hover:not(:disabled) {
+  background: rgba(110, 118, 129, 0.12);
+  border-color: rgba(110, 118, 129, 0.75);
+  color: var(--text-primary, #e6edf3);
+}
+
+.sync-icon-btn--github:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  border-color: rgba(110, 118, 129, 0.22);
+  color: rgba(148, 163, 184, 0.55);
 }
 
 .sync-icon-btn:hover:not(:disabled) {
@@ -6758,6 +6802,134 @@ a.source-badge.gh:hover {
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.rules-modal__profiles-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.rules-modal__profiles-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
+.rules-modal__profile-chip-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.rules-modal__profile-chip {
+  border: 1px solid var(--border-color, #333);
+  background: var(--bg-secondary, #181825);
+  color: var(--text-secondary, #a6adc8);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rules-modal__profile-chip:hover {
+  color: var(--text-primary, #cdd6f4);
+  border-color: var(--text-muted, #7f849c);
+}
+
+.rules-modal__profile-chip--active {
+  border-color: #89b4fa;
+  color: #89b4fa;
+  background: rgba(137, 180, 250, 0.08);
+}
+
+.rules-modal__profile-remove {
+  border: none;
+  background: transparent;
+  color: var(--text-muted, #7f849c);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.rules-modal__profile-remove:hover:not(:disabled) {
+  color: #f38ba8;
+  background: rgba(243, 139, 168, 0.12);
+}
+
+.rules-modal__add-profile {
+  border: 1px dashed var(--border-color, #45475a);
+  background: transparent;
+  color: var(--text-secondary, #a6adc8);
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  white-space: nowrap;
+}
+
+.rules-modal__add-profile:hover:not(:disabled) {
+  border-color: #89b4fa;
+  color: #89b4fa;
+}
+
+.rules-modal__active-fields {
+  margin-bottom: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.rules-modal__field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.rules-modal__field-row--inline {
+  flex-direction: row;
+  align-items: center;
+}
+
+.rules-modal__label {
+  font-size: 12px;
+  color: var(--text-muted, #7f849c);
+}
+
+.rules-modal__input {
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--bg-secondary, #181825);
+  color: var(--text-primary, #cdd6f4);
+}
+
+.rules-modal__input:focus {
+  outline: none;
+  border-color: #89b4fa;
+}
+
+.rules-modal__checkbox {
+  font-size: 12px;
+  color: var(--text-secondary, #a6adc8);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 
 .rules-modal__view-tabs {

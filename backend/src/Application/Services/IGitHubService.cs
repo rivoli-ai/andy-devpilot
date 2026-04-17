@@ -170,6 +170,23 @@ public interface IGitHubService
         string? body = null,
         string? state = null,
         CancellationToken cancellationToken = default);
+
+    /// <summary>Fetches a single issue by number (not a pull request).</summary>
+    System.Threading.Tasks.Task<GitHubIssueDto> GetIssueAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        int issueNumber,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Creates a new issue; returns the issue number.</summary>
+    System.Threading.Tasks.Task<int> CreateIssueAsync(
+        string accessToken,
+        string owner,
+        string repo,
+        string title,
+        string? body,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>

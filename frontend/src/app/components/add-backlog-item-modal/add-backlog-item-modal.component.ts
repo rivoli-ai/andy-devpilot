@@ -1,4 +1,4 @@
-import { Component, input, output, OnInit, inject } from '@angular/core';
+import { Component, input, output, OnInit, inject, HostListener, ViewChild, ElementRef } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { BacklogService } from '../../core/services/backlog.service';
@@ -23,6 +23,13 @@ export interface EditItemData {
   acceptanceCriteria?: string;
   storyPoints?: number;
   status?: string;
+  repositoryAgentRuleId?: string | null;
+}
+
+export interface StoryAgentRuleOption {
+  id: string;
+  name: string;
+  isDefault?: boolean;
 }
 
 @Component({
@@ -44,7 +51,7 @@ export interface EditItemData {
             </svg>
           </button>
         </div>
-        <form (ngSubmit)="onSubmit()" class="modal-body">
+        <form (ngSubmit)="onSubmit()" class="modal-body" (scroll)="onModalBodyScroll()">
           @if (itemType() === 'feature' && needsParentSelection() && !isEditMode()) {
             <div class="form-section">
               <h4 class="section-title">Parent</h4>
@@ -183,6 +190,76 @@ export interface EditItemData {
                   <button type="button" class="story-point-clear" (click)="storyPoints = null" [class.active]="storyPoints == null">
                     Clear
                   </button>
+                </div>
+                <div class="story-profile-block">
+                  <h4 class="section-title story-profile-block__heading">
+                    <span class="story-profile-block__icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <line x1="10" y1="9" x2="8" y2="9"/>
+                      </svg>
+                    </span>
+                    Agent rules
+                  </h4>
+                  <div class="story-profile-field">
+                    <label class="story-profile-label" id="storyProfileFieldLabel">Profile for sandbox</label>
+                    <div class="story-profile-dropdown" #storyProfileRoot>
+                      <div class="story-profile-trigger-wrap">
+                        <button
+                          type="button"
+                          class="story-profile-trigger"
+                          id="storyAgentRule"
+                          aria-haspopup="listbox"
+                          [attr.aria-expanded]="storyProfileMenuOpen"
+                          [attr.aria-controls]="storyProfileMenuOpen ? 'storyProfileListbox' : null"
+                          aria-labelledby="storyProfileFieldLabel"
+                          (click)="toggleStoryProfileMenu($event)">
+                          <span class="story-profile-trigger__text">{{ storyProfileDisplayLabel() }}</span>
+                          <span class="story-profile-trigger__chevron" [class.story-profile-trigger__chevron--open]="storyProfileMenuOpen" aria-hidden="true">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                              <polyline points="6 9 12 15 18 9"/>
+                            </svg>
+                          </span>
+                        </button>
+                      </div>
+                      @if (storyProfileMenuOpen && storyProfileMenuFixedStyle) {
+                        <div
+                          class="story-profile-menu"
+                          id="storyProfileListbox"
+                          role="listbox"
+                          aria-labelledby="storyProfileFieldLabel"
+                          [style.top]="storyProfileMenuFixedStyle.top"
+                          [style.left]="storyProfileMenuFixedStyle.left"
+                          [style.width]="storyProfileMenuFixedStyle.width"
+                        >
+                          <button
+                            type="button"
+                            class="story-profile-menu__item"
+                            role="option"
+                            [attr.aria-selected]="isStoryProfileOptionSelected('')"
+                            [class.story-profile-menu__item--active]="isStoryProfileOptionSelected('')"
+                            (click)="pickStoryProfile('')">
+                            Repository default
+                          </button>
+                          @for (opt of storyAgentRuleOptions(); track opt.id) {
+                            <button
+                              type="button"
+                              class="story-profile-menu__item"
+                              role="option"
+                              [attr.aria-selected]="isStoryProfileOptionSelected(opt.id)"
+                              [class.story-profile-menu__item--active]="isStoryProfileOptionSelected(opt.id)"
+                              (click)="pickStoryProfile(opt.id)">
+                              {{ opt.name }}
+                            </button>
+                          }
+                        </div>
+                      }
+                    </div>
+                    <p class="story-profile-hint">Uses the named rule from repository AI settings. Leave on default unless this story needs different instructions.</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -405,6 +482,167 @@ export interface EditItemData {
     .story-point-clear.active {
       color: var(--text-secondary);
     }
+
+    .story-profile-block {
+      margin-top: 1.125rem;
+      padding-top: 1.125rem;
+      border-top: 1px solid var(--border-default, rgba(255, 255, 255, 0.08));
+    }
+    .story-profile-block__heading {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      margin-bottom: 0.65rem !important;
+    }
+    .story-profile-block__icon {
+      display: inline-flex;
+      color: rgba(96, 165, 250, 0.95);
+      flex-shrink: 0;
+    }
+    .story-profile-block__icon svg {
+      width: 15px;
+      height: 15px;
+      display: block;
+    }
+    .story-profile-field {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+    .story-profile-label {
+      font-size: 0.8125rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      letter-spacing: 0.01em;
+    }
+    .story-profile-dropdown {
+      position: relative;
+    }
+    .story-profile-trigger-wrap {
+      border-radius: 10px;
+      background: var(--surface-card);
+      border: 1px solid var(--border-default);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.18);
+      transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    }
+    .story-profile-trigger-wrap:hover {
+      border-color: var(--border-hover);
+    }
+    .story-profile-trigger-wrap:focus-within {
+      border-color: rgba(59, 130, 246, 0.55);
+      box-shadow:
+        inset 0 1px 2px rgba(0, 0, 0, 0.18),
+        0 0 0 3px rgba(59, 130, 246, 0.2);
+    }
+    .story-profile-trigger {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.5rem;
+      width: 100%;
+      min-height: 42px;
+      padding: 0.55rem 0.65rem 0.55rem 0.85rem;
+      margin: 0;
+      font-size: 0.875rem;
+      font-weight: 500;
+      font-family: inherit;
+      line-height: 1.35;
+      text-align: left;
+      color: var(--text-primary);
+      background: transparent;
+      border: none;
+      border-radius: 9px;
+      cursor: pointer;
+    }
+    .story-profile-trigger:focus {
+      outline: none;
+    }
+    .story-profile-trigger__text {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .story-profile-trigger__chevron {
+      flex-shrink: 0;
+      display: flex;
+      color: var(--text-secondary);
+      transition: transform 0.2s ease;
+    }
+    .story-profile-trigger__chevron--open {
+      transform: rotate(180deg);
+    }
+    .story-profile-menu {
+      position: fixed;
+      z-index: 10050;
+      margin: 0;
+      padding: 0.35rem;
+      list-style: none;
+      border-radius: 10px;
+      background: var(--surface-elevated);
+      border: 1px solid var(--border-default);
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.06);
+      max-height: min(240px, 40vh);
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+    .story-profile-menu__item {
+      display: block;
+      width: 100%;
+      margin: 0;
+      padding: 0.55rem 0.65rem;
+      font-size: 0.8125rem;
+      font-weight: 500;
+      font-family: inherit;
+      text-align: left;
+      color: var(--text-primary);
+      background: transparent;
+      border: none;
+      border-radius: 7px;
+      cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+    }
+    .story-profile-menu__item:hover {
+      background: var(--surface-hover);
+    }
+    .story-profile-menu__item--active {
+      background: rgba(59, 130, 246, 0.15);
+      color: #93c5fd;
+    }
+    :host-context([data-theme="dark"]) .story-profile-trigger-wrap {
+      background: var(--surface-card);
+      border-color: var(--border-default);
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.35),
+        0 0 0 1px rgba(255, 255, 255, 0.04);
+    }
+    :host-context([data-theme="dark"]) .story-profile-trigger-wrap:hover {
+      background: var(--surface-hover);
+      border-color: var(--border-hover);
+    }
+    :host-context([data-theme="dark"]) .story-profile-trigger-wrap:focus-within {
+      border-color: #3b82f6;
+      box-shadow:
+        inset 0 2px 4px rgba(0, 0, 0, 0.35),
+        0 0 0 3px rgba(59, 130, 246, 0.25);
+    }
+    :host-context([data-theme="dark"]) .story-profile-menu {
+      background: #1a1a24;
+      border-color: rgba(255, 255, 255, 0.12);
+      box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    }
+    :host-context([data-theme="dark"]) .story-profile-menu__item--active {
+      background: rgba(59, 130, 246, 0.2);
+      color: #bfdbfe;
+    }
+    .story-profile-hint {
+      margin: 0.15rem 0 0;
+      font-size: 0.75rem;
+      line-height: 1.45;
+      color: var(--text-tertiary);
+    }
+
     /* AI suggest button styles */
     .label-row {
       display: flex;
@@ -683,6 +921,45 @@ export interface EditItemData {
     :host-context([data-theme="light"]) .story-point-clear.active {
       color: #374151;
     }
+    :host-context([data-theme="light"]) .story-profile-block {
+      border-top-color: #e5e7eb;
+    }
+    :host-context([data-theme="light"]) .story-profile-block__icon {
+      color: #2563eb;
+    }
+    :host-context([data-theme="light"]) .story-profile-label {
+      color: var(--text-secondary);
+    }
+    :host-context([data-theme="light"]) .story-profile-trigger-wrap {
+      background: var(--surface-card);
+      border-color: var(--border-default);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.04);
+    }
+    :host-context([data-theme="light"]) .story-profile-trigger-wrap:hover {
+      border-color: var(--border-hover);
+      background: var(--surface-hover);
+    }
+    :host-context([data-theme="light"]) .story-profile-trigger-wrap:focus-within {
+      border-color: #2563eb;
+      box-shadow:
+        inset 0 1px 2px rgba(0, 0, 0, 0.04),
+        0 0 0 3px rgba(37, 99, 235, 0.18);
+    }
+    :host-context([data-theme="light"]) .story-profile-menu {
+      background: #ffffff;
+      border-color: #e5e7eb;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+    }
+    :host-context([data-theme="light"]) .story-profile-menu__item:hover {
+      background: #f3f4f6;
+    }
+    :host-context([data-theme="light"]) .story-profile-menu__item--active {
+      background: rgba(59, 130, 246, 0.12);
+      color: #1d4ed8;
+    }
+    :host-context([data-theme="light"]) .story-profile-hint {
+      color: var(--text-tertiary);
+    }
     :host-context([data-theme="light"]) .ai-suggest-btn {
       background: rgba(139, 92, 246, 0.08);
       border-color: rgba(139, 92, 246, 0.3);
@@ -739,6 +1016,8 @@ export interface EditItemData {
 export class AddBacklogItemModalComponent implements OnInit {
   private backlogService = inject(BacklogService);
 
+  @ViewChild('storyProfileRoot') storyProfileRoot?: ElementRef<HTMLElement>;
+
   itemType = input.required<AddItemType>();
   /** Pre-selected parent ID (epicId for feature, featureId for story). When set, no parent picker shown. */
   parentId = input<string | null>(null);
@@ -748,6 +1027,8 @@ export class AddBacklogItemModalComponent implements OnInit {
   editData = input<EditItemData | null>(null);
   /** Repository ID for this backlog; when set, AI suggest uses this repo's LLM config */
   repositoryId = input<string | null>(null);
+  /** Named agent rule profiles for this repository (story picker). */
+  storyAgentRuleOptions = input<StoryAgentRuleOption[]>([]);
 
   add = output<{
     id?: string; // Present when editing
@@ -756,6 +1037,9 @@ export class AddBacklogItemModalComponent implements OnInit {
     acceptanceCriteria?: string;
     storyPoints?: number;
     parentId?: string; // epicId for feature, featureId for story (when user selected from dropdown)
+    status?: string;
+    repositoryAgentRuleId?: string | null;
+    updateRepositoryAgentRule?: boolean;
   }>();
   modalCancelled = output<void>();
 
@@ -765,6 +1049,12 @@ export class AddBacklogItemModalComponent implements OnInit {
   storyPoints: number | null = null;
   selectedEpicId = '';
   selectedFeatureId = '';
+  /** Empty string = use repository default (no story-specific named rule). */
+  selectedStoryAgentRuleId = '';
+
+  /** Custom profile picker (no native OS select dropdown). */
+  storyProfileMenuOpen = false;
+  storyProfileMenuFixedStyle: { top: string; left: string; width: string } | null = null;
 
   // AI suggest state
   suggestingDescription = false;
@@ -784,7 +1074,79 @@ export class AddBacklogItemModalComponent implements OnInit {
       this.description = data.description || '';
       this.acceptanceCriteria = data.acceptanceCriteria || '';
       this.storyPoints = data.storyPoints ?? null;
+      this.selectedStoryAgentRuleId = data.repositoryAgentRuleId ? String(data.repositoryAgentRuleId) : '';
     }
+  }
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(ev: MouseEvent): void {
+    if (!this.storyProfileMenuOpen) return;
+    const t = ev.target as Node;
+    const root = this.storyProfileRoot?.nativeElement;
+    if (root && !root.contains(t)) {
+      this.closeStoryProfileMenu();
+    }
+  }
+
+  @HostListener('document:keydown.escape')
+  onEscape(): void {
+    if (this.storyProfileMenuOpen) {
+      this.closeStoryProfileMenu();
+    }
+  }
+
+  @HostListener('window:resize')
+  onWindowResize(): void {
+    if (this.storyProfileMenuOpen) {
+      this.closeStoryProfileMenu();
+    }
+  }
+
+  onModalBodyScroll(): void {
+    if (this.storyProfileMenuOpen) {
+      this.closeStoryProfileMenu();
+    }
+  }
+
+  toggleStoryProfileMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.storyProfileMenuOpen) {
+      this.closeStoryProfileMenu();
+      return;
+    }
+    const btn = event.currentTarget as HTMLElement | null;
+    if (btn?.getBoundingClientRect) {
+      const r = btn.getBoundingClientRect();
+      this.storyProfileMenuFixedStyle = {
+        top: `${Math.round(r.bottom + 6)}px`,
+        left: `${Math.round(r.left)}px`,
+        width: `${Math.round(r.width)}px`
+      };
+    }
+    this.storyProfileMenuOpen = true;
+  }
+
+  closeStoryProfileMenu(): void {
+    this.storyProfileMenuOpen = false;
+    this.storyProfileMenuFixedStyle = null;
+  }
+
+  pickStoryProfile(id: string): void {
+    this.selectedStoryAgentRuleId = id;
+    this.closeStoryProfileMenu();
+  }
+
+  storyProfileDisplayLabel(): string {
+    const v = this.selectedStoryAgentRuleId.trim();
+    if (!v) {
+      return 'Repository default';
+    }
+    const opts = this.storyAgentRuleOptions();
+    return opts.find(o => o.id === v)?.name ?? 'Repository default';
+  }
+
+  isStoryProfileOptionSelected(id: string): boolean {
+    return this.selectedStoryAgentRuleId.trim() === id.trim();
   }
 
   isEditMode(): boolean {
@@ -910,6 +1272,7 @@ export class AddBacklogItemModalComponent implements OnInit {
       ?? (this.itemType() === 'feature' ? this.selectedEpicId || undefined : undefined)
       ?? (this.itemType() === 'story' ? this.selectedFeatureId || undefined : undefined);
     
+    const rid = this.selectedStoryAgentRuleId.trim();
     this.add.emit({
       ...(editDataValue && { id: editDataValue.id }),
       title: this.title.trim(),
@@ -917,18 +1280,24 @@ export class AddBacklogItemModalComponent implements OnInit {
       acceptanceCriteria: this.acceptanceCriteria.trim() || undefined,
       storyPoints: this.storyPoints ?? undefined,
       ...(editDataValue?.status != null && { status: editDataValue.status }),
-      ...(!editDataValue && parentId && { parentId })
+      ...(!editDataValue && parentId && { parentId }),
+      ...(this.itemType() === 'story' && !this.isEditMode() && rid ? { repositoryAgentRuleId: rid } : {}),
+      ...(this.itemType() === 'story' && this.isEditMode()
+        ? { updateRepositoryAgentRule: true, repositoryAgentRuleId: rid || null }
+        : {})
     });
     
     this.resetForm();
   }
 
   private resetForm(): void {
+    this.closeStoryProfileMenu();
     this.title = '';
     this.description = '';
     this.acceptanceCriteria = '';
     this.storyPoints = null;
     this.selectedEpicId = '';
     this.selectedFeatureId = '';
+    this.selectedStoryAgentRuleId = '';
   }
 }

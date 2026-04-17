@@ -5,7 +5,7 @@ import { Subject } from 'rxjs';
 import { debounceTime, distinctUntilChanged, takeUntil, switchMap } from 'rxjs/operators';
 import { of } from 'rxjs';
 import { Router, RouterLink } from '@angular/router';
-import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem, DEFAULT_AGENT_RULES } from '../../core/services/repository.service';
+import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem } from '../../core/services/repository.service';
 import { AnalysisService } from '../../core/services/analysis.service';
 import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
@@ -835,7 +835,6 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
       repo_branch: repo.defaultBranch || 'main',
       repo_archive_url: repoArchiveUrl,
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
-      agent_rules: repo.agentRules || DEFAULT_AGENT_RULES,
     }).subscribe({
       next: (sandbox) => {
         console.log('Sandbox created:', sandbox);

@@ -28,7 +28,7 @@
     </div>
     <div class="header-actions">
       <div class="backlog-header-extras">
-        <!-- Hidden on small screens — use desktop for import, sync, rules, identity -->
+        <!-- Hidden on small screens — use desktop for import, rules, identity (sync lives in selection bar) -->
         @if (repository()?.isOwner !== false) {
           <button type="button" class="action-btn secondary rules-btn" (click)="openRulesEditor()" title="Edit AI agent rules for this repository">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -39,6 +39,7 @@
             </svg>
             Rules
           </button>
+          @if (repository()?.provider === 'AzureDevOps') {
           <button
             type="button"
             class="action-btn azure-identity-btn"
@@ -51,6 +52,7 @@
               <path d="M7 11V7a5 5 0 0110 0v4"/>
             </svg>
           </button>
+          }
         }
       @if (totalEpics() === 0) {
         <button class="action-btn secondary" (click)="openAddEpic()" title="Add Epic">
@@ -71,24 +73,6 @@
             <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
           </svg>
           Import from GitHub
-        </button>
-        <button 
-          class="action-btn secondary"
-          (click)="syncToGitHub()"
-          [disabled]="syncToGitHubLoading() || !hasGitHubImportedItems() || !hasSyncSelection()"
-          title="Push selected items to GitHub (import from GitHub first, then select items)"
-        >
-          @if (syncToGitHubLoading()) {
-            <span class="spinner-small"></span>
-            Syncing...
-          } @else {
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="7 10 12 15 17 10"/>
-              <line x1="12" y1="15" x2="12" y2="3"/>
-            </svg>
-            Sync to GitHub
-          }
         </button>
       }
       <!-- Import from Azure (only for Azure DevOps repos) -->
@@ -172,7 +156,7 @@
   </div>
 
   @if (repository(); as repo) {
-    @if (repo.hasAzureIdentity !== true && !azureIdentityWarningDismissed()) {
+    @if (repo.provider === 'AzureDevOps' && repo.hasAzureIdentity !== true && !azureIdentityWarningDismissed()) {
     <div class="backlog-identity-warning" role="status">
       <button
         type="button"
@@ -223,6 +207,7 @@
             selected
           </span>
           <div class="sync-bar-outline-actions">
+            @if (repository()?.provider === 'AzureDevOps') {
             <button
               type="button"
               class="sync-azure-btn"
@@ -238,6 +223,23 @@
               </svg>
               <span>Sync with Azure</span>
             </button>
+            } @else if (repository()?.provider === 'GitHub') {
+            <button
+              type="button"
+              class="sync-github-btn"
+              (click)="openGitHubSyncModal()"
+              [disabled]="!hasSyncSelection()"
+              [title]="
+                hasSyncSelection()
+                  ? 'For each item: create a GitHub issue, pull from GitHub into DevPilot, or push DevPilot to GitHub'
+                  : 'Select backlog items first'
+              ">
+              <svg class="sync-outline-btn__icon sync-outline-btn__icon--fill" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+              <span>Sync with GitHub</span>
+            </button>
+            }
             <button
               type="button"
               class="sync-delete-btn"
@@ -290,6 +292,7 @@
             {{ selectedSyncToAzureEpics().size + selectedSyncToAzureFeatures().size + selectedSyncToAzureStories().size }}
           </span>
           <div class="sync-bar-mobile-outline-pair">
+            @if (repository()?.provider === 'AzureDevOps') {
             <button
               type="button"
               class="sync-icon-btn sync-icon-btn--azure"
@@ -301,6 +304,19 @@
                 <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
               </svg>
             </button>
+            } @else if (repository()?.provider === 'GitHub') {
+            <button
+              type="button"
+              class="sync-icon-btn sync-icon-btn--github"
+              (click)="openGitHubSyncModal()"
+              [disabled]="!hasSyncSelection()"
+              [title]="hasSyncSelection() ? 'Sync with GitHub (create / pull / push per item)' : 'Select backlog items first'"
+              [attr.aria-label]="hasSyncSelection() ? 'Sync with GitHub' : 'Sync with GitHub (select items first)'">
+              <svg class="sync-icon-btn__svg sync-icon-btn__svg--fill" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+              </svg>
+            </button>
+            }
             <button
               type="button"
               class="sync-icon-btn sync-icon-btn--danger"
@@ -321,37 +337,7 @@
     </div>
   }
 
-  <!-- Sync to GitHub status banner -->
-  @if (syncToGitHubSuccess() || syncToGitHubError()) {
-    <div class="generation-banner" [class]="syncToGitHubError() && !syncToGitHubSuccess() ? 'state-error' : 'state-complete'">
-      @if (syncToGitHubSuccess()) {
-        <div class="banner-content success">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <polyline points="20 6 9 17 4 12"/>
-          </svg>
-          <span>
-            Synced {{ syncToGitHubSuccess()!.syncedCount }} item(s) to GitHub
-            @if (syncToGitHubSuccess()!.failedCount > 0) {
-              ({{ syncToGitHubSuccess()!.failedCount }} failed)
-            }
-          </span>
-          <button class="close-btn" (click)="syncToGitHubSuccess.set(null); syncToGitHubError.set(null)">×</button>
-        </div>
-      } @else if (syncToGitHubError()) {
-        <div class="banner-content error">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="12" cy="12" r="10"/>
-            <line x1="12" y1="8" x2="12" y2="12"/>
-            <line x1="12" y1="16" x2="12.01" y2="16"/>
-          </svg>
-          <span>{{ syncToGitHubError() }}</span>
-          <button class="close-btn" (click)="syncToGitHubError.set(null); syncToGitHubSuccess.set(null)">×</button>
-        </div>
-      }
-    </div>
-  }
-
-  @if (azureSyncBannerSuccess() || azureSyncBannerError()) {
+  @if ((repository()?.provider === 'AzureDevOps' || repository()?.provider === 'GitHub') && (azureSyncBannerSuccess() || azureSyncBannerError())) {
     <div class="generation-banner" [class]="azureSyncBannerError() && !azureSyncBannerSuccess() ? 'state-error' : 'state-complete'">
       @if (azureSyncBannerSuccess()) {
         <div class="banner-content success">
@@ -359,17 +345,29 @@
             <polyline points="20 6 9 17 4 12"/>
           </svg>
           <span>
-            Azure sync:
+            @if (repository()?.provider === 'GitHub') {
+              GitHub sync:
+            } @else {
+              Azure sync:
+            }
             @if (azureSyncBannerSuccess()!.createdCount > 0) {
               created {{ azureSyncBannerSuccess()!.createdCount }}
             }
             @if (azureSyncBannerSuccess()!.pulledCount > 0) {
               @if (azureSyncBannerSuccess()!.createdCount > 0) { · }
-              updated {{ azureSyncBannerSuccess()!.pulledCount }} from Azure
+              @if (repository()?.provider === 'GitHub') {
+                updated {{ azureSyncBannerSuccess()!.pulledCount }} from GitHub
+              } @else {
+                updated {{ azureSyncBannerSuccess()!.pulledCount }} from Azure
+              }
             }
             @if (azureSyncBannerSuccess()!.pushedCount > 0) {
               @if (azureSyncBannerSuccess()!.createdCount > 0 || azureSyncBannerSuccess()!.pulledCount > 0) { · }
-              pushed {{ azureSyncBannerSuccess()!.pushedCount }} to Azure
+              @if (repository()?.provider === 'GitHub') {
+                pushed {{ azureSyncBannerSuccess()!.pushedCount }} to GitHub
+              } @else {
+                pushed {{ azureSyncBannerSuccess()!.pushedCount }} to Azure
+              }
             }
             @if (azureSyncBannerSuccess()!.failedCount > 0) {
               ({{ azureSyncBannerSuccess()!.failedCount }} failed)
@@ -1767,6 +1765,7 @@
       [features]="featureOptionsForModal()"
       [editData]="editModalData()"
       [repositoryId]="repositoryId()"
+      [storyAgentRuleOptions]="repositoryStoryRuleOptions()"
       (add)="onAddItem($event)"
       (modalCancelled)="closeAddModal()"
     />
@@ -2389,7 +2388,7 @@
     </div>
   }
 
-  @if (showAzureSyncModal()) {
+  @if (showAzureSyncModal() && (repository()?.provider === 'AzureDevOps' || repository()?.provider === 'GitHub')) {
     <div class="ado-modal-overlay" (click)="closeAzureSyncModal()">
       <div class="ado-modal ado-modal--azure-sync ado-sync-unified-modal" (click)="$event.stopPropagation()">
         <div class="ado-modal-header">
@@ -2397,7 +2396,7 @@
             <svg viewBox="0 0 24 24" fill="currentColor" width="24" height="24">
               <path d="M22 6v12l-6 4V6l-8 2v12l-6-4V6l10-4 10 4z"/>
             </svg>
-            <h2>Sync with Azure</h2>
+            <h2>{{ backlogSyncProvider() === 'github' ? 'Sync with GitHub' : 'Sync with Azure' }}</h2>
           </div>
           <button type="button" class="ado-modal-close" (click)="closeAzureSyncModal()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -2412,7 +2411,7 @@
               <span class="spinner-small"></span>
               <span>Building sync plan…</span>
             </div>
-          } @else if (azureSyncStep() === 'target') {
+          } @else if (azureSyncStep() === 'target' && backlogSyncProvider() === 'azure') {
             <div class="ado-config-form">
               <p class="ado-form-description">
                 Choose the Azure project (and team if you will create new work items). On the next step you pick, for each selected backlog row, whether to create it in Azure, pull Azure into DevPilot, or push DevPilot to Azure.
@@ -2527,11 +2526,20 @@
               <div class="azure-sync-plan__static">
               <div class="azure-sync-plan-toolbar" aria-label="Sync summary">
                 <div class="azure-sync-toolbar-col azure-sync-toolbar-col--org">
-                  <span class="azure-sync-toolbar-heading">Organization</span>
-                  @if (azureSyncOrg()) {
-                    <span class="azure-sync-toolbar-value" [title]="azureSyncOrg()">{{ azureSyncOrg() }}</span>
+                  @if (backlogSyncProvider() === 'github') {
+                    <span class="azure-sync-toolbar-heading">Repository</span>
+                    @if (repository()?.fullName) {
+                      <span class="azure-sync-toolbar-value" [title]="repository()!.fullName">{{ repository()!.fullName }}</span>
+                    } @else {
+                      <span class="azure-sync-toolbar-muted">—</span>
+                    }
                   } @else {
-                    <span class="azure-sync-toolbar-muted"><a routerLink="/settings">Settings</a></span>
+                    <span class="azure-sync-toolbar-heading">Organization</span>
+                    @if (azureSyncOrg()) {
+                      <span class="azure-sync-toolbar-value" [title]="azureSyncOrg()">{{ azureSyncOrg() }}</span>
+                    } @else {
+                      <span class="azure-sync-toolbar-muted"><a routerLink="/settings">Settings</a></span>
+                    }
                   }
                 </div>
                 <div class="azure-sync-toolbar-col azure-sync-toolbar-col--suggested">
@@ -2539,17 +2547,23 @@
                   @if (azureSyncPlanSuggestedSummary(); as sug) {
                     <div class="azure-sync-chip-group azure-sync-chip-group--compact">
                       @if (sug.create > 0) {
-                        <span class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--create" title="Create in Azure">
+                        <span
+                          class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--create"
+                          [attr.title]="backlogSyncProvider() === 'github' ? 'Create in GitHub' : 'Create in Azure'">
                           <span class="azure-sync-chip__n">{{ sug.create }}</span><span class="azure-sync-chip__t">Create</span>
                         </span>
                       }
                       @if (sug.pull > 0) {
-                        <span class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--pull" title="Update DevPilot from Azure">
+                        <span
+                          class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--pull"
+                          [attr.title]="backlogSyncProvider() === 'github' ? 'Update DevPilot from GitHub' : 'Update DevPilot from Azure'">
                           <span class="azure-sync-chip__n">{{ sug.pull }}</span><span class="azure-sync-chip__t">Pull</span>
                         </span>
                       }
                       @if (sug.push > 0) {
-                        <span class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--push" title="Update Azure from DevPilot">
+                        <span
+                          class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--push"
+                          [attr.title]="backlogSyncProvider() === 'github' ? 'Update GitHub from DevPilot' : 'Update Azure from DevPilot'">
                           <span class="azure-sync-chip__n">{{ sug.push }}</span><span class="azure-sync-chip__t">Push</span>
                         </span>
                       }
@@ -2571,17 +2585,23 @@
                   ) {
                     <div class="azure-sync-chip-group azure-sync-chip-group--compact">
                       @if (azureSyncPlanCounts().create > 0) {
-                        <span class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--create azure-sync-chip--dim" title="Create in Azure">
+                        <span
+                          class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--create azure-sync-chip--dim"
+                          [attr.title]="backlogSyncProvider() === 'github' ? 'Create in GitHub' : 'Create in Azure'">
                           <span class="azure-sync-chip__n">{{ azureSyncPlanCounts().create }}</span><span class="azure-sync-chip__t">Create</span>
                         </span>
                       }
                       @if (azureSyncPlanCounts().pull > 0) {
-                        <span class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--pull azure-sync-chip--dim" title="Update DevPilot from Azure">
+                        <span
+                          class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--pull azure-sync-chip--dim"
+                          [attr.title]="backlogSyncProvider() === 'github' ? 'Update DevPilot from GitHub' : 'Update DevPilot from Azure'">
                           <span class="azure-sync-chip__n">{{ azureSyncPlanCounts().pull }}</span><span class="azure-sync-chip__t">Pull</span>
                         </span>
                       }
                       @if (azureSyncPlanCounts().push > 0) {
-                        <span class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--push azure-sync-chip--dim" title="Update Azure from DevPilot">
+                        <span
+                          class="azure-sync-chip azure-sync-chip--compact azure-sync-chip--push azure-sync-chip--dim"
+                          [attr.title]="backlogSyncProvider() === 'github' ? 'Update GitHub from DevPilot' : 'Update Azure from DevPilot'">
                           <span class="azure-sync-chip__n">{{ azureSyncPlanCounts().push }}</span><span class="azure-sync-chip__t">Push</span>
                         </span>
                       }
@@ -2656,30 +2676,59 @@
                           <span class="work-item-title" [title]="row.title">{{ row.title }}</span>
                         </div>
                         <div class="col-azure-link">
-                          @if (row.azureDevOpsWorkItemId) {
-                            <span class="work-item-id" [title]="'Azure #' + row.azureDevOpsWorkItemId">#{{ row.azureDevOpsWorkItemId }}</span>
+                          @if (backlogSyncProvider() === 'github') {
+                            @if (row.gitHubIssueNumber) {
+                              <span class="work-item-id" [title]="'GitHub #' + row.gitHubIssueNumber">#{{ row.gitHubIssueNumber }}</span>
+                            } @else {
+                              <span class="children-count">New</span>
+                            }
                           } @else {
-                            <span class="children-count">New</span>
+                            @if (row.azureDevOpsWorkItemId) {
+                              <span class="work-item-id" [title]="'Azure #' + row.azureDevOpsWorkItemId">#{{ row.azureDevOpsWorkItemId }}</span>
+                            } @else {
+                              <span class="children-count">New</span>
+                            }
                           }
                         </div>
                         <div class="col-azure-action">
-                          @if (!row.azureDevOpsWorkItemId) {
-                            <select
-                              class="filter-select azure-sync-row-select"
-                              [ngModel]="row.direction"
-                              (ngModelChange)="setAzureSyncRowDirection(row, $event)"
-                            >
-                              <option value="create">Create in Azure</option>
-                            </select>
+                          @if (backlogSyncProvider() === 'github') {
+                            @if (row.gitHubIssueNumber == null) {
+                              <select
+                                class="filter-select azure-sync-row-select"
+                                [ngModel]="row.direction"
+                                (ngModelChange)="setAzureSyncRowDirection(row, $event)"
+                              >
+                                <option value="create">Create in GitHub</option>
+                              </select>
+                            } @else {
+                              <select
+                                class="filter-select azure-sync-row-select"
+                                [ngModel]="row.direction"
+                                (ngModelChange)="setAzureSyncRowDirection(row, $event)"
+                              >
+                                <option value="pull">Pull → DevPilot</option>
+                                <option value="push">Push → GitHub</option>
+                              </select>
+                            }
                           } @else {
-                            <select
-                              class="filter-select azure-sync-row-select"
-                              [ngModel]="row.direction"
-                              (ngModelChange)="setAzureSyncRowDirection(row, $event)"
-                            >
-                              <option value="pull">Pull → DevPilot</option>
-                              <option value="push">Push → Azure</option>
-                            </select>
+                            @if (!row.azureDevOpsWorkItemId) {
+                              <select
+                                class="filter-select azure-sync-row-select"
+                                [ngModel]="row.direction"
+                                (ngModelChange)="setAzureSyncRowDirection(row, $event)"
+                              >
+                                <option value="create">Create in Azure</option>
+                              </select>
+                            } @else {
+                              <select
+                                class="filter-select azure-sync-row-select"
+                                [ngModel]="row.direction"
+                                (ngModelChange)="setAzureSyncRowDirection(row, $event)"
+                              >
+                                <option value="pull">Pull → DevPilot</option>
+                                <option value="push">Push → Azure</option>
+                              </select>
+                            }
                           }
                         </div>
                       </div>
@@ -2700,7 +2749,7 @@
               }
               <div class="ado-form-actions azure-sync-plan-footer-actions">
                 <button type="button" class="ado-btn secondary" (click)="backToAzureSyncTarget()">
-                  @if (azureSyncSkippedTarget()) { Close } @else { Back }
+                  @if (azureSyncSkippedTarget() || backlogSyncProvider() === 'github') { Close } @else { Back }
                 </button>
                 <button
                   type="button"
@@ -2708,8 +2757,9 @@
                   (click)="submitAzureSyncApply()"
                   [disabled]="
                     azureSyncApplyLoading()
-                    || !azureSyncProject().trim()
-                    || (azureSyncPlanCounts().create > 0 && !azureSyncTeamId().trim())
+                    || (backlogSyncProvider() === 'azure'
+                      && (!azureSyncProject().trim()
+                        || (azureSyncPlanCounts().create > 0 && !azureSyncTeamId().trim())))
                   "
                 >
                   @if (azureSyncApplyLoading()) {
@@ -2993,8 +3043,9 @@
   </div>
 }
 
-<!-- Azure Identity Modal -->
+<!-- Azure Identity Modal (Azure DevOps repos only) -->
 @if (showAzureIdentityModal() && repository(); as azRepo) {
+  @if (azRepo.provider === 'AzureDevOps') {
   <div class="modal-overlay">
     <div class="azure-identity-modal-panel" (click)="$event.stopPropagation()">
       <div class="azure-identity-modal__header">
@@ -3071,6 +3122,7 @@
       </div>
     </div>
   </div>
+  }
 }
 
 <!-- Agent Rules Editor Modal -->
@@ -3100,13 +3152,65 @@
           <div class="rules-modal__loading">Loading rules...</div>
         } @else {
           <p class="rules-modal__hint">
-            These instructions guide the AI agent when implementing user stories in the sandbox.
+            Define one or more named Markdown profiles. The default profile applies to sandboxes unless a user story picks another profile.
             @if (rulesIsDefault()) {
-              <span class="rules-modal__badge default">Using default</span>
+              <span class="rules-modal__badge default">Built-in template</span>
             } @else {
-              <span class="rules-modal__badge custom">Custom</span>
+              <span class="rules-modal__badge custom">Custom profiles</span>
             }
           </p>
+          <div class="rules-modal__profiles-toolbar">
+            <div class="rules-modal__profiles-list" role="list">
+              @for (row of rulesProfiles(); track $index) {
+                <div class="rules-modal__profile-chip-row" role="listitem">
+                  <button
+                    type="button"
+                    class="rules-modal__profile-chip"
+                    [class.rules-modal__profile-chip--active]="rulesActiveProfileIndex() === $index"
+                    (click)="selectRulesProfileIndex($index)">
+                    {{ row.name || ('Rule ' + ($index + 1)) }}
+                  </button>
+                  @if (rulesProfiles().length > 1) {
+                    <button
+                      type="button"
+                      class="rules-modal__profile-remove"
+                      (click)="removeRulesProfileRow($index); $event.stopPropagation()"
+                      title="Remove profile"
+                      [disabled]="rulesSaving()">
+                      ×
+                    </button>
+                  }
+                </div>
+              }
+            </div>
+            <button type="button" class="rules-modal__add-profile" (click)="addRulesProfileRow()" [disabled]="rulesSaving()">
+              + Add profile
+            </button>
+          </div>
+          @if (activeRulesProfile(); as ar) {
+            <div class="rules-modal__active-fields">
+              <div class="rules-modal__field-row">
+                <label class="rules-modal__label" for="rulesProfileName">Profile name</label>
+                <input
+                  id="rulesProfileName"
+                  class="rules-modal__input"
+                  [ngModel]="ar.name"
+                  (ngModelChange)="patchActiveRulesProfile({ name: $event })"
+                  [disabled]="rulesSaving()"
+                  placeholder="e.g. Backend, Security review" />
+              </div>
+              <div class="rules-modal__field-row rules-modal__field-row--inline">
+                <label class="rules-modal__checkbox">
+                  <input
+                    type="checkbox"
+                    [ngModel]="ar.isDefault"
+                    (ngModelChange)="onRulesDefaultProfileChange($event)"
+                    [disabled]="rulesSaving()" />
+                  Default for repository
+                </label>
+              </div>
+            </div>
+          }
           <div class="rules-modal__view-tabs" role="tablist" aria-label="Rules view">
             <button
               type="button"
@@ -3128,21 +3232,21 @@
             </button>
           </div>
           @if (rulesViewMode() === 'preview') {
-            @if (rulesEditText().trim()) {
+            @if (activeRulesProfile()?.body?.trim()) {
               <div
                 class="rules-modal__preview detail-text markdown-content"
-                [innerHTML]="rulesEditText() | markdown"></div>
+                [innerHTML]="(activeRulesProfile()?.body || '') | markdown"></div>
             } @else {
-              <div class="rules-modal__preview rules-modal__preview--empty">Nothing to preview — switch to <strong>Edit</strong> to add rules.</div>
+              <div class="rules-modal__preview rules-modal__preview--empty">Nothing to preview — switch to <strong>Edit</strong> or pick another profile.</div>
             }
           } @else {
             <textarea
               class="rules-modal__editor"
-              [ngModel]="rulesEditText()"
-              (ngModelChange)="rulesEditText.set($event)"
-              [disabled]="rulesSaving()"
+              [ngModel]="activeRulesProfile()?.body || ''"
+              (ngModelChange)="patchActiveRulesProfile({ body: $event })"
+              [disabled]="rulesSaving() || !activeRulesProfile()"
               spellcheck="false"
-              rows="20"
+              rows="16"
               placeholder="Enter AI agent instructions (Markdown supported)..."></textarea>
           }
         }

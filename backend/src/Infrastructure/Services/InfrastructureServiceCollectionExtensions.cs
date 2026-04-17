@@ -41,6 +41,7 @@ public static class InfrastructureServiceCollectionExtensions
         // Register PostgreSQL repository implementations
         services.AddScoped<IRepositoryShareRepository, PostgresRepositoryShareRepository>();
         services.AddScoped<IRepositoryRepository, PostgresRepositoryRepository>();
+        services.AddScoped<IRepositoryAgentRuleRepository, PostgresRepositoryAgentRuleRepository>();
         services.AddScoped<IEpicRepository, PostgresEpicRepository>();
         services.AddScoped<IFeatureRepository, PostgresFeatureRepository>();
         services.AddScoped<IUserRepository, PostgresUserRepository>();
