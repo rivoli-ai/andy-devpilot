@@ -759,3 +759,67 @@ pre code {
 [data-theme="dark"] .mermaid svg .label-container rect {
   fill: #21262d !important;
 }
+
+/* Mermaid toolbar + expand (markdown pipe); code page adds richer ::ng-deep styling */
+.markdown-content .mermaid-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.markdown-content .mermaid-header-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.markdown-content .mermaid-expand-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  margin: 0;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--border-default) 70%, var(--brand-primary, #6366f1));
+  background: color-mix(in srgb, var(--surface-hover) 85%, var(--brand-primary, #6366f1) 8%);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.markdown-content .mermaid-expand-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+/*
+ * Workspace routes (/code/, /backlog/): lock document scroll so wide analysis markdown
+ * (Mermaid, tables) cannot grow html/body. Inner regions (.main-content children) scroll instead.
+ * Class toggled from AppComponent when authenticated + sandboxUiAllowed.
+ */
+html.devpilot-workspace-scroll-lock {
+  overflow: hidden;
+  height: 100dvh;
+  max-height: 100dvh;
+  overscroll-behavior: none;
+}
+
+html.devpilot-workspace-scroll-lock body {
+  overflow: hidden;
+  height: 100%;
+  max-height: 100dvh;
+  overscroll-behavior: none;
+}
+
+html.devpilot-workspace-scroll-lock app-root {
+  display: block;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
+}

@@ -19,16 +19,28 @@ import { ThemeService } from './core/services/theme.service';
 import { VncViewerComponent } from './components/vnc-viewer/vnc-viewer.component';
 import { DockPanelComponent } from './components/dock-panel/dock-panel.component';
 import { ToastComponent } from './components/toast/toast.component';
+import { ConfirmDialogComponent } from './components/confirm-dialog/confirm-dialog.component';
+import { MermaidModalComponent } from './components/mermaid-modal/mermaid-modal.component';
 import { VncViewerService, VncViewer } from './core/services/vnc-viewer.service';
 import { SandboxService, Sandbox } from './core/services/sandbox.service';
 // VNC URLs now come from the sandbox manager proxy
 import { AuthService } from './core/services/auth.service';
-import { CommonModule } from '@angular/common';
+import { CommonModule, DOCUMENT } from '@angular/common';
 
 @Component({
   selector: 'app-root',
   standalone: true,
-  imports: [RouterOutlet, SidebarComponent, HeaderComponent, VncViewerComponent, DockPanelComponent, ToastComponent, CommonModule],
+  imports: [
+    RouterOutlet,
+    SidebarComponent,
+    HeaderComponent,
+    VncViewerComponent,
+    DockPanelComponent,
+    ToastComponent,
+    ConfirmDialogComponent,
+    MermaidModalComponent,
+    CommonModule
+  ],
   templateUrl: './app.component.html',
   styleUrl: './app.component.css'
 })
@@ -57,6 +69,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private dockReadyTrackingInitialized = false;
 
   private readonly router = inject(Router);
+  private readonly document = inject(DOCUMENT);
   private readonly routerUrl = toSignal(
     this.router.events.pipe(
       filter((e): e is NavigationEnd => e instanceof NavigationEnd),
@@ -81,7 +94,18 @@ export class AppComponent implements OnInit, OnDestroy {
     public authService: AuthService
   ) {
     const destroyRef = inject(DestroyRef);
-    destroyRef.onDestroy(() => this.teardownDockResizeObserver());
+    destroyRef.onDestroy(() => {
+      this.teardownDockResizeObserver();
+      this.document.documentElement.classList.remove('devpilot-workspace-scroll-lock');
+    });
+
+    effect(() => {
+      const lock =
+        this.authService.isAuthenticated() &&
+        this.authService.token() !== null &&
+        this.sandboxUiAllowed();
+      this.document.documentElement.classList.toggle('devpilot-workspace-scroll-lock', lock);
+    });
 
     effect(() => {
       this.minimizedViewers().length;

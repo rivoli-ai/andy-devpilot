@@ -35,6 +35,7 @@ import { CodeHighlightPipe } from '../../shared/pipes/code-highlight.pipe';
 import { VPS_CONFIG } from '../../core/config/vps.config';
 import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
 import { CodeAskConversationService } from '../../core/services/code-ask-conversation.service';
+import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 
 // Extended tree item with children and state
 export interface TreeNode extends RepositoryTreeItem {
@@ -88,9 +89,22 @@ export class CodeComponent implements OnInit, OnDestroy {
   // Analysis state
   analysisResult = signal<CodeAnalysisResult | null>(null);
   analysisLoading = signal<boolean>(false);
+  /** True while a user-triggered full-repo analysis run is in flight (not the loadAnalysis() fetch). */
+  analysisRunActive = signal<boolean>(false);
   analysisError = signal<string | null>(null);
   analysisSandboxId = signal<string | null>(null);
   analysisStatus = signal<string>('');
+  /** Live tool steps from bridge headless_progress during repository analysis. */
+  analysisLiveTools = signal<
+    { name: string; args_preview?: string; result_preview?: string; at?: number }[]
+  >([]);
+  /** Full partial assistant text from live_response while the model streams. */
+  analysisLiveStream = signal<string>('');
+  analysisBridgeRequestInProgress = signal<boolean>(false);
+
+  readonly analysisLiveProgressScroll = viewChild<ElementRef<HTMLElement>>('analysisLiveProgressScroll');
+
+  private analysisLiveScrollRaf = 0;
 
   // File analysis state
   fileAnalysisResult = signal<FileAnalysisResult | null>(null);
@@ -204,6 +218,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     private vncViewerService: VncViewerService,
     private sandboxBridgeService: SandboxBridgeService,
     private codeAskConversationService: CodeAskConversationService,
+    private confirmDialog: ConfirmDialogService,
     private http: HttpClient,
     private lastVisitedRepository: LastVisitedRepositoryService
   ) {
@@ -223,6 +238,15 @@ export class CodeComponent implements OnInit, OnDestroy {
         this.scrollAskThreadToBottom();
         this.ensureAskThreadMutationObserver();
       });
+    });
+
+    effect(() => {
+      if (!this.analysisRunActive() || !this.analysisLoading()) {
+        return;
+      }
+      this.analysisLiveStream();
+      this.analysisLiveTools();
+      queueMicrotask(() => this.queueAnalysisLiveScrollToEnd());
     });
   }
 
@@ -284,6 +308,10 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    if (this.analysisLiveScrollRaf) {
+      cancelAnimationFrame(this.analysisLiveScrollRaf);
+      this.analysisLiveScrollRaf = 0;
+    }
     this.teardownAskThreadMutationObserver();
     this.analysisSubscription?.unsubscribe();
     this.destroy$.next();
@@ -297,25 +325,9 @@ export class CodeComponent implements OnInit, OnDestroy {
       this.lastVisitedRepository.remember(repoId);
       this.repositoryId.set(repoId);
       this.loadRepository(repoId);
-
-      // Check for existing analysis sandbox to reconnect after refresh
-      this.checkForExistingAnalysisSandbox();
     } else {
       this.error.set('Repository ID is required');
     }
-
-    // If the analysis sandbox viewer is closed while analysis is running, stop the spinner immediately
-    this.vncViewerService.viewers$.pipe(takeUntil(this.destroy$)).subscribe(viewers => {
-      const sandboxId = this.analysisSandboxId();
-      if (sandboxId && this.analysisLoading()) {
-        const stillOpen = viewers.some(v => v.id === sandboxId);
-        if (!stillOpen) {
-          this.analysisLoading.set(false);
-          this.analysisError.set('Sandbox was closed. Analysis stopped.');
-          this.analysisSandboxId.set(null);
-        }
-      }
-    });
   }
 
   getLlmSettings() {
@@ -355,65 +367,6 @@ export class CodeComponent implements OnInit, OnDestroy {
         this.repoLlmUpdating.set(false);
       }
     });
-  }
-
-  /**
-   * Check if there's an existing analysis sandbox running (e.g., after page refresh)
-   * If found, reconnect and resume polling for the analysis response
-   */
-  private checkForExistingAnalysisSandbox(): void {
-    const currentRepoId = this.repositoryId();
-    const viewers = this.vncViewerService.getViewers();
-
-    // Only reconnect to analysis sandbox for the CURRENT repository
-    const analysisViewer = viewers.find(v =>
-      v.title?.includes('Analysis') &&
-      v.implementationContext?.repositoryId === currentRepoId
-    );
-
-    if (analysisViewer) {
-      console.log('Found existing analysis sandbox for this repo, reconnecting...', analysisViewer.id);
-
-      this.analysisSandboxId.set(analysisViewer.id);
-      this.analysisLoading.set(true);
-      this.analysisStatus.set('Reconnecting to analysis...');
-
-      this.resumeAnalysisPolling(analysisViewer.id);
-    }
-  }
-
-  private async resumeAnalysisPolling(sandboxId: string): Promise<void> {
-    const branch = this.currentBranch() || 'main';
-
-    try {
-      this.analysisStatus.set('Waiting for AI response...');
-      const response = await this.waitForZedResponse(sandboxId);
-
-      this.analysisStatus.set('Saving results...');
-      this.repositoryService.saveCodeAnalysis(this.repositoryId(), {
-        branch,
-        summary: response,
-        model: 'zed-ai'
-      }).subscribe({
-        next: (result) => {
-          this.analysisResult.set(result);
-          this.analysisLoading.set(false);
-          this.analysisStatus.set('');
-          this.cleanupAnalysisSandbox();
-        },
-        error: (err) => {
-          console.error('Failed to save analysis:', err);
-          this.analysisError.set('Failed to save analysis results');
-          this.analysisLoading.set(false);
-          this.cleanupAnalysisSandbox();
-        }
-      });
-    } catch (err: any) {
-      console.error('Resumed analysis failed:', err);
-      this.analysisError.set(err.message || 'Analysis failed');
-      this.analysisLoading.set(false);
-      this.cleanupAnalysisSandbox();
-    }
   }
 
   private async loadRepository(repositoryId: string): Promise<void> {
@@ -608,20 +561,38 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.showBranchDropdown.update(v => !v);
   }
 
-  selectBranch(branch: RepositoryBranch): void {
+  async selectBranch(branch: RepositoryBranch): Promise<void> {
     if (branch.name === this.currentBranch()) {
       this.showBranchDropdown.set(false);
       return;
     }
-    if (this.codeChatSandboxId()) {
-      const ok = confirm(
-        'Switching branches will stop the running Ask sandbox and clear the in-page chat for this repository. Continue?'
-      );
+    const ask = !!this.codeChatSandboxId();
+    const analyzing = this.analysisRunActive();
+    if (ask || analyzing) {
+      let message: string;
+      if (ask && analyzing) {
+        message =
+          'Switching branches will stop the running Ask sandbox, cancel in-progress repository analysis, and clear the in-page chat. Continue?';
+      } else if (ask) {
+        message =
+          'Switching branches will stop the running Ask sandbox and clear the in-page chat for this repository. Continue?';
+      } else {
+        message =
+          'Switching branches will cancel in-progress repository analysis and remove its temporary sandbox. Continue?';
+      }
+      const ok = await this.confirmDialog.confirm({
+        title: 'Switch branch?',
+        message,
+        confirmText: 'Switch branch',
+        cancelText: 'Cancel',
+        variant: 'danger'
+      });
       if (!ok) {
         this.showBranchDropdown.set(false);
         return;
       }
     }
+    this.cancelActiveRepositoryAnalysisRun();
     this.releaseCodeChatSandbox();
     this.codeAskRestoreDoneForRepo = null;
     this.currentBranch.set(branch.name);
@@ -631,28 +602,53 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.codeMobilePane.set('explorer');
     this.loadRootTree();
     void this.tryRestoreCodeAskSession();
+    if (this.activeTab() === 'analysis') {
+      this.loadAnalysis();
+    } else {
+      this.analysisResult.set(null);
+      this.analysisError.set(null);
+    }
   }
 
   /**
-   * Router guard: leaving `/code/:id` with an active Ask sandbox requires confirmation and deletes the container.
+   * Router guard: leaving `/code/:id` with an active Ask sandbox or in-progress repository analysis
+   * requires confirmation and tears down sandboxes.
    */
-  confirmLeaveCodePage(): boolean {
-    if (!this.codeChatSandboxId()) {
+  async confirmLeaveCodePage(): Promise<boolean> {
+    const ask = !!this.codeChatSandboxId();
+    const analyzing = this.analysisRunActive();
+    if (!ask && !analyzing) {
       return true;
     }
-    const ok = confirm(
-      'You have an Ask sandbox running. Leaving will stop the container and clear the in-session chat. Continue?'
-    );
+    let message: string;
+    if (ask && analyzing) {
+      message =
+        'You have an Ask sandbox running and repository analysis in progress. Leaving will stop both and clear the in-session chat.';
+    } else if (ask) {
+      message =
+        'You have an Ask sandbox running. Leaving will stop the container and clear the in-session chat.';
+    } else {
+      message =
+        'Repository analysis is still running. Leaving will cancel it and remove the temporary sandbox.';
+    }
+    const ok = await this.confirmDialog.confirm({
+      title: 'Leave this page?',
+      message,
+      confirmText: 'Leave',
+      cancelText: 'Stay',
+      variant: 'danger'
+    });
     if (!ok) {
       return false;
     }
+    this.cancelActiveRepositoryAnalysisRun();
     this.releaseCodeChatSandbox();
     return true;
   }
 
   @HostListener('window:beforeunload', ['$event'])
   protected onWindowBeforeUnload(event: BeforeUnloadEvent): void {
-    if (this.codeChatSandboxId()) {
+    if (this.codeChatSandboxId() || this.analysisRunActive()) {
       event.preventDefault();
       event.returnValue = '';
     }
@@ -663,14 +659,17 @@ export class CodeComponent implements OnInit, OnDestroy {
     if (event.persisted) {
       return;
     }
-    const sid = this.codeChatSandboxId();
-    if (!sid) {
-      return;
+    const askSid = this.codeChatSandboxId();
+    if (askSid) {
+      if (this.vncViewerService.getViewer(askSid)) {
+        this.vncViewerService.dismissViewerKeepSandbox(askSid);
+      }
+      this.sandboxService.requestDeleteSandboxOnUnload(askSid);
     }
-    if (this.vncViewerService.getViewer(sid)) {
-      this.vncViewerService.dismissViewerKeepSandbox(sid);
+    const analysisSid = this.analysisSandboxId();
+    if (analysisSid) {
+      this.sandboxService.requestDeleteSandboxOnUnload(analysisSid);
     }
-    this.sandboxService.requestDeleteSandboxOnUnload(sid);
   }
 
   getFileIcon(item: TreeNode | RepositoryTreeItem): string {
@@ -1004,6 +1003,52 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.vncViewerService.setDockPosition(sid, 'floating');
   }
 
+  /**
+   * Clear all Ask messages for the current branch: UI, persisted snapshot, and bridge history when connected.
+   */
+  async clearCodeAskHistory(): Promise<void> {
+    if (this.codeChatBusy()) {
+      return;
+    }
+    if (this.codeChatMessages().length === 0) {
+      return;
+    }
+    const ok = await this.confirmDialog.confirm({
+      title: 'Clear chat history?',
+      message:
+        'Clear all messages in this chat for the current branch? Saved history will be removed and the sandbox conversation reset if a session is running.',
+      confirmText: 'Clear history',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return;
+    }
+
+    const repoId = this.repositoryId();
+    const branch = this.currentBranch() || 'main';
+    const sid = this.codeChatSandboxId();
+
+    this.codeChatMessages.set([]);
+    this.codeChatError.set(null);
+    this.codeChatStatus.set('');
+    this.codeChatLiveTools.set([]);
+    this.codeChatStreamHint.set(null);
+
+    this.codeAskConversationService.saveMessages(repoId, branch, []).subscribe({
+      next: () => {
+        queueMicrotask(() => this.scrollAskThreadToBottom());
+      },
+      error: err => console.warn('Ask: could not clear persisted conversation:', err)
+    });
+
+    if (sid) {
+      this.sandboxBridgeService.clearHistory(sid).subscribe({
+        error: err => console.warn('Ask: could not clear bridge history:', err)
+      });
+    }
+  }
+
   private async waitForCodeChatBridge(sandboxId: string): Promise<void> {
     for (let i = 0; i < 90; i++) {
       try {
@@ -1161,6 +1206,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     const branch = this.currentBranch();
     this.analysisLoading.set(true);
     this.analysisError.set(null);
+    this.analysisResult.set(null);
 
     this.repositoryService.getCodeAnalysis(repoId, branch).subscribe({
       next: (result) => {
@@ -1172,6 +1218,7 @@ export class CodeComponent implements OnInit, OnDestroy {
         if (err.status !== 404) {
           console.error('Failed to load analysis:', err);
         }
+        this.analysisResult.set(null);
         this.analysisLoading.set(false);
       }
     });
@@ -1187,8 +1234,10 @@ export class CodeComponent implements OnInit, OnDestroy {
       return;
     }
 
+    this.analysisRunActive.set(true);
     this.analysisLoading.set(true);
     this.analysisError.set(null);
+    this.clearAnalysisLiveTelemetry();
     this.analysisStatus.set('Checking AI configuration...');
 
     this.analysisStatus.set('Creating sandbox...');
@@ -1204,91 +1253,147 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   private createAnalysisSandbox(repo: Repository, cloneUrl: string, branch: string, repoArchiveUrl?: string): void {
-    this.sandboxService.createSandbox({
-      repo_url: cloneUrl,
-      repo_name: repo.name,
-      repo_branch: branch,
-      repo_archive_url: repoArchiveUrl,
-    }).subscribe({
-      next: (sandbox) => {
-        this.analysisSandboxId.set(sandbox.id);
-        this.analysisStatus.set('Waiting for environment...');
-
-        setTimeout(() => {
-          this.vncViewerService.open(
-            sandbox.id,
-            `${repo.name} - Analysis`,
-            {
-              repositoryId: this.repositoryId(),
-              repositoryFullName: repo.fullName || repo.name,
-              defaultBranch: branch,
-              storyTitle: 'Code Analysis',
-              storyId: `analysis-${this.repositoryId()}`
-            },
-            sandbox.vnc_password
-          );
-
-          // Start analysis after viewer is opened
-          this.waitForZedAndAnalyze(sandbox, repo.name, branch);
-        }, VPS_CONFIG.sandboxReadyDelayMs);
-      },
-      error: (err) => {
-        console.error('Failed to create sandbox:', err);
-        this.analysisError.set('Failed to create analysis environment');
-        this.analysisLoading.set(false);
-      }
-    });
+    // Ephemeral sandbox only (no repository_id) so Code Ask bindings are not overwritten.
+    this.sandboxService
+      .createSandbox({
+        repo_url: cloneUrl,
+        repo_name: repo.name,
+        repo_branch: branch,
+        repo_archive_url: repoArchiveUrl
+      })
+      .subscribe({
+        next: sandbox => {
+          this.analysisSandboxId.set(sandbox.id);
+          this.analysisStatus.set('Starting sandbox…');
+          void this.runHeadlessRepositoryAnalysis(sandbox, repo.name, branch);
+        },
+        error: err => {
+          console.error('Failed to create sandbox:', err);
+          this.analysisError.set('Failed to create analysis environment');
+          this.analysisRunActive.set(false);
+          this.analysisLoading.set(false);
+          this.clearAnalysisLiveTelemetry();
+        }
+      });
   }
 
-  private async waitForZedAndAnalyze(sandbox: CreateSandboxResponse, repoName: string, branch: string): Promise<void> {
+  /** Full-repo analysis via headless ACP-style `/agent/prompt` (same path as Ask; no VNC). */
+  private async runHeadlessRepositoryAnalysis(
+    sandbox: CreateSandboxResponse,
+    repoName: string,
+    branch: string
+  ): Promise<void> {
     if (!sandbox.id) {
       this.analysisError.set('Sandbox ID not available');
+      this.analysisRunActive.set(false);
       this.analysisLoading.set(false);
+      this.clearAnalysisLiveTelemetry();
       this.cleanupAnalysisSandbox();
       return;
     }
 
     const sid = sandbox.id;
     try {
-      this.analysisStatus.set('Waiting for Zed IDE...');
+      this.analysisStatus.set('Waiting for environment…');
+      await this.delay(Math.min(5000, VPS_CONFIG.sandboxReadyDelayMs));
       await this.waitForZedReady(sid);
 
-      this.analysisStatus.set('Analyzing repository...');
+      this.analysisStatus.set('Analyzing repository…');
       const prompt = this.buildAnalysisPrompt(repoName);
-      await this.sendPromptToZed(sid, prompt);
+      const post = await firstValueFrom(
+        this.sandboxBridgeService.sendHeadlessAgentPrompt(sid, prompt).pipe(
+          catchError(err => {
+            if (err?.status === 409) {
+              return of({
+                status: 'error' as const,
+                error: 'Another agent task is running in this sandbox. Try again in a few seconds.'
+              });
+            }
+            throw err;
+          })
+        )
+      );
 
-      this.analysisStatus.set('Waiting for AI response...');
-      const response = await this.waitForZedResponse(sid);
+      if (post.status !== 'ok') {
+        throw new Error('error' in post && post.error ? post.error : 'Failed to start analysis');
+      }
+      const promptId = post.prompt_id;
+      if (!promptId) {
+        throw new Error('Failed to start analysis');
+      }
 
-      // Parse and save response
-      this.analysisStatus.set('Saving results...');
+      this.analysisStatus.set('Waiting for AI response…');
+      const response = await this.pollForHeadlessAnalysisAnswer(sid, promptId);
 
-      // Store the full response as summary for comprehensive display
-      this.repositoryService.saveCodeAnalysis(this.repositoryId(), {
-        branch,
-        summary: response, // Store full markdown response
-        model: 'zed-ai'
-      }).subscribe({
-        next: (result) => {
-          this.analysisResult.set(result);
-          this.analysisLoading.set(false);
-          this.analysisStatus.set('');
-          this.cleanupAnalysisSandbox();
-        },
-        error: (err) => {
-          console.error('Failed to save analysis:', err);
-          this.analysisError.set('Failed to save analysis results');
-          this.analysisLoading.set(false);
-          this.cleanupAnalysisSandbox();
-        }
-      });
-
-    } catch (err: any) {
+      this.analysisStatus.set('Saving results…');
+      this.repositoryService
+        .saveCodeAnalysis(this.repositoryId(), {
+          branch,
+          summary: response,
+          model: 'headless-agent'
+        })
+        .subscribe({
+          next: result => {
+            this.clearAnalysisLiveTelemetry();
+            this.analysisResult.set(result);
+            this.analysisRunActive.set(false);
+            this.analysisLoading.set(false);
+            this.analysisStatus.set('');
+            this.cleanupAnalysisSandbox();
+          },
+          error: err => {
+            console.error('Failed to save analysis:', err);
+            this.analysisError.set('Failed to save analysis results');
+            this.analysisRunActive.set(false);
+            this.analysisLoading.set(false);
+            this.clearAnalysisLiveTelemetry();
+            this.cleanupAnalysisSandbox();
+          }
+        });
+    } catch (err: unknown) {
       console.error('Analysis failed:', err);
-      this.analysisError.set(err.message || 'Analysis failed');
+      this.analysisError.set(err instanceof Error ? err.message : 'Analysis failed');
+      this.analysisRunActive.set(false);
       this.analysisLoading.set(false);
+      this.clearAnalysisLiveTelemetry();
       this.cleanupAnalysisSandbox();
     }
+  }
+
+  private async pollForHeadlessAnalysisAnswer(sandboxId: string, promptId: string): Promise<string> {
+    const maxAttempts = 3000;
+    for (let i = 0; i < maxAttempts; i++) {
+      const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+      this.analysisBridgeRequestInProgress.set(!!all.request_in_progress);
+
+      const hp = all.headless_progress;
+      if (hp?.tools?.length) {
+        this.analysisLiveTools.set(
+          hp.tools.map((t: Record<string, unknown>) => this.normalizeHeadlessToolEntry(t))
+        );
+      }
+
+      const stream = all.live_response?.content;
+      if (stream != null && stream.length > 0) {
+        this.analysisLiveStream.set(stream);
+      }
+
+      this.queueAnalysisLiveScrollToEnd();
+
+      const hit = all.conversations.find(c => c.id === promptId);
+      const body = hit?.assistant_message?.trim();
+      if (body) {
+        return body;
+      }
+
+      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+      if (!running.running && i > 8 && !body) {
+        throw new Error('Agent finished without a recorded answer. Try again or check sandbox logs.');
+      }
+
+      await this.delay(400);
+    }
+    throw new Error('Analysis timed out. Please try again.');
   }
 
   private async waitForZedReady(sandboxId: string, maxAttempts = 60): Promise<void> {
@@ -1306,99 +1411,7 @@ export class CodeComponent implements OnInit, OnDestroy {
       }
       await this.delay(2000);
     }
-    throw new Error('Zed IDE did not become ready in time');
-  }
-
-  private async sendPromptToZed(sandboxId: string, prompt: string): Promise<void> {
-    const maxRetries = 5;
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        if (attempt > 0) {
-          console.log(`Retrying analysis prompt (attempt ${attempt + 1}/${maxRetries}) in 15s...`);
-          await this.delay(15000);
-        }
-        await firstValueFrom(
-          this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt)
-        );
-        console.log('Analysis prompt sent successfully');
-        return;
-      } catch (err) {
-        console.warn(`Analysis prompt attempt ${attempt + 1} failed:`, err);
-        if (attempt + 1 >= maxRetries) {
-          throw new Error('Failed to send analysis prompt after multiple retries');
-        }
-      }
-    }
-  }
-
-  private async waitForZedResponse(sandboxId: string, maxAttempts = 600): Promise<string> {
-    // 600 attempts * 2 seconds = 20 minutes max wait time for comprehensive analysis
-    let lastMessageLength = 0;
-    let stableCount = 0;
-    let initialConversationId: string | null = null;
-
-    // First, get the current conversation ID to detect new responses
-    try {
-      const initial = await firstValueFrom(
-        this.sandboxBridgeService.getLatestZedConversation(sandboxId)
-      );
-      if (initial) {
-        initialConversationId = initial.id;
-      }
-    } catch {
-      // No existing conversation
-    }
-
-    let consecutiveErrors = 0;
-    const MAX_CONSECUTIVE_ERRORS = 3;
-
-    for (let i = 0; i < maxAttempts; i++) {
-      try {
-        const response = await firstValueFrom(
-          this.sandboxBridgeService.getLatestZedConversation(sandboxId)
-        );
-
-        consecutiveErrors = 0;
-
-        if (response && response.assistant_message) {
-          const content = response.assistant_message;
-
-          // Only consider responses from our prompt (new conversation or updated one)
-          const isNewConversation = !initialConversationId || response.id !== initialConversationId;
-          const hasContent = content.length > 100;
-
-          // Update status with progress
-          if (hasContent) {
-            const elapsedMinutes = Math.floor((i * 2) / 60);
-            const charCount = Math.floor(content.length / 1000);
-            this.analysisStatus.set(`Analyzing... ${charCount}k chars received (${elapsedMinutes}m elapsed)`);
-          }
-
-          if (isNewConversation && hasContent) {
-            // Check if response is complete (stable for a few polls)
-            if (content.length === lastMessageLength) {
-              stableCount++;
-              if (stableCount >= 4) {
-                // Response is stable, consider it complete
-                console.log('Response complete, length:', content.length);
-                return content;
-              }
-            } else {
-              lastMessageLength = content.length;
-              stableCount = 0;
-            }
-          }
-        }
-      } catch (err) {
-        consecutiveErrors++;
-        console.warn(`Error polling Zed conversation (${consecutiveErrors}/${MAX_CONSECUTIVE_ERRORS}):`, err);
-        if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-          throw new Error('Sandbox connection lost — the container may have been stopped.');
-        }
-      }
-      await this.delay(2000);
-    }
-    throw new Error('Analysis timed out after 20 minutes. Please try again.');
+    throw new Error('Sandbox bridge did not become ready in time');
   }
 
   private buildAnalysisPrompt(repoName: string): string {
@@ -1525,16 +1538,106 @@ Be thorough and specific. Use the markdown formatting exactly as shown above for
   private cleanupAnalysisSandbox(): void {
     const sandboxId = this.analysisSandboxId();
     if (sandboxId) {
-      // Close VNC viewer
-      this.vncViewerService.close(sandboxId);
-
-      // Delete sandbox
       this.sandboxService.deleteSandbox(sandboxId).subscribe({
         next: () => console.log('Analysis sandbox cleaned up'),
         error: (err) => console.warn('Failed to cleanup sandbox:', err)
       });
       this.analysisSandboxId.set(null);
     }
+  }
+
+  private clearAnalysisLiveTelemetry(): void {
+    this.analysisLiveTools.set([]);
+    this.analysisLiveStream.set('');
+    this.analysisBridgeRequestInProgress.set(false);
+  }
+
+  /** Bridge uses snake_case; tolerate camelCase or raw argument objects. */
+  private normalizeHeadlessToolEntry(raw: Record<string, unknown>): {
+    name: string;
+    args_preview?: string;
+    result_preview?: string;
+    at?: number;
+  } {
+    const asText = (v: unknown): string | undefined => {
+      if (v == null) {
+        return undefined;
+      }
+      if (typeof v === 'string') {
+        return v;
+      }
+      if (typeof v === 'object') {
+        try {
+          return JSON.stringify(v, null, 2);
+        } catch {
+          return String(v);
+        }
+      }
+      return String(v);
+    };
+
+    const nameRaw = raw['name'] ?? raw['tool_name'];
+    const name =
+      typeof nameRaw === 'string' && nameRaw.trim().length > 0 ? nameRaw.trim() : 'tool';
+
+    const argsRaw = raw['args_preview'] ?? raw['argsPreview'] ?? raw['arguments'];
+    const resultRaw = raw['result_preview'] ?? raw['resultPreview'] ?? raw['result'];
+    const atRaw = raw['at'];
+
+    return {
+      name,
+      args_preview: asText(argsRaw),
+      result_preview: asText(resultRaw),
+      at: typeof atRaw === 'number' ? atRaw : undefined
+    };
+  }
+
+  /**
+   * Pretty-print JSON tool args/results when the bridge sends JSON; otherwise show raw text.
+   * Used so shell commands, paths, and file edits are readable in the analysis live panel.
+   */
+  formatAnalysisTelemetryText(raw: string | undefined | null): string {
+    if (raw == null) {
+      return '';
+    }
+    const t = raw.trim();
+    if (!t) {
+      return '';
+    }
+    try {
+      return JSON.stringify(JSON.parse(t), null, 2);
+    } catch {
+      return raw;
+    }
+  }
+
+  /** After Angular paints, pin tool list + model stream to the latest content. */
+  private queueAnalysisLiveScrollToEnd(): void {
+    if (this.analysisLiveScrollRaf) {
+      cancelAnimationFrame(this.analysisLiveScrollRaf);
+    }
+    this.analysisLiveScrollRaf = requestAnimationFrame(() => {
+      this.analysisLiveScrollRaf = requestAnimationFrame(() => {
+        this.analysisLiveScrollRaf = 0;
+        const progressEl = this.analysisLiveProgressScroll()?.nativeElement;
+        if (progressEl) {
+          progressEl.scrollTop = progressEl.scrollHeight;
+        }
+      });
+    });
+  }
+
+  /** Stops an in-flight user-triggered analysis run and deletes its sandbox (no-op if not active). */
+  private cancelActiveRepositoryAnalysisRun(): void {
+    if (!this.analysisRunActive()) {
+      return;
+    }
+    this.analysisRunActive.set(false);
+    this.analysisLoading.set(false);
+    this.analysisStatus.set('');
+    this.analysisError.set(null);
+    this.clearAnalysisLiveTelemetry();
+    this.cleanupAnalysisSandbox();
   }
 
   private delay(ms: number): Promise<void> {

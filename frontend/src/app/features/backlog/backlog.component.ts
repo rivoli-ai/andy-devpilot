@@ -1,4 +1,4 @@
-import { Component, OnInit, OnDestroy, signal, computed, effect, HostListener, ElementRef, SecurityContext } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, computed, effect, HostListener, ElementRef, SecurityContext, viewChild } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -6,8 +6,8 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection, ApplyGitHubSyncRequest } from '../../core/services/backlog.service';
 import { RepositoryService, DEFAULT_AGENT_RULES, ReplaceRepositoryAgentRuleItem } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
-import { SandboxService } from '../../core/services/sandbox.service';
-import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
+import { SandboxService, CreateSandboxResponse } from '../../core/services/sandbox.service';
+import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
@@ -24,7 +24,8 @@ import {
   StoryAgentRuleOption
 } from '../../components/add-backlog-item-modal/add-backlog-item-modal.component';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
-import { Subject, interval, takeUntil, filter, switchMap, forkJoin, EMPTY, catchError, map } from 'rxjs';
+import { Subject, takeUntil, forkJoin, map, firstValueFrom, of } from 'rxjs';
+import { catchError, switchMap } from 'rxjs/operators';
 
 type WorkItemType = 'epic' | 'feature' | 'story';
 type ViewMode = 'tree' | 'flat';
@@ -56,6 +57,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
   /** Add/edit epic/feature/story modals are desktop-only (same breakpoint as flat view / VNC mobile) */
   private static readonly BACKLOG_CRUD_FORMS_MEDIA = '(max-width: 768px)';
   private static readonly AZURE_IDENTITY_WARNING_DISMISS_STORAGE_PREFIX = 'devpilot.dismissAzureIdentityWarning:';
+  /** Resume headless backlog generation after refresh (sandbox id + prompt id). */
+  private static readonly BACKLOG_HEADLESS_SESSION_KEY = 'devpilot.backlogHeadlessGen';
 
   epics = signal<Epic[]>([]);
   loading = signal<boolean>(false);
@@ -98,7 +101,17 @@ export class BacklogComponent implements OnInit, OnDestroy {
   // Backlog generation state
   generationState = signal<'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sending' | 'waiting_response' | 'parsing' | 'saving' | 'complete' | 'error'>('idle');
   generationError = signal<string | null>(null);
-  latestResponse = signal<ZedConversation | null>(null);
+  /** Status line during headless run (same idea as Code analysis). */
+  generationStatus = signal<string>('');
+  generationBridgeRequestInProgress = signal<boolean>(false);
+  generationLiveTools = signal<
+    { name: string; args_preview?: string; result_preview?: string; at?: number }[]
+  >([]);
+  generationLiveStream = signal<string>('');
+  /** Ephemeral sandbox for AI backlog generation (no VNC). */
+  backlogGenerationSandboxId = signal<string | null>(null);
+
+  generationLiveProgressScroll = viewChild<ElementRef<HTMLElement>>('generationLiveProgressScroll');
   promptMode = signal<'general' | 'custom'>('general');
   customInstructions = signal<string>('');
   customPrompt = signal<string>('');
@@ -187,8 +200,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   ghShowAllStatuses = signal<boolean>(false); // false = Active only (open) by default, true = All
 
   private destroy$ = new Subject<void>();
-  private lastConversationId: string | null = null;
-  private createdSandboxId: string | null = null;
+  private generationLiveScrollRaf = 0;
   
   // UI State
   expandedItems = signal<ExpandedState>({});
@@ -302,36 +314,29 @@ export class BacklogComponent implements OnInit, OnDestroy {
   }
   );
 
-  // Generation steps for waiting room (single source of truth)
-  generationSteps = computed(() => [
-    { id: 'creating_sandbox', order: 1, label: 'Sandbox', title: 'Creating Sandbox Environment', description: 'Setting up isolated container with your repository' },
-    { id: 'waiting_sandbox', order: 2, label: 'Zed IDE', title: 'Starting Zed IDE', description: 'Waiting for the AI agent to be ready' },
-    { id: 'sending', order: 3, label: 'Prompt', title: 'Sending Prompt to Zed', description: 'Preparing the backlog generation request' },
-    { id: 'waiting_response', order: 4, label: 'AI', title: 'AI is Analyzing Your Repository', description: 'The AI is analyzing your codebase and generating the backlog. This may take a minute.' },
-    { id: 'parsing', order: 5, label: 'Parse', title: 'Parsing Backlog', description: 'Extracting structured backlog from AI response' },
-    { id: 'saving', order: 6, label: 'Save', title: 'Saving Backlog', description: 'Saving the generated backlog to database' }
-  ]);
-
-  currentStepId = computed(() => this.generationState());
-  currentStepOrder = computed(() => {
-    const state = this.generationState();
-    const step = this.generationSteps().find(s => s.id === state);
-    return step?.order ?? 0;
-  });
-  currentStepLabel = computed(() => {
-    const state = this.generationState();
-    const step = this.generationSteps().find(s => s.id === state);
-    return step?.label ?? '';
-  });
-  currentStepTitle = computed(() => {
-    const state = this.generationState();
-    const step = this.generationSteps().find(s => s.id === state);
-    return step?.title ?? '';
-  });
-  currentStepDescription = computed(() => {
-    const state = this.generationState();
-    const step = this.generationSteps().find(s => s.id === state);
-    return step?.description ?? '';
+  /** Hero line under Code-style header — mirrors {@link generationStatus} + phase fallbacks. */
+  generationHeroTitle = computed(() => {
+    const status = this.generationStatus().trim();
+    if (status) {
+      return status;
+    }
+    const s = this.generationState();
+    switch (s) {
+      case 'creating_sandbox':
+        return 'Creating analysis container…';
+      case 'waiting_sandbox':
+        return 'Preparing environment…';
+      case 'sending':
+        return 'Sending backlog request…';
+      case 'waiting_response':
+        return 'Generating backlog…';
+      case 'parsing':
+        return 'Parsing backlog…';
+      case 'saving':
+        return 'Saving backlog…';
+      default:
+        return 'Generating backlog…';
+    }
   });
 
   // Filtered epics based on search and status filter
@@ -510,8 +515,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
       this.loadBacklog(repoId);
       this.loadRepository(repoId);
       this.refreshAzureIdentityWarningDismissedFromStorage(repoId);
-      // Reconnect to existing backlog generation sandbox after page refresh (like code analysis)
-      this.checkForExistingBacklogSandbox();
+      this.tryResumeHeadlessBacklogGeneration();
     } else {
       this.error.set('Repository ID is required');
     }
@@ -524,31 +528,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
       }
     });
 
-    // Track which stories have open sandboxes
-    this.vncViewerService.viewers$.pipe(
-      takeUntil(this.destroy$)
-    ).subscribe(viewers => {
+    this.vncViewerService.viewers$.pipe(takeUntil(this.destroy$)).subscribe(viewers => {
       const storyIds = viewers
         .filter(v => v.implementationContext?.storyId)
         .map(v => v.implementationContext!.storyId);
       this.openSandboxStoryIds.set(storyIds);
-
-      // If the backlog sandbox was actively generating and its viewer was just closed, stop immediately
-      const inProgress = ['creating_sandbox', 'waiting_sandbox', 'sending', 'waiting_response', 'parsing', 'saving']
-        .includes(this.generationState());
-      if (inProgress) {
-        const repoId = this.repositoryId();
-        const backlogStillOpen = viewers.some(
-          v => v.implementationContext?.storyId === `backlog-${repoId}`
-        );
-        if (!backlogStillOpen) {
-          this.generationError.set('Sandbox was closed. Generation stopped.');
-          this.generationState.set('error');
-        }
-      }
-
-      // When viewers are restored after refresh, try to reconnect to backlog sandbox
-      this.checkForExistingBacklogSandbox();
     });
 
     this.initBacklogCrudMediaQuery();
@@ -572,25 +556,44 @@ export class BacklogComponent implements OnInit, OnDestroy {
     }
   }
 
-  /**
-   * Check for an existing backlog generation sandbox (e.g. after page refresh).
-   * If found, reconnect and resume polling for the backlog response.
-   */
-  private checkForExistingBacklogSandbox(): void {
+  private tryResumeHeadlessBacklogGeneration(): void {
     if (this.generationState() !== 'idle' && this.generationState() !== 'error') return;
     const currentRepoId = this.repositoryId();
-    if (!currentRepoId) return;
+    if (!currentRepoId || typeof sessionStorage === 'undefined') return;
+    try {
+      const raw = sessionStorage.getItem(BacklogComponent.BACKLOG_HEADLESS_SESSION_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw) as { repositoryId?: string; sandboxId?: string; promptId?: string };
+      if (data.repositoryId !== currentRepoId || !data.sandboxId || !data.promptId) return;
+      void this.resumeHeadlessBacklogGeneration({
+        repositoryId: data.repositoryId,
+        sandboxId: data.sandboxId,
+        promptId: data.promptId
+      });
+    } catch {
+      sessionStorage.removeItem(BacklogComponent.BACKLOG_HEADLESS_SESSION_KEY);
+    }
+  }
 
-    const viewers = this.vncViewerService.getViewers();
-    const backlogViewer = viewers.find(
-      v => v.implementationContext?.storyId === `backlog-${currentRepoId}` && v.implementationContext?.repositoryId === currentRepoId
+  private persistHeadlessBacklogSession(repositoryId: string, sandboxId: string, promptId: string): void {
+    if (typeof sessionStorage === 'undefined') return;
+    sessionStorage.setItem(
+      BacklogComponent.BACKLOG_HEADLESS_SESSION_KEY,
+      JSON.stringify({ repositoryId, sandboxId, promptId })
     );
+  }
 
-    if (backlogViewer) {
-      console.log('Found existing backlog sandbox for this repo, reconnecting...', backlogViewer.id);
-      this.generationError.set(null);
-      this.generationState.set('waiting_response');
-      this.startPollingForResponse(backlogViewer.id);
+  private clearHeadlessBacklogSession(): void {
+    if (typeof sessionStorage === 'undefined') return;
+    sessionStorage.removeItem(BacklogComponent.BACKLOG_HEADLESS_SESSION_KEY);
+  }
+
+  @HostListener('window:pagehide', ['$event'])
+  protected onWindowPageHide(event: PageTransitionEvent): void {
+    if (event.persisted) return;
+    const sid = this.backlogGenerationSandboxId();
+    if (sid) {
+      this.sandboxService.requestDeleteSandboxOnUnload(sid);
     }
   }
 
@@ -600,6 +603,9 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
     this.backlogService.getBacklog(repositoryId).subscribe({
       next: (epics) => {
+        if (epics.length > 0) {
+          this.clearHeadlessBacklogSession();
+        }
         this.epics.set(epics);
         this.initSyncSelection();
         // Auto-expand first epic and standalone features (so content is visible)
@@ -1345,6 +1351,9 @@ ${story.acceptanceCriteria}
 
   // Modal
   ngOnDestroy(): void {
+    if (this.generationLiveScrollRaf) {
+      cancelAnimationFrame(this.generationLiveScrollRaf);
+    }
     if (this.backlogCrudMql) {
       this.backlogCrudMql.removeEventListener('change', this.onBacklogCrudMediaChange);
       this.backlogCrudMql = undefined;
@@ -1373,17 +1382,7 @@ ${story.acceptanceCriteria}
         this.generationState.set('error');
         return;
       }
-      const viewers = this.vncViewerService.getViewers();
-      // Match only the backlog sandbox for this exact repository (not implementation sandboxes for stories)
-      const activeSandbox = viewers.find(v =>
-        v.implementationContext?.repositoryId === repo.id &&
-        v.implementationContext?.storyId?.startsWith('backlog-')
-      ) || null;
-      if (activeSandbox) {
-        this.sendBacklogPrompt(activeSandbox.id);
-      } else {
-        this.createSandboxAndGenerate();
-      }
+      this.createSandboxAndGenerate();
     }).catch((err) => {
       console.error('Failed to get AI config:', err);
       this.generationError.set('AI is not configured. Please configure AI settings first.');
@@ -1396,6 +1395,7 @@ ${story.acceptanceCriteria}
     if (!repo) return;
 
     this.generationState.set('creating_sandbox');
+    this.generationStatus.set('Creating analysis container…');
     this.generationError.set(null);
 
     this.artifactFeedService.getEnabledFeeds().then((artifactFeeds) => {
@@ -1430,27 +1430,7 @@ ${story.acceptanceCriteria}
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
-        this.createdSandboxId = sandbox.id;
-
-        setTimeout(() => {
-          this.vncViewerService.open(
-            sandbox.id,
-            `${repo.name} - Backlog`,
-            {
-              repositoryId: repo.id,
-              repositoryFullName: repo.fullName || repo.name,
-              defaultBranch: repo.defaultBranch || 'main',
-              storyTitle: 'Backlog Generation',
-              storyId: `backlog-${repo.id}`
-            },
-            sandbox.vnc_password
-          );
-
-          this.generationState.set('waiting_sandbox');
-          setTimeout(() => {
-            this.sendBacklogPrompt(sandbox.id);
-          }, 20000);
-        }, VPS_CONFIG.sandboxReadyDelayMs);
+        void this.runHeadlessBacklogGeneration(sandbox, repo);
       },
       error: (err) => {
         this.generationError.set('Failed to create sandbox: ' + (err.message || 'Unknown error'));
@@ -1459,53 +1439,221 @@ ${story.acceptanceCriteria}
     });
   }
 
-  private waitForZedAndSendBacklogPrompt(sandboxId: string): void {
-    this.generationState.set('sending');
-    const prompt = this.buildBacklogPrompt();
+  private async runHeadlessBacklogGeneration(sandbox: CreateSandboxResponse, repo: Repository): Promise<void> {
+    if (!sandbox.id) {
+      this.generationError.set('Sandbox ID not available');
+      this.generationState.set('error');
+      return;
+    }
+    const sid = sandbox.id;
+    this.backlogGenerationSandboxId.set(sid);
+    this.clearGenerationLiveTelemetry();
+    try {
+      this.generationState.set('waiting_sandbox');
+      this.generationStatus.set('Waiting for environment…');
+      await this.delay(Math.min(5000, VPS_CONFIG.sandboxReadyDelayMs));
+      await this.waitForZedReady(sid);
 
-    console.log('Waiting for Zed to be ready before sending backlog prompt...');
-    this.sandboxBridgeService.waitForZedAndSendPrompt(sandboxId, prompt).subscribe({
-      next: (result) => {
-        console.log('Backlog prompt sent:', result);
-        this.generationState.set('waiting_response');
-        this.startPollingForResponse(sandboxId);
-      },
-      error: (err) => {
-        console.warn('Failed to send backlog prompt:', err);
-        this.generationError.set('Failed to send prompt to Zed. Please ensure the sandbox is running and Zed is ready.');
-        this.generationState.set('error');
+      this.generationState.set('sending');
+      this.generationStatus.set('Sending backlog request…');
+      const prompt = this.buildBacklogPrompt();
+      const post = await firstValueFrom(
+        this.sandboxBridgeService.sendHeadlessAgentPrompt(sid, prompt).pipe(
+          catchError((err: { status?: number }) => {
+            if (err?.status === 409) {
+              return of({
+                status: 'error' as const,
+                error: 'Another agent task is running in this sandbox. Try again in a few seconds.'
+              });
+            }
+            throw err;
+          })
+        )
+      );
+
+      if (post.status !== 'ok') {
+        throw new Error('error' in post && post.error ? post.error : 'Failed to start backlog generation');
       }
-    });
+      const promptId = post.prompt_id;
+      if (!promptId) {
+        throw new Error('Failed to start backlog generation');
+      }
+
+      this.persistHeadlessBacklogSession(repo.id, sid, promptId);
+      this.generationState.set('waiting_response');
+      this.generationStatus.set('Waiting for AI response…');
+      const response = await this.pollForHeadlessBacklogAnswer(sid, promptId);
+      this.parseAndSaveBacklog(response);
+    } catch (err: unknown) {
+      console.error('Headless backlog generation failed:', err);
+      this.generationError.set(err instanceof Error ? err.message : 'Backlog generation failed');
+      this.generationState.set('error');
+      this.generationStatus.set('');
+      this.clearGenerationLiveTelemetry();
+      this.clearHeadlessBacklogSession();
+      this.cleanupHeadlessBacklogSandbox();
+    }
   }
 
-  private sendBacklogPrompt(sandboxId: string): void {
-    this.generationState.set('sending');
-    const prompt = this.buildBacklogPrompt();
-    const maxRetries = 5;
+  private async resumeHeadlessBacklogGeneration(data: {
+    repositoryId: string;
+    sandboxId: string;
+    promptId: string;
+  }): Promise<void> {
+    this.generationError.set(null);
+    this.backlogGenerationSandboxId.set(data.sandboxId);
+    this.clearGenerationLiveTelemetry();
+    this.generationState.set('waiting_response');
+    this.generationStatus.set('Reconnecting to agent run…');
+    try {
+      const response = await this.pollForHeadlessBacklogAnswer(data.sandboxId, data.promptId);
+      this.parseAndSaveBacklog(response);
+    } catch (err: unknown) {
+      console.error('Resume backlog generation failed:', err);
+      this.generationError.set(err instanceof Error ? err.message : 'Could not resume backlog generation');
+      this.generationState.set('error');
+      this.generationStatus.set('');
+      this.clearGenerationLiveTelemetry();
+      this.clearHeadlessBacklogSession();
+      this.cleanupHeadlessBacklogSandbox();
+    }
+  }
 
-    const sendWithRetry = (attempt: number) => {
-      const delay = attempt === 0 ? 5000 : 15000;
-      setTimeout(() => {
-        console.log(`Sending backlog prompt to Zed (attempt ${attempt + 1}/${maxRetries})...`);
-        this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
-          next: () => {
-            console.log('Backlog prompt sent successfully');
-            this.generationState.set('waiting_response');
-            this.startPollingForResponse(sandboxId);
-          },
-          error: (err) => {
-            console.warn(`Backlog prompt attempt ${attempt + 1} failed:`, err);
-            if (attempt + 1 < maxRetries) {
-              sendWithRetry(attempt + 1);
-            } else {
-              this.generationError.set('Failed to send prompt to Zed after multiple retries.');
-              this.generationState.set('error');
-            }
-          }
-        });
-      }, delay);
+  private async pollForHeadlessBacklogAnswer(sandboxId: string, promptId: string): Promise<string> {
+    const maxAttempts = 3000;
+    for (let i = 0; i < maxAttempts; i++) {
+      const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+      this.generationBridgeRequestInProgress.set(!!all.request_in_progress);
+
+      const hp = all.headless_progress;
+      if (hp?.tools?.length) {
+        this.generationLiveTools.set(
+          hp.tools.map((t: Record<string, unknown>) => this.normalizeHeadlessToolEntry(t))
+        );
+      }
+
+      const stream = all.live_response?.content;
+      if (stream != null && stream.length > 0) {
+        this.generationLiveStream.set(stream);
+      }
+
+      this.queueGenerationLiveScrollToEnd();
+
+      const hit = all.conversations.find(c => c.id === promptId);
+      const body = hit?.assistant_message?.trim();
+      if (body && this.containsBacklogJson(body)) {
+        return body;
+      }
+
+      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+      if (!running.running && i > 8 && body && !this.containsBacklogJson(body)) {
+        throw new Error('Agent finished without a valid backlog JSON response. Try again.');
+      }
+      if (!running.running && i > 8 && !body) {
+        throw new Error('Agent finished without a recorded answer. Try again.');
+      }
+
+      await this.delay(400);
+    }
+    throw new Error('Backlog generation timed out. Please try again.');
+  }
+
+  private async waitForZedReady(sandboxId: string, maxAttempts = 60): Promise<void> {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const response = await firstValueFrom(this.sandboxBridgeService.health(sandboxId));
+        if (response.status === 'ok') {
+          await this.delay(3000);
+          return;
+        }
+      } catch {
+        // Not ready yet
+      }
+      await this.delay(2000);
+    }
+    throw new Error('Sandbox bridge did not become ready in time');
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private cleanupHeadlessBacklogSandbox(): void {
+    const sandboxId = this.backlogGenerationSandboxId();
+    if (sandboxId) {
+      this.sandboxService.deleteSandbox(sandboxId).subscribe({
+        next: () => console.log('Backlog generation sandbox cleaned up'),
+        error: (e) => console.warn('Failed to cleanup backlog sandbox:', e)
+      });
+      this.backlogGenerationSandboxId.set(null);
+    }
+  }
+
+  private clearGenerationLiveTelemetry(): void {
+    this.generationLiveTools.set([]);
+    this.generationLiveStream.set('');
+    this.generationBridgeRequestInProgress.set(false);
+  }
+
+  private normalizeHeadlessToolEntry(raw: Record<string, unknown>): {
+    name: string;
+    args_preview?: string;
+    result_preview?: string;
+    at?: number;
+  } {
+    const asText = (v: unknown): string | undefined => {
+      if (v == null) return undefined;
+      if (typeof v === 'string') return v;
+      if (typeof v === 'object') {
+        try {
+          return JSON.stringify(v, null, 2);
+        } catch {
+          return String(v);
+        }
+      }
+      return String(v);
     };
-    sendWithRetry(0);
+
+    const nameRaw = raw['name'] ?? raw['tool_name'];
+    const name =
+      typeof nameRaw === 'string' && nameRaw.trim().length > 0 ? nameRaw.trim() : 'tool';
+
+    const argsRaw = raw['args_preview'] ?? raw['argsPreview'] ?? raw['arguments'];
+    const resultRaw = raw['result_preview'] ?? raw['resultPreview'] ?? raw['result'];
+    const atRaw = raw['at'];
+
+    return {
+      name,
+      args_preview: asText(argsRaw),
+      result_preview: asText(resultRaw),
+      at: typeof atRaw === 'number' ? atRaw : undefined
+    };
+  }
+
+  formatGenerationTelemetryText(raw: string | undefined | null): string {
+    if (raw == null) return '';
+    const t = raw.trim();
+    if (!t) return '';
+    try {
+      return JSON.stringify(JSON.parse(t), null, 2);
+    } catch {
+      return raw;
+    }
+  }
+
+  private queueGenerationLiveScrollToEnd(): void {
+    if (this.generationLiveScrollRaf) {
+      cancelAnimationFrame(this.generationLiveScrollRaf);
+    }
+    this.generationLiveScrollRaf = requestAnimationFrame(() => {
+      this.generationLiveScrollRaf = requestAnimationFrame(() => {
+        this.generationLiveScrollRaf = 0;
+        const progressEl = this.generationLiveProgressScroll()?.nativeElement;
+        if (progressEl) {
+          progressEl.scrollTop = progressEl.scrollHeight;
+        }
+      });
+    });
   }
 
   private buildBacklogPrompt(): string {
@@ -1571,39 +1719,6 @@ ${jsonFormatRequirement}`;
     return prompt;
   }
 
-  private startPollingForResponse(sandboxId: string): void {
-    let consecutiveErrors = 0;
-
-    interval(3000).pipe(
-      takeUntil(this.destroy$),
-      filter(() => this.generationState() === 'waiting_response'),
-      switchMap(() =>
-        this.sandboxBridgeService.getLatestZedConversation(sandboxId).pipe(
-          catchError(err => {
-            consecutiveErrors++;
-            if (consecutiveErrors >= 3) {
-              this.generationError.set('Sandbox connection lost — the container may have been stopped.');
-              this.generationState.set('error');
-            }
-            return EMPTY;
-          })
-        )
-      )
-    ).subscribe({
-      next: (conv) => {
-        consecutiveErrors = 0;
-        if (conv && conv.id !== this.lastConversationId) {
-          this.latestResponse.set(conv);
-
-          if (this.containsBacklogJson(conv.assistant_message)) {
-            this.lastConversationId = conv.id;
-            this.parseAndSaveBacklog(conv.assistant_message);
-          }
-        }
-      }
-    });
-  }
-
   private containsBacklogJson(response: string): boolean {
     return response.includes('"epics"');
   }
@@ -1613,6 +1728,10 @@ ${jsonFormatRequirement}`;
     if (!repoId) {
       this.generationError.set('Repository ID not found');
       this.generationState.set('error');
+      this.generationStatus.set('');
+      this.clearHeadlessBacklogSession();
+      this.cleanupHeadlessBacklogSandbox();
+      this.clearGenerationLiveTelemetry();
       return;
     }
 
@@ -1620,12 +1739,12 @@ ${jsonFormatRequirement}`;
     // do not parse/save again to avoid duplicates.
     if (this.epics().length > 0) {
       this.generationState.set('complete');
+      this.clearHeadlessBacklogSession();
+      this.cleanupHeadlessBacklogSandbox();
+      this.clearGenerationLiveTelemetry();
+      this.generationStatus.set('');
       this.loadBacklog(repoId);
-      setTimeout(() => {
-        this.generationState.set('idle');
-        this.latestResponse.set(null);
-        this.lastConversationId = null;
-      }, 2000);
+      setTimeout(() => this.generationState.set('idle'), 2000);
       return;
     }
 
@@ -1657,21 +1776,29 @@ ${jsonFormatRequirement}`;
       this.backlogService.createBacklog(repoId, backlog).subscribe({
         next: () => {
           this.generationState.set('complete');
+          this.clearHeadlessBacklogSession();
+          this.cleanupHeadlessBacklogSandbox();
+          this.clearGenerationLiveTelemetry();
+          this.generationStatus.set('');
           this.loadBacklog(repoId);
-          setTimeout(() => {
-            this.generationState.set('idle');
-            this.latestResponse.set(null);
-            this.lastConversationId = null;
-          }, 2000);
+          setTimeout(() => this.generationState.set('idle'), 2000);
         },
         error: (err) => {
           this.generationError.set('Failed to save backlog: ' + (err.error?.message || err.message));
           this.generationState.set('error');
+          this.generationStatus.set('');
+          this.clearHeadlessBacklogSession();
+          this.cleanupHeadlessBacklogSandbox();
+          this.clearGenerationLiveTelemetry();
         }
       });
     } catch (error: any) {
       this.generationError.set('Failed to parse backlog JSON: ' + (error.message || 'Invalid JSON format'));
       this.generationState.set('error');
+      this.generationStatus.set('');
+      this.clearHeadlessBacklogSession();
+      this.cleanupHeadlessBacklogSandbox();
+      this.clearGenerationLiveTelemetry();
     }
   }
 

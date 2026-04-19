@@ -2679,14 +2679,17 @@ def agent_prompt():
 
         def _on_tool(name, args, tool_result):
             global headless_live_tools
+            # Larger slices so UIs can show full shell commands, paths, and tool output during analysis.
+            _args_cap = 16000
+            _result_cap = 24000
             try:
-                args_preview = json.dumps(args, default=str)[:500]
+                args_preview = json.dumps(args, ensure_ascii=False, default=str)[:_args_cap]
             except Exception:
-                args_preview = str(args)[:500]
+                args_preview = str(args)[:_args_cap]
             headless_live_tools.append({
                 "name": name,
                 "args_preview": args_preview,
-                "result_preview": (tool_result or "")[:400],
+                "result_preview": (tool_result or "")[:_result_cap],
                 "at": _time_mod.time(),
             })
 

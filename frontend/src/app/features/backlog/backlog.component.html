@@ -389,8 +389,8 @@
     </div>
   }
 
-  <!-- Generation Status Banner: only when backlog is empty; if backlog has items, show just the backlog -->
-  @if ((generationState() === 'complete' || generationState() === 'error') && !hasAnyBacklogItems()) {
+  <!-- Generation Status Banner: after run finishes (including when backlog already had items) -->
+  @if (generationState() === 'complete' || generationState() === 'error') {
     <div class="generation-banner" [class]="'state-' + generationState()">
       @if (generationState() === 'complete') {
         <div class="banner-content success">
@@ -583,57 +583,68 @@
         </svg>
         <span>{{ error() }}</span>
       </div>
-    } @else if (generationState() !== 'idle' && generationState() !== 'error' && generationState() !== 'complete' && !hasAnyBacklogItems()) {
-      <!-- Generation Waiting Room: only when backlog is empty; if backlog has items, show backlog instead -->
-      <div class="generation-waiting-room">
-        <div class="waiting-room-backdrop"></div>
-        <div class="waiting-room-card">
-          <div class="waiting-room-header">
-            <span class="waiting-room-badge">Generating backlog</span>
-            <span class="waiting-room-step">Step {{ currentStepOrder() }} of {{ generationSteps().length }}</span>
+    } @else if (generationState() !== 'idle' && generationState() !== 'error' && generationState() !== 'complete') {
+      <!-- Code → Analysis-style run (shown whenever AI generation is in progress, even if backlog already has items) -->
+      <div class="analysis-container backlog-gen-run">
+        <div class="analysis-header">
+          <div class="analysis-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+              <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+              <line x1="12" y1="22.08" x2="12" y2="12"/>
+            </svg>
+            <h2>AI backlog generation</h2>
           </div>
+        </div>
 
-          <!-- Stepper: dots with labels -->
-          <div class="stepper">
-            @for (step of generationSteps(); track step.id) {
-              <div 
-                class="stepper-item"
-                [class.active]="step.id === currentStepId()"
-                [class.done]="step.order < currentStepOrder()">
-                <div class="stepper-dot">
-                  @if (step.order < currentStepOrder()) {
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                      <polyline points="20 6 9 17 4 12"/>
-                    </svg>
-                  }
-                </div>
-                <span class="stepper-label">{{ step.label }}</span>
+        <div class="analysis-loading analysis-loading--live">
+          <div class="analysis-loading-hero">
+            <div class="loading-spinner large" aria-hidden="true"></div>
+            <div class="analysis-loading-hero-copy">
+              <div class="analysis-loading-status-row">
+                <h3>{{ generationHeroTitle() }}</h3>
+                @if (generationBridgeRequestInProgress()) {
+                  <span class="analysis-live-pill" title="Sandbox bridge is processing a request">Bridge active</span>
+                }
               </div>
-              @if (!$last) {
-                <div class="stepper-line" [class.done]="step.order < currentStepOrder()"></div>
-              }
-            }
-          </div>
-
-          <!-- Current step content -->
-          <div class="waiting-status">
-            <div class="waiting-status-icon">
-              <span class="spinner-large"></span>
             </div>
-            <h2 class="waiting-status-title">{{ currentStepTitle() }}</h2>
-            <p class="waiting-status-desc">{{ currentStepDescription() }}</p>
+          </div>
 
-            @if (generationState() === 'waiting_response' && latestResponse()) {
-              <div class="ai-response-card">
-                <div class="ai-response-header">
-                  <span class="ai-response-badge">Live</span>
-                  <span>AI Response</span>
-                </div>
-                <div class="ai-response-body">
-                  <pre>{{ latestResponse()!.assistant_message }}</pre>
+          <div class="analysis-live-panel-body">
+            <section class="analysis-live-section analysis-live-section--progress" aria-label="Live progress">
+              <div class="analysis-live-progress-scroll" #generationLiveProgressScroll>
+                @if (generationLiveTools().length > 0) {
+                  <div class="analysis-live-progress-chunk analysis-live-progress-chunk--tools">
+                    <ol class="analysis-live-tool-list">
+                      @for (t of generationLiveTools(); track $index) {
+                        <li class="analysis-live-tool-item">
+                          <div class="analysis-live-tool-name-row">
+                            <code class="analysis-live-tool-id">{{ t.name }}</code>
+                          </div>
+                          <div class="analysis-live-tool-block">
+                            <span class="analysis-live-tool-label">Command &amp; arguments</span>
+                            <pre class="analysis-live-pre analysis-live-pre--tool-body">{{
+                              formatGenerationTelemetryText(t.args_preview) || '—'
+                            }}</pre>
+                          </div>
+                          <div class="analysis-live-tool-block">
+                            <span class="analysis-live-tool-label">Output</span>
+                            <pre class="analysis-live-pre analysis-live-pre--tool-body">{{
+                              formatGenerationTelemetryText(t.result_preview) || '—'
+                            }}</pre>
+                          </div>
+                        </li>
+                      }
+                    </ol>
+                  </div>
+                }
+                <div class="analysis-live-progress-chunk analysis-live-progress-chunk--model">
+                  <pre
+                    class="analysis-live-pre analysis-live-pre--stream analysis-live-pre--in-progress"
+                    [class.analysis-live-pre--placeholder]="!generationLiveStream()">{{ generationLiveStream() || 'Waiting for model output…' }}</pre>
                 </div>
               </div>
-            }
+            </section>
           </div>
         </div>
       </div>

@@ -196,10 +196,21 @@ export class MarkdownPipe implements PipeTransform {
           `<div class="mermaid-placeholder" data-mermaid-id="${id}"></div>`,
           `<div class="mermaid-wrapper" data-mermaid-source="${base64Code}">
             <div class="mermaid-header">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
-              </svg>
-              <span>Diagram</span>
+              <div class="mermaid-header-title">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                </svg>
+                <span>Diagram</span>
+              </div>
+              <button type="button" class="mermaid-expand-btn" title="Open large view with zoom and pan" aria-label="Open diagram in large view">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <polyline points="15 3 21 3 21 9"/>
+                  <polyline points="9 21 3 21 3 15"/>
+                  <line x1="21" y1="3" x2="14" y2="10"/>
+                  <line x1="3" y1="21" x2="10" y2="14"/>
+                </svg>
+                <span>Expand</span>
+              </button>
             </div>
             <div class="mermaid" id="${id}">${escapedCode}</div>
           </div>`

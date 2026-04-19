@@ -8,6 +8,7 @@ import { AuthProviderConfig } from '../../core/auth/oidc-config.loader';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { McpConfigService, McpServerDto, McpToolInfo } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService, ArtifactFeedDto, AzureDevOpsFeedDto } from '../../core/services/artifact-feed.service';
+import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { firstValueFrom } from 'rxjs';
 import {
   siAnthropic,
@@ -154,6 +155,7 @@ export class SettingsComponent implements OnInit {
     private mcpConfigService: McpConfigService,
     public artifactFeedService: ArtifactFeedService,
     private oidcSecurityService: OidcSecurityService,
+    private confirmDialog: ConfirmDialogService,
     private router: Router,
     private route: ActivatedRoute
   ) {}
@@ -291,7 +293,14 @@ export class SettingsComponent implements OnInit {
 
   async unlinkProvider(provider: string): Promise<void> {
     const displayName = this.getProviderDisplayName(provider);
-    if (!confirm(`Are you sure you want to unlink ${displayName}? You will need to reconnect to sync repositories from this provider.`)) {
+    const ok = await this.confirmDialog.confirm({
+      title: `Unlink ${displayName}?`,
+      message: `You will need to reconnect to sync repositories from this provider.`,
+      confirmText: 'Unlink',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
       return;
     }
 
@@ -336,7 +345,14 @@ export class SettingsComponent implements OnInit {
   }
 
   async clearAzureDevOpsSettings(): Promise<void> {
-    if (!confirm('Are you sure you want to clear Azure DevOps settings?')) {
+    const ok = await this.confirmDialog.confirm({
+      title: 'Clear Azure DevOps settings?',
+      message: 'Are you sure you want to clear Azure DevOps settings?',
+      confirmText: 'Clear',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
       return;
     }
 
@@ -384,7 +400,14 @@ export class SettingsComponent implements OnInit {
   }
 
   async clearGitHubSettings(): Promise<void> {
-    if (!confirm('Are you sure you want to clear your GitHub PAT? You can still use GitHub via OAuth if connected.')) {
+    const ok = await this.confirmDialog.confirm({
+      title: 'Clear GitHub PAT?',
+      message: 'You can still use GitHub via OAuth if connected.',
+      confirmText: 'Clear',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
       return;
     }
     this.actionLoading.set('github-clear');
@@ -563,7 +586,16 @@ export class SettingsComponent implements OnInit {
   }
 
   async deleteAdminLlmSetting(id: string): Promise<void> {
-    if (!confirm('Delete this shared AI provider? All users relying on it will lose access.')) return;
+    const ok = await this.confirmDialog.confirm({
+      title: 'Delete shared AI provider?',
+      message: 'All users relying on it will lose access.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return;
+    }
     this.actionLoading.set('admin-llm-delete');
     this.error.set(null);
     try {
@@ -661,7 +693,16 @@ export class SettingsComponent implements OnInit {
   }
 
   async deleteLlmSetting(id: string): Promise<void> {
-    if (!confirm('Delete this LLM configuration? Repositories using it will fall back to your default.')) return;
+    const ok = await this.confirmDialog.confirm({
+      title: 'Delete LLM configuration?',
+      message: 'Repositories using it will fall back to your default.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return;
+    }
     this.actionLoading.set('llm-delete');
     this.error.set(null);
     try {
@@ -760,7 +801,16 @@ export class SettingsComponent implements OnInit {
   }
 
   async deleteMcpServer(id: string): Promise<void> {
-    if (!confirm('Delete this MCP server configuration?')) return;
+    const ok = await this.confirmDialog.confirm({
+      title: 'Delete MCP server?',
+      message: 'Delete this MCP server configuration?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return;
+    }
     this.actionLoading.set('mcp-delete');
     this.error.set(null);
     try {
@@ -775,7 +825,16 @@ export class SettingsComponent implements OnInit {
   }
 
   async deleteMcpServerAdmin(id: string): Promise<void> {
-    if (!confirm('Delete this shared MCP server? All users will lose access.')) return;
+    const ok = await this.confirmDialog.confirm({
+      title: 'Delete shared MCP server?',
+      message: 'All users will lose access.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return;
+    }
     this.actionLoading.set('mcp-admin-delete');
     this.error.set(null);
     try {
@@ -966,7 +1025,16 @@ export class SettingsComponent implements OnInit {
 
   async deleteArtifactFeed(id: string): Promise<void> {
     if (!this.authService.isAdmin()) return;
-    if (!confirm('Delete this artifact feed configuration?')) return;
+    const ok = await this.confirmDialog.confirm({
+      title: 'Delete artifact feed?',
+      message: 'Delete this artifact feed configuration?',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return;
+    }
     this.actionLoading.set('artifact-delete');
     this.error.set(null);
     try {

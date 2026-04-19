@@ -1,17 +1,16 @@
-import { Component, OnInit, OnDestroy, signal, input, output, computed } from '@angular/core';
+import { Component, OnInit, OnDestroy, signal, input, output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject, interval, takeUntil, switchMap, filter, EMPTY, catchError } from 'rxjs';
-import { SandboxBridgeService, ZedConversation } from '../../core/services/sandbox-bridge.service';
-import { SandboxService } from '../../core/services/sandbox.service';
+import { Subject, firstValueFrom, of } from 'rxjs';
+import { catchError } from 'rxjs/operators';
+import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
+import { SandboxService, CreateSandboxResponse } from '../../core/services/sandbox.service';
 import { BacklogService } from '../../core/services/backlog.service';
-import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { RepositoryService } from '../../core/services/repository.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { Repository } from '../../shared/models/repository.model';
 import { VPS_CONFIG } from '../../core/config/vps.config';
 import { ButtonComponent } from '../../shared/components';
-import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 
 interface GeneratedBacklog {
   epics: GeneratedEpic[];
@@ -41,7 +40,7 @@ type GenerationState = 'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sendin
 @Component({
   selector: 'app-backlog-generator-modal',
   standalone: true,
-  imports: [CommonModule, FormsModule, ButtonComponent, MarkdownPipe],
+  imports: [CommonModule, FormsModule, ButtonComponent],
   template: `
     <div class="modal-backdrop" (click)="onBackdropClick($event)">
       <div class="modal-container">
@@ -64,25 +63,14 @@ type GenerationState = 'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sendin
                   The AI will analyze the repository and create Epics, Features, and User Stories.
                 </p>
                 
-                @if (activeSandbox()) {
-                  <div class="info-box">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <circle cx="12" cy="12" r="10"/>
-                      <path d="M12 16v-4"/>
-                      <path d="M12 8h.01"/>
-                    </svg>
-                    <span>Using active sandbox: {{ activeSandbox()?.title }}</span>
-                  </div>
-                } @else {
-                  <div class="info-box">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-                      <circle cx="8.5" cy="8.5" r="1.5"/>
-                      <polyline points="21 15 16 10 5 21"/>
-                    </svg>
-                    <span>A new sandbox will be created automatically</span>
-                  </div>
-                }
+                <div class="info-box">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+                    <circle cx="8.5" cy="8.5" r="1.5"/>
+                    <polyline points="21 15 16 10 5 21"/>
+                  </svg>
+                  <span>Runs in a temporary analysis container (same path as Code → Analyze). No desktop sandbox is opened.</span>
+                </div>
                 
                 <div class="custom-prompt">
                   <label>Additional Instructions (optional)</label>
@@ -105,29 +93,23 @@ type GenerationState = 'idle' | 'creating_sandbox' | 'waiting_sandbox' | 'sendin
             @case ('waiting_sandbox') {
               <div class="status-section">
                 <div class="spinner"></div>
-                <p>Starting Zed IDE...</p>
-                <small>Waiting for the AI agent to be ready</small>
+                <p>Preparing environment…</p>
+                <small>Waiting for the agent bridge (headless, no VNC)</small>
               </div>
             }
             
             @case ('sending') {
               <div class="status-section">
                 <div class="spinner"></div>
-                <p>Sending prompt to Zed...</p>
+                <p>Sending backlog request…</p>
               </div>
             }
             
             @case ('waiting_response') {
               <div class="status-section">
                 <div class="spinner"></div>
-                <p>Waiting for AI response...</p>
-                <small>This may take a minute as the AI analyzes your repository</small>
-                @if (latestResponse()) {
-                  <div class="response-preview">
-                    <strong>AI is responding:</strong>
-                    <div class="response-text" [innerHTML]="latestResponse()!.assistant_message | markdown"></div>
-                  </div>
-                }
+                <p>Waiting for AI response…</p>
+                <small>The agent analyzes your repository in the container. This may take a minute.</small>
               </div>
             }
             
@@ -399,44 +381,21 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
   errorMessage = signal<string>('');
   customInstructions = '';
   generatedBacklog = signal<GeneratedBacklog | null>(null);
-  latestResponse = signal<ZedConversation | null>(null);
   repository = signal<Repository | null>(null);
 
   private destroy$ = new Subject<void>();
-  private lastConversationId = '';
-  private createdSandboxId: string | null = null;
-
-  // Find active sandbox for this repository
-  activeSandbox = computed(() => {
-    const viewers = this.vncViewerService.getViewers();
-    // Find a viewer whose title matches the repository name
-    return viewers.find(v => v.title?.includes(this.repositoryName())) || null;
-  });
+  private backlogGenSandboxId: string | null = null;
 
   constructor(
     private sandboxBridgeService: SandboxBridgeService,
     private sandboxService: SandboxService,
     private backlogService: BacklogService,
-    private vncViewerService: VncViewerService,
     private repositoryService: RepositoryService,
     private artifactFeedService: ArtifactFeedService
   ) { }
 
   ngOnInit(): void {
-    // Load repository details
     this.loadRepository();
-
-    // Get the current last conversation ID to detect new responses
-    const sandbox = this.activeSandbox();
-    if (sandbox) {
-      this.sandboxBridgeService.getLatestZedConversation(sandbox.id).subscribe({
-        next: (conv) => {
-          if (conv) {
-            this.lastConversationId = conv.id;
-          }
-        }
-      });
-    }
   }
 
   private loadRepository(): void {
@@ -462,47 +421,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
   }
 
   generateBacklog(): void {
-    const sandbox = this.activeSandbox();
-
-    if (!sandbox) {
-      this.createSandboxAndGenerate();
-      return;
-    }
-
-    this.sendBacklogPrompt(sandbox.id);
-  }
-
-  private sendBacklogPrompt(sandboxId: string): void {
-    this.state.set('sending');
-
-    const prompt = this.buildBacklogPrompt();
-    console.log('Sending backlog prompt to Zed (length:', prompt.length, 'chars)');
-
-    this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
-      next: (result) => {
-        console.log('Backlog generation prompt sent to Zed:', result);
-        this.state.set('waiting_response');
-        this.startPollingForResponse(sandboxId);
-      },
-      error: (err) => {
-        console.error('Failed to send backlog prompt (Zed may not be ready yet):', err);
-        setTimeout(() => {
-          console.log('Retrying backlog prompt...');
-          this.sandboxBridgeService.sendZedPrompt(sandboxId, prompt).subscribe({
-            next: (result) => {
-              console.log('Backlog prompt sent on retry:', result);
-              this.state.set('waiting_response');
-              this.startPollingForResponse(sandboxId);
-            },
-            error: (retryErr) => {
-              console.error('Failed to send backlog prompt on retry:', retryErr);
-              this.state.set('error');
-              this.errorMessage.set('Failed to send prompt to Zed. Please ensure the sandbox is running and Zed is ready.');
-            }
-          });
-        }, 5000);
-      }
-    });
+    this.createSandboxAndGenerate();
   }
 
   private createSandboxAndGenerate(): void {
@@ -543,26 +462,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
       artifact_feeds: artifactFeeds?.length ? artifactFeeds : undefined,
     }).subscribe({
       next: (sandbox) => {
-        console.log('Sandbox created for backlog generation:', sandbox);
-
-        this.createdSandboxId = sandbox.id;
-
-        setTimeout(() => {
-          console.log('Opening VNC viewer for backlog generation, sandbox:', sandbox.id);
-
-          this.vncViewerService.open(
-            sandbox.id,
-            `${repo.name}`,
-            undefined,
-            sandbox.vnc_password
-          );
-
-          this.state.set('waiting_sandbox');
-          setTimeout(() => {
-            console.log('Sending backlog generation prompt to Zed...');
-            this.sendBacklogPrompt(sandbox.id);
-          }, 15000);
-        }, VPS_CONFIG.sandboxReadyDelayMs);
+        void this.runHeadlessBacklogGeneration(sandbox, repo);
       },
       error: (err) => {
         console.error('Failed to create sandbox:', err);
@@ -572,6 +472,104 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
     });
   }
 
+  private async runHeadlessBacklogGeneration(sandbox: CreateSandboxResponse, repo: Repository): Promise<void> {
+    if (!sandbox.id) {
+      this.state.set('error');
+      this.errorMessage.set('Sandbox ID not available');
+      return;
+    }
+    const sid = sandbox.id;
+    this.backlogGenSandboxId = sid;
+    try {
+      this.state.set('waiting_sandbox');
+      await this.delay(Math.min(5000, VPS_CONFIG.sandboxReadyDelayMs));
+      await this.waitForZedReady(sid);
+
+      this.state.set('sending');
+      const prompt = this.buildBacklogPrompt();
+      const post = await firstValueFrom(
+        this.sandboxBridgeService.sendHeadlessAgentPrompt(sid, prompt).pipe(
+          catchError((err: { status?: number }) => {
+            if (err?.status === 409) {
+              return of({
+                status: 'error' as const,
+                error: 'Another agent task is running. Try again in a few seconds.'
+              });
+            }
+            throw err;
+          })
+        )
+      );
+
+      if (post.status !== 'ok') {
+        throw new Error('error' in post && post.error ? post.error : 'Failed to start backlog generation');
+      }
+      const promptId = post.prompt_id;
+      if (!promptId) {
+        throw new Error('Failed to start backlog generation');
+      }
+
+      this.state.set('waiting_response');
+      const response = await this.pollForHeadlessBacklogAnswer(sid, promptId);
+      this.parseAndSaveBacklog(response);
+    } catch (err: unknown) {
+      console.error('Headless backlog generation failed:', err);
+      this.state.set('error');
+      this.errorMessage.set(err instanceof Error ? err.message : 'Backlog generation failed');
+      this.cleanupBacklogSandbox();
+    }
+  }
+
+  private async pollForHeadlessBacklogAnswer(sandboxId: string, promptId: string): Promise<string> {
+    const maxAttempts = 3000;
+    for (let i = 0; i < maxAttempts; i++) {
+      const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+      const hit = all.conversations.find(c => c.id === promptId);
+      const body = hit?.assistant_message?.trim();
+      if (body && this.containsBacklogJson(body)) {
+        return body;
+      }
+      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+      if (!running.running && i > 8 && body && !this.containsBacklogJson(body)) {
+        throw new Error('Agent finished without valid backlog JSON. Try again.');
+      }
+      if (!running.running && i > 8 && !body) {
+        throw new Error('Agent finished without a recorded answer. Try again.');
+      }
+      await this.delay(400);
+    }
+    throw new Error('Backlog generation timed out. Please try again.');
+  }
+
+  private async waitForZedReady(sandboxId: string, maxAttempts = 60): Promise<void> {
+    for (let i = 0; i < maxAttempts; i++) {
+      try {
+        const response = await firstValueFrom(this.sandboxBridgeService.health(sandboxId));
+        if (response.status === 'ok') {
+          await this.delay(3000);
+          return;
+        }
+      } catch {
+        // not ready
+      }
+      await this.delay(2000);
+    }
+    throw new Error('Sandbox bridge did not become ready in time');
+  }
+
+  private delay(ms: number): Promise<void> {
+    return new Promise(resolve => setTimeout(resolve, ms));
+  }
+
+  private cleanupBacklogSandbox(): void {
+    const id = this.backlogGenSandboxId;
+    if (id) {
+      this.sandboxService.deleteSandbox(id).subscribe({
+        error: (e) => console.warn('Failed to delete backlog sandbox:', e)
+      });
+      this.backlogGenSandboxId = null;
+    }
+  }
 
   private buildRepoCloneUrl(repo: Repository): string {
     if (repo.cloneUrl) {
@@ -626,38 +624,6 @@ IMPORTANT: Return ONLY valid JSON in this exact format:
     return prompt;
   }
 
-  private startPollingForResponse(sandboxId: string): void {
-    let consecutiveErrors = 0;
-
-    interval(3000).pipe(
-      takeUntil(this.destroy$),
-      filter(() => this.state() === 'waiting_response'),
-      switchMap(() =>
-        this.sandboxBridgeService.getLatestZedConversation(sandboxId).pipe(
-          catchError(err => {
-            consecutiveErrors++;
-            if (consecutiveErrors >= 3) {
-              this.errorMessage.set('Sandbox connection lost — the container may have been stopped.');
-              this.state.set('error');
-            }
-            return EMPTY;
-          })
-        )
-      )
-    ).subscribe({
-      next: (conv) => {
-        consecutiveErrors = 0;
-        if (conv && conv.id !== this.lastConversationId) {
-          this.latestResponse.set(conv);
-          if (this.containsBacklogJson(conv.assistant_message)) {
-            this.lastConversationId = conv.id;
-            this.parseAndSaveBacklog(conv.assistant_message);
-          }
-        }
-      }
-    });
-  }
-
   private containsBacklogJson(response: string): boolean {
     // Check if response contains a JSON code block with "epics"
     return response.includes('"epics"') && (response.includes('```json') || response.includes('"features"'));
@@ -695,22 +661,24 @@ IMPORTANT: Return ONLY valid JSON in this exact format:
       console.error('Failed to parse backlog JSON:', err);
       this.state.set('error');
       this.errorMessage.set('Failed to parse AI response as backlog. The AI may not have returned valid JSON.');
+      this.cleanupBacklogSandbox();
     }
   }
 
   private saveBacklog(backlog: GeneratedBacklog): void {
     this.state.set('saving');
 
-    // Call backend to save backlog
     this.backlogService.createBacklog(this.repositoryId(), backlog).subscribe({
       next: () => {
         this.state.set('complete');
+        this.cleanupBacklogSandbox();
         this.generated.emit();
       },
       error: (err) => {
         console.error('Failed to save backlog:', err);
         this.state.set('error');
         this.errorMessage.set('Failed to save backlog to database: ' + (err.message || 'Unknown error'));
+        this.cleanupBacklogSandbox();
       }
     });
   }

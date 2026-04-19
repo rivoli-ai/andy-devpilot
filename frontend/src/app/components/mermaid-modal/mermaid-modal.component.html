@@ -1,0 +1,37 @@
+@if (state(); as s) {
+  <div
+    class="mermaid-modal-backdrop"
+    role="presentation"
+    (click)="onBackdropClick($event)">
+    <div
+      class="mermaid-modal-panel"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Diagram viewer"
+      (click)="$event.stopPropagation()">
+      <header class="mermaid-modal-toolbar">
+        <p class="mermaid-modal-hint">Scroll or use +/− to zoom · drag to pan · Esc to close</p>
+        <div class="mermaid-modal-actions">
+          <button type="button" class="mermaid-modal-btn" (click)="zoomOut()" title="Zoom out" aria-label="Zoom out">−</button>
+          <button type="button" class="mermaid-modal-btn" (click)="resetView()" title="Reset zoom and position">Reset</button>
+          <button type="button" class="mermaid-modal-btn" (click)="zoomIn()" title="Zoom in" aria-label="Zoom in">+</button>
+          <button type="button" class="mermaid-modal-btn mermaid-modal-btn--primary" (click)="close()">Close</button>
+        </div>
+      </header>
+      <div
+        #viewport
+        class="mermaid-modal-viewport"
+        [class.mermaid-modal-viewport--dragging]="dragging()"
+        (pointerdown)="onPointerDown($event)"
+        (pointermove)="onPointerMove($event)"
+        (pointerup)="onPointerUp($event)"
+        (pointercancel)="onPointerUp($event)">
+        <div class="mermaid-modal-stage" [style.transform]="stageTransform()">
+          <div class="mermaid-wrapper" [attr.data-mermaid-source]="s.encoded">
+            <div class="mermaid" [id]="diagramId()"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+}

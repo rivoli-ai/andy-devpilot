@@ -1,4 +1,4 @@
 {
-  "apiUrl": "/api"
+  "apiUrl": "http://0.0.0.0:5443/api"
 }
 

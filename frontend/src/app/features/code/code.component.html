@@ -63,8 +63,8 @@
           }
         </div>
       }
-      <!-- Branch selector (code + ask share the same branch for tree, sandbox, and persisted Ask history) -->
-      @if (activeTab() === 'code' || activeTab() === 'ask') {
+      <!-- Branch selector: code tree, Ask sandbox/history, and Analysis run/load all use this branch -->
+      @if (activeTab() === 'code' || activeTab() === 'ask' || activeTab() === 'analysis') {
         <div class="branch-selector">
           <button class="branch-btn" (click)="toggleBranchDropdown()">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -534,20 +534,38 @@
               <h2 class="code-ask-title">Repository assistant</h2>
             </div>
           </div>
-          @if (codeChatSandboxId()) {
-            <button
-              type="button"
-              class="code-ask-open-desktop"
-              (click)="openCodeChatSandboxDesktop()"
-              title="Open the running sandbox in the VNC viewer">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
-                <line x1="8" y1="21" x2="16" y2="21"/>
-                <line x1="12" y1="17" x2="12" y2="21"/>
-              </svg>
-              <span>Open desktop</span>
-            </button>
-          }
+          <div class="code-ask-hero-actions">
+            @if (codeChatMessages().length > 0) {
+              <button
+                type="button"
+                class="code-ask-clear-history"
+                [disabled]="codeChatBusy()"
+                (click)="clearCodeAskHistory()"
+                title="Remove all messages for this branch (saved history and sandbox thread)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <polyline points="3 6 5 6 21 6"/>
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+                  <line x1="10" y1="11" x2="10" y2="17"/>
+                  <line x1="14" y1="11" x2="14" y2="17"/>
+                </svg>
+                <span>Clear history</span>
+              </button>
+            }
+            @if (codeChatSandboxId()) {
+              <button
+                type="button"
+                class="code-ask-open-desktop"
+                (click)="openCodeChatSandboxDesktop()"
+                title="Open the running sandbox in the VNC viewer">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+                  <line x1="8" y1="21" x2="16" y2="21"/>
+                  <line x1="12" y1="17" x2="12" y2="21"/>
+                </svg>
+                <span>Open desktop</span>
+              </button>
+            }
+          </div>
         </div>
       </header>
 
@@ -860,12 +878,65 @@
         </div>
       </div>
 
-      <!-- Analysis Loading -->
-      @if (analysisLoading()) {
+      <!-- Analysis Loading: live telemetry only while a run is active (not loadAnalysis fetch) -->
+      @if (analysisLoading() && analysisRunActive()) {
+        <div class="analysis-loading analysis-loading--live">
+          <div class="analysis-loading-hero">
+            <div class="loading-spinner large" aria-hidden="true"></div>
+            <div class="analysis-loading-hero-copy">
+              <div class="analysis-loading-status-row">
+                <h3>{{ analysisStatus() || 'Analyzing repository…' }}</h3>
+                @if (analysisBridgeRequestInProgress()) {
+                  <span class="analysis-live-pill" title="Sandbox bridge is processing a request">Bridge active</span>
+                }
+              </div>
+            </div>
+          </div>
+
+          <div class="analysis-live-panel-body">
+            <section class="analysis-live-section analysis-live-section--progress" aria-label="Live progress">
+              <div class="analysis-live-progress-scroll" #analysisLiveProgressScroll>
+                @if (analysisLiveTools().length > 0) {
+                  <div class="analysis-live-progress-chunk analysis-live-progress-chunk--tools">
+                    <ol class="analysis-live-tool-list">
+                      @for (t of analysisLiveTools(); track $index) {
+                        <li class="analysis-live-tool-item">
+                          <div class="analysis-live-tool-name-row">
+                            <code class="analysis-live-tool-id">{{ t.name }}</code>
+                          </div>
+                          <div class="analysis-live-tool-block">
+                            <span class="analysis-live-tool-label">Command &amp; arguments</span>
+                            <pre class="analysis-live-pre analysis-live-pre--tool-body">{{
+                              formatAnalysisTelemetryText(t.args_preview) || '—'
+                            }}</pre>
+                          </div>
+                          <div class="analysis-live-tool-block">
+                            <span class="analysis-live-tool-label">Output</span>
+                            <pre class="analysis-live-pre analysis-live-pre--tool-body">{{
+                              formatAnalysisTelemetryText(t.result_preview) || '—'
+                            }}</pre>
+                          </div>
+                        </li>
+                      }
+                    </ol>
+                  </div>
+                }
+                <div class="analysis-live-progress-chunk analysis-live-progress-chunk--model">
+                  <pre
+                    class="analysis-live-pre analysis-live-pre--stream analysis-live-pre--in-progress"
+                    [class.analysis-live-pre--placeholder]="!analysisLiveStream()">{{ analysisLiveStream() || 'Waiting for model output…' }}</pre>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      }
+
+      @if (analysisLoading() && !analysisRunActive()) {
         <div class="analysis-loading">
           <div class="loading-spinner large"></div>
-          <h3>{{ analysisStatus() || 'Analyzing Repository...' }}</h3>
-          <p>This may take a few minutes while we set up the analysis environment.</p>
+          <h3>Loading analysis…</h3>
+          <p>Fetching saved results for this branch.</p>
         </div>
       }
 

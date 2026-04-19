@@ -1,0 +1,36 @@
+@if (dialog.openState(); as d) {
+  <div
+    class="confirm-dialog-backdrop"
+    role="presentation"
+    (click)="onBackdropClick($event)">
+    <div
+      class="confirm-dialog-panel"
+      [class.confirm-dialog-panel--danger]="d.kind === 'confirm' && d.variant === 'danger'"
+      role="alertdialog"
+      aria-modal="true"
+      [attr.aria-labelledby]="'confirm-dialog-title'"
+      [attr.aria-describedby]="'confirm-dialog-message'"
+      (click)="$event.stopPropagation()">
+      <h2 id="confirm-dialog-title" class="confirm-dialog-title">{{ d.title }}</h2>
+      <p id="confirm-dialog-message" class="confirm-dialog-message">{{ d.message }}</p>
+      <div class="confirm-dialog-actions">
+        @if (d.kind === 'confirm') {
+          <button type="button" class="confirm-dialog-btn confirm-dialog-btn--secondary" (click)="dialog.confirmCancel()">
+            {{ d.cancelText }}
+          </button>
+          <button
+            type="button"
+            class="confirm-dialog-btn confirm-dialog-btn--primary"
+            [class.confirm-dialog-btn--danger]="d.variant === 'danger'"
+            (click)="dialog.confirmOk()">
+            {{ d.confirmText }}
+          </button>
+        } @else {
+          <button type="button" class="confirm-dialog-btn confirm-dialog-btn--primary" (click)="dialog.alertOk()">
+            {{ d.okText }}
+          </button>
+        }
+      </div>
+    </div>
+  </div>
+}

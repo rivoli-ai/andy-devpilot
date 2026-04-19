@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 
 const STORAGE_KEY = 'devpilot.lastVisitedRepositoryIds';
 const LEGACY_STORAGE_KEY = 'devpilot.lastVisitedRepositoryId';
-const MAX_RECENT = 6;
+const MAX_RECENT = 5;
 
 /**
  * Persists the most recently opened repositories (backlog / code) so the repositories
@@ -28,7 +28,7 @@ export class LastVisitedRepositoryService {
     }
   }
 
-  /** Up to six ids, most recent first. Migrates legacy single-id storage once. */
+  /** Up to MAX_RECENT ids, most recent first. Migrates legacy single-id storage once. */
   peekOrderedIds(): string[] {
     try {
       let ids = this.readIdsFromStorage();

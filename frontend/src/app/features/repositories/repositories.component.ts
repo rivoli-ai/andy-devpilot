@@ -7,6 +7,7 @@ import { of } from 'rxjs';
 import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem } from '../../core/services/repository.service';
 import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
+import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { AnalysisService } from '../../core/services/analysis.service';
 import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
@@ -112,7 +113,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
    */
   private readonly lastVisitedStorageRevision = signal<number>(0);
 
-  /** Up to 6 most recently opened repos still visible under current filters (not duplicated in project groups). */
+  /** Up to 5 most recently opened repos still visible under current filters (not duplicated in project groups). */
   recentRepositories = computed(() => {
     this.lastVisitedStorageRevision();
     const orderedIds = this.lastVisited.peekOrderedIds();
@@ -164,7 +165,8 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     private artifactFeedService: ArtifactFeedService,
     private sandboxBridgeService: SandboxBridgeService,
     private elementRef: ElementRef,
-    private lastVisited: LastVisitedRepositoryService
+    private lastVisited: LastVisitedRepositoryService,
+    private confirmDialog: ConfirmDialogService
   ) {}
 
   // Close dropdown when clicking outside
@@ -644,8 +646,17 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     });
   }
 
-  deleteRepository(repo: Repository): void {
-    if (!confirm(`Delete "${repo.name}"? This will remove the repository and its backlog from the app.`)) return;
+  async deleteRepository(repo: Repository): Promise<void> {
+    const ok = await this.confirmDialog.confirm({
+      title: `Delete “${repo.name}”?`,
+      message: 'This will remove the repository and its backlog from the app.',
+      confirmText: 'Delete',
+      cancelText: 'Cancel',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return;
+    }
     this.repositoryService.deleteRepository(repo.id).subscribe({
       next: () => {
         this.loadRepositories(true);
