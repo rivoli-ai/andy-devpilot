@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { codeCanDeactivateGuard } from './features/code/code-deactivate.guard';
 
 export const routes: Routes = [
   {
@@ -29,6 +30,7 @@ export const routes: Routes = [
   },
   {
     path: 'code/:repositoryId',
-    loadComponent: () => import('./features/code/code.component').then(m => m.CodeComponent)
+    loadComponent: () => import('./features/code/code.component').then(m => m.CodeComponent),
+    canDeactivate: [codeCanDeactivateGuard]
   }
 ];

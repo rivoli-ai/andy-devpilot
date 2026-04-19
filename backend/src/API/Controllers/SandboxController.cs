@@ -29,6 +29,7 @@ public class SandboxController : ControllerBase
     private readonly IMcpServerConfigRepository _mcpRepository;
     private readonly IUserStoryRepository _userStoryRepository;
     private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
+    private readonly IUserRepositorySandboxBindingRepository _userRepositorySandboxBindingRepository;
     private readonly ILogger<SandboxController> _logger;
 
     public SandboxController(
@@ -39,6 +40,7 @@ public class SandboxController : ControllerBase
         IMcpServerConfigRepository mcpRepository,
         IUserStoryRepository userStoryRepository,
         IRepositoryAgentRuleRepository repositoryAgentRuleRepository,
+        IUserRepositorySandboxBindingRepository userRepositorySandboxBindingRepository,
         ILogger<SandboxController> logger)
     {
         _sandboxService = sandboxService;
@@ -48,6 +50,7 @@ public class SandboxController : ControllerBase
         _mcpRepository = mcpRepository;
         _userStoryRepository = userStoryRepository;
         _repositoryAgentRuleRepository = repositoryAgentRuleRepository;
+        _userRepositorySandboxBindingRepository = userRepositorySandboxBindingRepository;
         _logger = logger;
     }
 
@@ -89,20 +92,36 @@ public class SandboxController : ControllerBase
             string? azureIdClientId = null, azureIdClientSecret = null, azureIdTenantId = null;
             Repository? resolvedRepo = null;
             Guid? repositoryId = null;
-            if (!string.IsNullOrEmpty(request.RepoName))
+
+            if (request.RepositoryId is Guid repoGuid && repoGuid != Guid.Empty)
+            {
+                var byId = await _repositoryRepository.GetByIdAsync(repoGuid, cancellationToken);
+                if (byId is not null && byId.UserId == userId)
+                {
+                    resolvedRepo = byId;
+                    repositoryId = byId.Id;
+                }
+            }
+
+            if (resolvedRepo is null && !string.IsNullOrEmpty(request.RepoName))
             {
                 var userRepos = await _repositoryRepository.GetByUserIdAsync(userId, cancellationToken);
-                resolvedRepo = userRepos.FirstOrDefault(r => r.Name == request.RepoName);
+                resolvedRepo = userRepos.FirstOrDefault(r =>
+                    string.Equals(r.Name, request.RepoName, StringComparison.OrdinalIgnoreCase));
                 if (resolvedRepo != null)
                 {
                     repositoryId = resolvedRepo.Id;
-                    if (!string.IsNullOrEmpty(resolvedRepo.AzureIdentityClientId) && !string.IsNullOrEmpty(resolvedRepo.AzureIdentityClientSecret) && !string.IsNullOrEmpty(resolvedRepo.AzureIdentityTenantId))
-                    {
-                        azureIdClientId = resolvedRepo.AzureIdentityClientId;
-                        azureIdClientSecret = resolvedRepo.AzureIdentityClientSecret;
-                        azureIdTenantId = resolvedRepo.AzureIdentityTenantId;
-                    }
                 }
+            }
+
+            if (resolvedRepo != null &&
+                !string.IsNullOrEmpty(resolvedRepo.AzureIdentityClientId) &&
+                !string.IsNullOrEmpty(resolvedRepo.AzureIdentityClientSecret) &&
+                !string.IsNullOrEmpty(resolvedRepo.AzureIdentityTenantId))
+            {
+                azureIdClientId = resolvedRepo.AzureIdentityClientId;
+                azureIdClientSecret = resolvedRepo.AzureIdentityClientSecret;
+                azureIdTenantId = resolvedRepo.AzureIdentityTenantId;
             }
 
             string? agentRulesForSandbox = request.AgentRules;
@@ -163,6 +182,16 @@ public class SandboxController : ControllerBase
                 },
                 cancellationToken);
 
+            if (repositoryId.HasValue)
+            {
+                await _userRepositorySandboxBindingRepository.UpsertAsync(
+                    userId,
+                    repositoryId.Value,
+                    result.Id,
+                    string.IsNullOrWhiteSpace(request.RepoBranch) ? "main" : request.RepoBranch.Trim(),
+                    cancellationToken);
+            }
+
             return Ok(new SandboxResponse
             {
                 Id = result.Id,
@@ -175,6 +204,50 @@ public class SandboxController : ControllerBase
             _logger.LogError(ex, "Failed to create sandbox for user {UserId}", userId);
             return StatusCode(500, new { error = "Failed to create sandbox" });
         }
+    }
+
+    /// <summary>
+    /// Returns the active sandbox for Code Ask for this repository (if any), for reconnecting after refresh.
+    /// Scoped by authenticated user and repository ownership.
+    /// </summary>
+    [HttpGet("for-repository/{repositoryId:guid}")]
+    public async Task<IActionResult> GetSandboxForRepository(Guid repositoryId, CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId == Guid.Empty)
+            return Unauthorized();
+
+        var repo = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        if (repo is null || repo.UserId != userId)
+            return NotFound();
+
+        var binding = await _userRepositorySandboxBindingRepository.GetByUserAndRepositoryAsync(
+            userId, repositoryId, cancellationToken);
+        if (binding is null)
+            return NotFound();
+
+        var adopted = await _sandboxService.TryAssignSandboxOwnershipAsync(userId, binding.SandboxId, cancellationToken);
+        if (!adopted)
+        {
+            await _userRepositorySandboxBindingRepository.DeleteBySandboxIdAsync(binding.SandboxId, cancellationToken);
+            return NotFound();
+        }
+
+        var status = await _sandboxService.GetSandboxAsync(userId, binding.SandboxId, cancellationToken);
+        if (status is null)
+        {
+            await _userRepositorySandboxBindingRepository.DeleteBySandboxIdAsync(binding.SandboxId, cancellationToken);
+            return NotFound();
+        }
+
+        var vnc = _sandboxService.GetVncPasswordIfOwnedBy(userId, binding.SandboxId);
+        return Ok(new SandboxForRepositoryDto
+        {
+            Id = binding.SandboxId,
+            Status = status.Status,
+            RepoBranch = binding.RepoBranch,
+            VncPassword = vnc,
+        });
     }
 
     /// <summary>Returns the status of a sandbox owned by the authenticated user.</summary>
@@ -203,6 +276,8 @@ public class SandboxController : ControllerBase
         var deleted = await _sandboxService.DeleteSandboxAsync(userId, id, cancellationToken);
         if (!deleted)
             return NotFound(new { error = "Sandbox not found or not owned by this user" });
+
+        await _userRepositorySandboxBindingRepository.DeleteBySandboxIdAsync(id, cancellationToken);
 
         return Ok(new { status = "deleted" });
     }
@@ -356,6 +431,10 @@ public class CreateSandboxRequest
     [JsonPropertyName("repo_name")]
     public string? RepoName { get; set; }
 
+    /// <summary>When set, resolves repository ownership and persists Ask sandbox binding reliably (preferred over repo_name alone).</summary>
+    [JsonPropertyName("repository_id")]
+    public Guid? RepositoryId { get; set; }
+
     [JsonPropertyName("repo_branch")]
     public string? RepoBranch { get; set; }
 
@@ -412,4 +491,20 @@ public class SandboxResponse
 
     [JsonPropertyName("vnc_password")]
     public string VncPassword { get; set; } = string.Empty;
+}
+
+/// <summary>GET /sandboxes/for-repository/… — reconnect Ask after refresh.</summary>
+public class SandboxForRepositoryDto
+{
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = string.Empty;
+
+    [JsonPropertyName("status")]
+    public string Status { get; set; } = string.Empty;
+
+    [JsonPropertyName("repo_branch")]
+    public string RepoBranch { get; set; } = string.Empty;
+
+    [JsonPropertyName("vnc_password")]
+    public string? VncPassword { get; set; }
 }

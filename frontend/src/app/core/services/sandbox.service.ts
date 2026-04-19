@@ -3,6 +3,7 @@ import { HttpClient } from '@angular/common/http';
 import { BehaviorSubject, Observable, of } from 'rxjs';
 import { catchError, map, tap } from 'rxjs/operators';
 import { APP_CONFIG, AppConfig } from './config.service';
+import { AuthService } from './auth.service';
 
 export interface Sandbox {
   id: string;
@@ -16,6 +17,14 @@ export interface CreateSandboxResponse {
   vnc_password?: string;
 }
 
+/** Active Ask sandbox for a repository (server-side binding; survives page refresh). */
+export interface SandboxForRepositoryResponse {
+  id: string;
+  status: string;
+  repo_branch: string;
+  vnc_password?: string | null;
+}
+
 /**
  * Sandbox creation request.
  * AI config, MCP servers, and Zed settings are resolved server-side —
@@ -25,6 +34,8 @@ export interface CreateSandboxRequest {
   resolution?: string;
   repo_url?: string;
   repo_name?: string;
+  /** DevPilot repository UUID; server uses this to persist Ask sandbox binding (refresh reconnect). */
+  repository_id?: string;
   repo_branch?: string;
   /** GitHub zipball URL (e.g. api.github.com/.../zipball/main) to download code without git clone when clone is blocked */
   repo_archive_url?: string;
@@ -50,7 +61,11 @@ export class SandboxService {
 
   currentSandbox$ = this.currentSandboxSubject.asObservable();
 
-  constructor(private http: HttpClient, @Inject(APP_CONFIG) config: AppConfig) {
+  constructor(
+    private http: HttpClient,
+    @Inject(APP_CONFIG) config: AppConfig,
+    private authService: AuthService
+  ) {
     this.apiUrl = `${config.apiUrl}/sandboxes`;
   }
 
@@ -95,6 +110,15 @@ export class SandboxService {
   }
 
   /**
+   * Returns the sandbox bound to this repository for the current user (Code Ask), if still running.
+   */
+  getSandboxForRepository(repositoryId: string): Observable<SandboxForRepositoryResponse | null> {
+    return this.http.get<SandboxForRepositoryResponse>(`${this.apiUrl}/for-repository/${repositoryId}`).pipe(
+      catchError(() => of(null))
+    );
+  }
+
+  /**
    * Get a specific sandbox's status
    */
   getSandbox(sandboxId: string): Observable<Sandbox | null> {
@@ -109,6 +133,24 @@ export class SandboxService {
   /**
    * Stop and remove a sandbox
    */
+  /**
+   * Fire-and-forget DELETE when the document is unloading (refresh/close tab).
+   * Uses fetch + keepalive so the request may still reach the server after navigation starts.
+   */
+  requestDeleteSandboxOnUnload(sandboxId: string): void {
+    const token = this.authService.getToken();
+    const url = `${this.apiUrl}/${encodeURIComponent(sandboxId)}`;
+    try {
+      void fetch(url, {
+        method: 'DELETE',
+        keepalive: true,
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      }).catch(() => {});
+    } catch {
+      /* ignore */
+    }
+  }
+
   deleteSandbox(sandboxId: string): Observable<boolean> {
     return this.http.delete<{ status: string }>(`${this.apiUrl}/${sandboxId}`).pipe(
       tap(() => {

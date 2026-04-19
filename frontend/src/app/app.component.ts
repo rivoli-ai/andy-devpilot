@@ -104,7 +104,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   /** Tiled “dock mode” viewers — shown in the bottom sandbox tray (main column) */
   tiledDockViewers = computed(() =>
-    this.vncViewers().filter(v => v.dockPosition === 'tiled')
+    this.vncViewers().filter(v => v.dockPosition === 'tiled' && !v.hideMinimizedTray)
   );
 
   /** Tray visible: bottom bar + expandable area (minimized chips and/or tiled dock) */
@@ -133,7 +133,7 @@ export class AppComponent implements OnInit, OnDestroy {
   minimizedViewers = computed(() => {
     const all = this.vncViewers();
     const order = new Map(all.map((v, i) => [v.id, i]));
-    const list = all.filter(v => v.dockPosition === 'minimized');
+    const list = all.filter(v => v.dockPosition === 'minimized' && !v.hideMinimizedTray);
     return [...list].sort((a, b) => {
       const ar = a.readyForPr === true ? 1 : 0;
       const br = b.readyForPr === true ? 1 : 0;
@@ -145,13 +145,13 @@ export class AppComponent implements OnInit, OnDestroy {
   });
 
   // Computed: viewers docked to the right
-  rightDockedViewers = computed(() => 
-    this.vncViewers().filter(v => v.dockPosition === 'right')
+  rightDockedViewers = computed(() =>
+    this.vncViewers().filter(v => v.dockPosition === 'right' && !v.hideMinimizedTray)
   );
 
   // Computed: viewers docked to the bottom
-  bottomDockedViewers = computed(() => 
-    this.vncViewers().filter(v => v.dockPosition === 'bottom')
+  bottomDockedViewers = computed(() =>
+    this.vncViewers().filter(v => v.dockPosition === 'bottom' && !v.hideMinimizedTray)
   );
 
   ngOnInit(): void {
@@ -164,7 +164,9 @@ export class AppComponent implements OnInit, OnDestroy {
         console.log('AppComponent received viewers update:', viewers.length);
         this.vncViewers.set(viewers);
         const minimized = viewers.filter(v => v.dockPosition === 'minimized').length;
-        const tiled = viewers.filter(v => v.dockPosition === 'tiled').length;
+        const tiled = viewers.filter(
+          v => v.dockPosition === 'tiled' && !v.hideMinimizedTray
+        ).length;
         if (minimized === 0 && tiled === 0) {
           this.sandboxDockTiledExpanded.set(false);
           this.sandboxDockFootprintExpanded.set(false);
@@ -206,7 +208,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   private trackMinimizedReadyForPromotion(): void {
     const viewers = this.vncViewers();
-    const minimized = viewers.filter(v => v.dockPosition === 'minimized');
+    const minimized = viewers.filter(v => v.dockPosition === 'minimized' && !v.hideMinimizedTray);
 
     if (!this.dockReadyTrackingInitialized) {
       for (const v of minimized) {
@@ -299,9 +301,10 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Restore running sandboxes from the API and open viewers so they survive page refresh.
-   * Only restores sandboxes that have stored context (opened in this session before refresh).
-   * Sandboxes the user closed had their context removed, so they are not restored (avoids ghost viewers).
+   * Restore VNC dock viewers from the API + localStorage after refresh.
+   * Only opens a viewer when {@link VncViewerService.getStoredContext} exists (user had opened
+   * that sandbox in the dock). Code Ask auxiliary desktop is never auto-opened here — user opens
+   * it from Code › Open desktop; stored context still keeps VNC password/title for that action.
    */
   private restoreRunningSandboxes(): void {
     this.sandboxService.listSandboxes().subscribe({
@@ -310,14 +313,22 @@ export class AppComponent implements OnInit, OnDestroy {
         console.log('Restoring running sandbox(es), checking stored context...');
         sandboxes.forEach(sandbox => {
           const stored = this.vncViewerService.getStoredContext(sandbox.id);
-          // Only restore if we have stored context (user had this viewer open before refresh).
-          // If user closed the viewer we removed context, so skip to avoid ghost sandbox.
+          // Only re-open the VNC dock when we have stored context (user had this viewer open).
+          // Code Ask often runs without ever opening the desktop viewer, so there is no stored
+          // context — we must NOT delete the sandbox here; that was incorrectly treating Ask-only
+          // sessions as orphans and stopped the container on every full page refresh.
           if (!stored) {
-            console.log('Skipping sandbox (no stored context, likely closed by user):', sandbox.id.slice(0, 8));
-            this.sandboxService.deleteSandbox(sandbox.id).subscribe({
-              next: (ok) => { if (ok) console.log('Cleaned up orphan sandbox:', sandbox.id.slice(0, 8)); },
-              error: () => {}
-            });
+            console.log(
+              'Skipping VNC restore (no local viewer context; sandbox may still be in use e.g. Ask):',
+              sandbox.id.slice(0, 8)
+            );
+            return;
+          }
+          if (this.vncViewerService.resolveStoredHideMinimizedTray(stored)) {
+            console.log(
+              'Skipping VNC restore (Code Ask desktop — open from Code when needed):',
+              sandbox.id.slice(0, 8)
+            );
             return;
           }
           const title = stored.title ?? `Sandbox ${sandbox.id.slice(0, 6)}`;
@@ -433,6 +444,11 @@ export class AppComponent implements OnInit, OnDestroy {
   }
 
   onViewerMinimized(viewerId: string): void {
+    const v = this.vncViewerService.getViewer(viewerId);
+    if (v?.hideMinimizedTray) {
+      this.vncViewerService.dismissViewerKeepSandbox(viewerId);
+      return;
+    }
     this.vncViewerService.setDockPosition(viewerId, 'minimized');
   }
 

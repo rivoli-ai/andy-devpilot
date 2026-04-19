@@ -2,10 +2,11 @@ import { Component, OnInit, OnDestroy, AfterViewInit, signal, computed, HostList
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { Subject } from 'rxjs';
-import { debounceTime, distinctUntilChanged, takeUntil, switchMap } from 'rxjs/operators';
+import { debounceTime, distinctUntilChanged, filter, takeUntil, switchMap } from 'rxjs/operators';
 import { of } from 'rxjs';
-import { Router, RouterLink } from '@angular/router';
+import { NavigationEnd, Router, RouterLink } from '@angular/router';
 import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem } from '../../core/services/repository.service';
+import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
 import { AnalysisService } from '../../core/services/analysis.service';
 import { AuthService } from '../../core/services/auth.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
@@ -105,9 +106,34 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     return repos.filter(r => r.provider === tab);
   });
 
+  /**
+   * Bumps when returning to this route or on first load so `recentRepositories` re-reads localStorage
+   * (matches current filters once the list is loaded).
+   */
+  private readonly lastVisitedStorageRevision = signal<number>(0);
+
+  /** Up to 6 most recently opened repos still visible under current filters (not duplicated in project groups). */
+  recentRepositories = computed(() => {
+    this.lastVisitedStorageRevision();
+    const orderedIds = this.lastVisited.peekOrderedIds();
+    if (orderedIds.length === 0) return [];
+    const byId = new Map(this.filteredRepositories().map(r => [String(r.id), r]));
+    const out: Repository[] = [];
+    const seen = new Set<string>();
+    for (const id of orderedIds) {
+      const r = byId.get(String(id));
+      if (r && !seen.has(String(r.id))) {
+        seen.add(String(r.id));
+        out.push(r);
+      }
+    }
+    return out;
+  });
+
   // Computed: group repositories by project (GitHub: org, Azure DevOps: org/project)
   repositoriesByProject = computed(() => {
-    const repos = this.filteredRepositories();
+    const pinned = new Set(this.recentRepositories().map(r => String(r.id)));
+    const repos = this.filteredRepositories().filter(r => !pinned.has(String(r.id)));
     const groups = new Map<string, Repository[]>();
     for (const repo of repos) {
       const projectKey = this.getProjectKey(repo);
@@ -137,7 +163,8 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     private aiConfigService: AIConfigService,
     private artifactFeedService: ArtifactFeedService,
     private sandboxBridgeService: SandboxBridgeService,
-    private elementRef: ElementRef
+    private elementRef: ElementRef,
+    private lastVisited: LastVisitedRepositoryService
   ) {}
 
   // Close dropdown when clicking outside
@@ -289,7 +316,23 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
       this.shareModalSuggestions.set(suggestions.filter(s => !sharedIds.has(s.userId)));
     });
 
+    this.bumpLastVisitedRevision();
+    this.router.events
+      .pipe(
+        filter((e): e is NavigationEnd => e instanceof NavigationEnd),
+        takeUntil(this.destroy$)
+      )
+      .subscribe(e => {
+        if (e.urlAfterRedirects === '/repositories' || e.urlAfterRedirects.startsWith('/repositories?')) {
+          this.bumpLastVisitedRevision();
+        }
+      });
+
     this.loadRepositories();
+  }
+
+  private bumpLastVisitedRevision(): void {
+    this.lastVisitedStorageRevision.update(v => v + 1);
   }
 
   ngOnDestroy(): void {

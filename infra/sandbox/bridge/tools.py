@@ -8,6 +8,7 @@ project directory and enforces path-traversal protection.
 
 import os
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 
@@ -95,7 +96,10 @@ SCHEMAS: list[dict[str, Any]] = [
             "name": "run_command",
             "description": (
                 "Execute a shell command in the project directory.  "
-                "Use for builds, tests, dependency installs, or any CLI task."
+                "Use for builds, tests, dependency installs, or any CLI task.  "
+                "For long-running processes (npm start, ng serve, vite, next dev, "
+                "webpack --watch, etc.), set background=true so the command detaches "
+                "and does not block further tool use or chat; output is written to a log file under .devpilot/agent-logs/."
             ),
             "parameters": {
                 "type": "object",
@@ -103,7 +107,15 @@ SCHEMAS: list[dict[str, Any]] = [
                     "command": {
                         "type": "string",
                         "description": "Shell command to execute",
-                    }
+                    },
+                    "background": {
+                        "type": "boolean",
+                        "description": (
+                            "If true, run detached in a new session (stdin closed, output to a log file). "
+                            "Required for dev servers and watchers that never exit on their own."
+                        ),
+                        "default": False,
+                    },
                 },
                 "required": ["command"],
                 "additionalProperties": False,
@@ -216,7 +228,68 @@ def _edit_file(path: str, old_text: str, new_text: str, root: str) -> str:
     return f"Edited {path}"
 
 
-def _run_command(command: str, root: str) -> str:
+def _coerce_background(raw: Any) -> bool:
+    if raw is True:
+        return True
+    if raw is False or raw is None:
+        return False
+    if isinstance(raw, str):
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return bool(raw)
+
+
+def _run_command_background(command: str, root: str) -> str:
+    """Start *command* detached; return pid and log path (does not block on exit)."""
+    base = Path(root).resolve()
+    log_dir = base / ".devpilot" / "agent-logs"
+    try:
+        log_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return f"Error: could not create log directory: {exc}"
+
+    log_path = log_dir / f"cmd-{time.time_ns()}.log"
+    try:
+        with open(log_path, "w", encoding="utf-8") as logf:
+            proc = subprocess.Popen(
+                command,
+                shell=True,
+                cwd=str(base),
+                stdout=logf,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                start_new_session=True,
+                env={**os.environ, "TERM": "dumb"},
+            )
+    except Exception as exc:
+        return f"Error: failed to start background command: {exc}"
+
+    rel = log_path.relative_to(base).as_posix()
+    time.sleep(0.4)
+    peek = ""
+    try:
+        if log_path.exists() and log_path.stat().st_size > 0:
+            peek = log_path.read_text(encoding="utf-8", errors="replace")[:4000]
+            if len(peek) >= 4000:
+                peek += "\n… (truncated; use read_file on the log path for full output)"
+    except OSError:
+        peek = "(output not readable yet; try read_file on the log path in a moment)"
+
+    parts = [
+        "status=running_in_background",
+        f"pid={proc.pid}",
+        f"log_file={rel}",
+        "The process keeps running; use read_file on log_file to inspect output.",
+    ]
+    if peek.strip():
+        parts.append("--- initial output ---")
+        parts.append(peek)
+    return _truncate("\n".join(parts))
+
+
+def _run_command(command: str, root: str, background: bool = False) -> str:
+    if background:
+        return _run_command_background(command, root)
+
     try:
         proc = subprocess.run(
             command,
@@ -228,7 +301,10 @@ def _run_command(command: str, root: str) -> str:
             env={**os.environ, "TERM": "dumb"},
         )
     except subprocess.TimeoutExpired:
-        return f"Error: command timed out after {COMMAND_TIMEOUT_S}s"
+        return (
+            f"Error: command timed out after {COMMAND_TIMEOUT_S}s. "
+            "If this is a dev server or long-running task, re-run with background=true."
+        )
 
     parts: list[str] = [f"exit_code={proc.returncode}"]
     if proc.stdout:
@@ -276,7 +352,9 @@ _DISPATCH = {
     "read_file": lambda a, r: _read_file(a["path"], r),
     "write_file": lambda a, r: _write_file(a["path"], a["content"], r),
     "edit_file": lambda a, r: _edit_file(a["path"], a["old_text"], a["new_text"], r),
-    "run_command": lambda a, r: _run_command(a["command"], r),
+    "run_command": lambda a, r: _run_command(
+        a["command"], r, _coerce_background(a.get("background", False))
+    ),
     "search_files": lambda a, r: _search_files(
         a["pattern"], a.get("path", "."), a.get("include", ""), r
     ),

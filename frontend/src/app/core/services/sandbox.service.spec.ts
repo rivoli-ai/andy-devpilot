@@ -2,6 +2,7 @@ import { TestBed } from '@angular/core/testing';
 import { HttpClientTestingModule, HttpTestingController } from '@angular/common/http/testing';
 import { APP_CONFIG } from './config.service';
 import { SandboxService } from './sandbox.service';
+import { AuthService } from './auth.service';
 
 describe('SandboxService', () => {
   let svc: SandboxService;
@@ -15,6 +16,7 @@ describe('SandboxService', () => {
       providers: [
         SandboxService,
         { provide: APP_CONFIG, useValue: { apiUrl: 'http://api.test' } },
+        { provide: AuthService, useValue: { getToken: () => null } },
       ],
     });
     svc = TestBed.inject(SandboxService);

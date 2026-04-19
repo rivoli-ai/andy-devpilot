@@ -12,6 +12,7 @@ import { VncViewerService } from '../../core/services/vnc-viewer.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { AuthService } from '../../core/services/auth.service';
+import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
 import { VPS_CONFIG } from '../../core/config/vps.config';
 import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
@@ -487,7 +488,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
     private artifactFeedService: ArtifactFeedService,
     private authService: AuthService,
     private sanitizer: DomSanitizer,
-    private markdownPipe: MarkdownPipe
+    private markdownPipe: MarkdownPipe,
+    private lastVisitedRepository: LastVisitedRepositoryService
   ) {
     // Sync with backlog service signal for real-time updates (e.g., when PR is created)
     effect(() => {
@@ -503,6 +505,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.aiConfigService.loadLlmSettings();
     const repoId = this.route.snapshot.paramMap.get('repositoryId');
     if (repoId) {
+      this.lastVisitedRepository.remember(repoId);
       this.repositoryId.set(repoId);
       this.loadBacklog(repoId);
       this.loadRepository(repoId);
@@ -516,6 +519,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
     this.route.paramMap.pipe(takeUntil(this.destroy$)).subscribe((params) => {
       const id = params.get('repositoryId');
       if (id) {
+        this.lastVisitedRepository.remember(id);
         this.refreshAzureIdentityWarningDismissedFromStorage(id);
       }
     });

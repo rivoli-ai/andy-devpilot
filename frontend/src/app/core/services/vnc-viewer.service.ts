@@ -28,6 +28,16 @@ export interface VncViewer {
   readyForPr?: boolean;
   connectionState?: string;
   viewMode?: 'sandbox' | 'split' | 'chat';
+  /**
+   * When true, minimize / tray collapse removes the viewer UI without placing a chip in the
+   * bottom sandbox dock (container keeps running; use e.g. Code Ask “Open desktop” to show again).
+   */
+  hideMinimizedTray?: boolean;
+}
+
+/** Optional flags for {@link VncViewerService.open}. */
+export interface OpenVncViewerOptions {
+  hideMinimizedTray?: boolean;
 }
 
 /**
@@ -40,6 +50,8 @@ export interface StoredSandboxContext {
   implementationContext?: ImplementationContext;
   title?: string;
   vncPassword?: string;
+  /** Persisted so Code Ask desktop survives refresh without rejoining the Sandboxes dock. */
+  hideMinimizedTray?: boolean;
 }
 
 @Injectable({
@@ -85,9 +97,16 @@ export class VncViewerService {
     return this.count >= this.MAX_SANDBOXES;
   }
 
-  open(sandboxId: string, title?: string, implementationContext?: ImplementationContext, vncPassword?: string): string {
+  open(
+    sandboxId: string,
+    title?: string,
+    implementationContext?: ImplementationContext,
+    vncPassword?: string,
+    options?: OpenVncViewerOptions
+  ): string {
     const vncUrl = this.buildVncUrl(sandboxId, vncPassword);
     const config: VncConfig = { url: vncUrl, autoConnect: true, scalingMode: 'local', useIframe: true };
+    const hideTray = options?.hideMinimizedTray === true;
 
     console.log('VncViewerService.open called:', {
       sandboxId,
@@ -99,18 +118,27 @@ export class VncViewerService {
     if (existingIndex >= 0) {
       console.log('Viewer already exists, updating:', sandboxId);
       const viewers = [...this.viewersSubject.value];
-      const merged = implementationContext ?? viewers[existingIndex].implementationContext;
-      const mergedTitle = title ?? viewers[existingIndex].title;
-      const mergedVncPassword = vncPassword ?? viewers[existingIndex].vncPassword;
+      const prev = viewers[existingIndex];
+      const merged = implementationContext ?? prev.implementationContext;
+      const mergedTitle = title ?? prev.title;
+      const mergedVncPassword = vncPassword ?? prev.vncPassword;
+      const mergedHideTray = hideTray || prev.hideMinimizedTray === true;
       viewers[existingIndex] = {
-        ...viewers[existingIndex],
+        ...prev,
         config,
         vncPassword: mergedVncPassword,
         implementationContext: merged,
-        title: mergedTitle
+        title: mergedTitle,
+        hideMinimizedTray: mergedHideTray,
+        dockPosition: mergedHideTray ? ('floating' as DockPosition) : prev.dockPosition,
       };
-      if (merged || mergedTitle) {
-        this.setStoredContext(sandboxId, { implementationContext: merged, title: mergedTitle, vncPassword: mergedVncPassword });
+      if (merged || mergedTitle || mergedHideTray) {
+        this.setStoredContext(sandboxId, {
+          implementationContext: merged,
+          title: mergedTitle,
+          vncPassword: mergedVncPassword,
+          ...(mergedHideTray ? { hideMinimizedTray: true } : {}),
+        });
       }
       this.viewersSubject.next(viewers);
       return sandboxId;
@@ -127,15 +155,21 @@ export class VncViewerService {
     const newViewer: VncViewer = {
       id: sandboxId,
       config,
-      dockPosition: 'minimized',
+      dockPosition: hideTray ? 'floating' : 'minimized',
       title: title || `Sandbox ${sandboxId.slice(0, 6)}`,
       createdAt: Date.now(),
       vncPassword,
-      implementationContext
+      implementationContext,
+      hideMinimizedTray: hideTray,
     };
 
-    if (implementationContext || title) {
-      this.setStoredContext(sandboxId, { implementationContext, title, vncPassword });
+    if (implementationContext || title || hideTray) {
+      this.setStoredContext(sandboxId, {
+        implementationContext,
+        title,
+        vncPassword,
+        ...(hideTray ? { hideMinimizedTray: true } : {}),
+      });
     }
 
     console.log('Creating new viewer:', newViewer.id, 'Total will be:', this.count + 1);
@@ -144,17 +178,49 @@ export class VncViewerService {
   }
 
   /**
-   * Restore a viewer from stored context (e.g. after page refresh).
+   * Whether persisted viewer context is the Code Ask auxiliary desktop (not the main Sandboxes dock).
+   * Uses stored flag; legacy entries used title `… · Ask` only.
+   */
+  resolveStoredHideMinimizedTray(stored: StoredSandboxContext): boolean {
+    return stored.hideMinimizedTray === true || this.isAskDesktopStoredTitle(stored.title);
+  }
+
+  /** Legacy localStorage entries may lack hideMinimizedTray; title pattern matches Code Ask desktop. */
+  private isAskDesktopStoredTitle(title: string | undefined): boolean {
+    return typeof title === 'string' && title.includes(' · Ask');
+  }
+
+  /**
+   * Restore a viewer from stored context. Does not open Code Ask desktop — use Open desktop from Code.
    */
   restore(sandboxId: string): string | null {
     const stored = this.getStoredContext(sandboxId);
     if (!stored) return null;
+    if (this.resolveStoredHideMinimizedTray(stored)) {
+      return null;
+    }
     return this.open(sandboxId, stored.title, stored.implementationContext, stored.vncPassword);
+  }
+
+  /**
+   * Remove the viewer UI but keep localStorage context and do not delete the sandbox container.
+   * Used for Code Ask auxiliary desktop (user can reopen from Ask).
+   */
+  dismissViewerKeepSandbox(viewerId: string): void {
+    const viewer = this.viewersSubject.value.find(v => v.id === viewerId);
+    if (!viewer) return;
+    console.log('Dismissing viewer (sandbox keeps running):', viewerId);
+    const viewers = this.viewersSubject.value.filter(v => v.id !== viewerId);
+    this.viewersSubject.next(viewers);
   }
 
   close(viewerId: string): void {
     const viewer = this.viewersSubject.value.find(v => v.id === viewerId);
     if (viewer) {
+      if (viewer.hideMinimizedTray) {
+        this.dismissViewerKeepSandbox(viewerId);
+        return;
+      }
       console.log('Closing viewer:', viewerId);
       this.removeStoredContext(viewerId);
       const viewers = this.viewersSubject.value.filter(v => v.id !== viewerId);
@@ -171,17 +237,31 @@ export class VncViewerService {
   }
 
   setDockPosition(viewerId: string, position: DockPosition): void {
+    const target = this.viewersSubject.value.find(v => v.id === viewerId);
+    let resolved = position;
+    if (target?.hideMinimizedTray && position !== 'floating') {
+      resolved = 'floating';
+    }
     const viewers = this.viewersSubject.value.map(v =>
-      v.id === viewerId ? { ...v, dockPosition: position } : v
+      v.id === viewerId ? { ...v, dockPosition: resolved } : v
     );
     this.viewersSubject.next(viewers);
   }
 
   minimizeAllTiled(): void {
-    const viewers = this.viewersSubject.value.map(v =>
-      v.dockPosition === 'tiled' ? { ...v, dockPosition: 'minimized' as const } : v
-    );
-    this.viewersSubject.next(viewers);
+    const out: VncViewer[] = [];
+    for (const v of this.viewersSubject.value) {
+      if (v.dockPosition !== 'tiled') {
+        out.push(v);
+        continue;
+      }
+      if (v.hideMinimizedTray) {
+        out.push({ ...v, dockPosition: 'floating' });
+        continue;
+      }
+      out.push({ ...v, dockPosition: 'minimized' });
+    }
+    this.viewersSubject.next(out);
   }
 
   setReadyForPr(viewerId: string, ready: boolean): void {
@@ -274,10 +354,15 @@ export class VncViewerService {
   }
 
   bringToFront(viewerId: string): void {
-    const viewers = this.viewersSubject.value.map(v => ({
-      ...v,
-      dockPosition: v.id === viewerId ? 'floating' as DockPosition : 'minimized' as DockPosition
-    }));
+    const viewers = this.viewersSubject.value.map(v => {
+      if (v.id === viewerId) {
+        return { ...v, dockPosition: 'floating' as DockPosition };
+      }
+      if (v.hideMinimizedTray) {
+        return { ...v, dockPosition: 'floating' as DockPosition };
+      }
+      return { ...v, dockPosition: 'minimized' as DockPosition };
+    });
     this.viewersSubject.next(viewers);
   }
 }

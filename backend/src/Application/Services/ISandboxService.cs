@@ -29,6 +29,18 @@ namespace DevPilot.Application.Services;
             Guid userId,
             string sandboxId,
             CancellationToken cancellationToken = default);
+
+        /// <summary>
+        /// Ensures <paramref name="userId"/> owns <paramref name="sandboxId"/> in the in-memory map
+        /// by loading the container from the manager (e.g. after API restart).
+        /// </summary>
+        Task<bool> TryAssignSandboxOwnershipAsync(
+            Guid userId,
+            string sandboxId,
+            CancellationToken cancellationToken = default);
+
+        /// <summary>VNC password for proxy auth, if the user owns the sandbox in the in-memory map.</summary>
+        string? GetVncPasswordIfOwnedBy(Guid userId, string sandboxId);
     }
 
 public record SandboxCreateRequest

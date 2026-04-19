@@ -3,6 +3,7 @@ using System;
 using DevPilot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
@@ -11,9 +12,11 @@ using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 namespace DevPilot.Infrastructure.Migrations
 {
     [DbContext(typeof(DevPilotDbContext))]
-    partial class DevPilotDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260419094508_AddUserRepositorySandboxBindings")]
+    partial class AddUserRepositorySandboxBindings
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -144,50 +147,6 @@ namespace DevPilot.Infrastructure.Migrations
                         .IsUnique();
 
                     b.ToTable("code_analyses", (string)null);
-                });
-
-            modelBuilder.Entity("DevPilot.Domain.Entities.CodeAskConversationSnapshot", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid")
-                        .HasColumnName("id");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_at");
-
-                    b.Property<string>("PayloadJson")
-                        .IsRequired()
-                        .HasColumnType("text")
-                        .HasColumnName("payload_json");
-
-                    b.Property<string>("RepoBranchKey")
-                        .IsRequired()
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)")
-                        .HasColumnName("repo_branch_key");
-
-                    b.Property<Guid>("RepositoryId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("repository_id");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("updated_at");
-
-                    b.Property<Guid>("UserId")
-                        .HasColumnType("uuid")
-                        .HasColumnName("user_id");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("RepositoryId");
-
-                    b.HasIndex("UserId", "RepositoryId", "RepoBranchKey")
-                        .IsUnique();
-
-                    b.ToTable("code_ask_conversation_snapshots", (string)null);
                 });
 
             modelBuilder.Entity("DevPilot.Domain.Entities.Epic", b =>
@@ -1035,21 +994,6 @@ namespace DevPilot.Infrastructure.Migrations
                         .IsRequired();
 
                     b.Navigation("Repository");
-                });
-
-            modelBuilder.Entity("DevPilot.Domain.Entities.CodeAskConversationSnapshot", b =>
-                {
-                    b.HasOne("DevPilot.Domain.Entities.Repository", null)
-                        .WithMany()
-                        .HasForeignKey("RepositoryId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("DevPilot.Domain.Entities.User", null)
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
                 });
 
             modelBuilder.Entity("DevPilot.Domain.Entities.Epic", b =>

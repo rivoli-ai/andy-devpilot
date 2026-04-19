@@ -1337,12 +1337,17 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   }
 
   toggleMinimize(): void {
-    const newPosition = this.dockPosition() === 'minimized' ? 'tiled' : 'minimized';
-    this.dockPosition.set(newPosition);
     const id = this.viewerId();
-    if (id) {
-      this.vncViewerService.setDockPosition(id, newPosition);
+    if (!id) return;
+    const cur = this.dockPosition();
+    const newPosition = cur === 'minimized' ? 'tiled' : 'minimized';
+    const v = this.vncViewerService.getViewer(id);
+    if (v?.hideMinimizedTray && newPosition === 'minimized') {
+      this.vncViewerService.dismissViewerKeepSandbox(id);
+      return;
     }
+    this.dockPosition.set(newPosition);
+    this.vncViewerService.setDockPosition(id, newPosition);
   }
 
   /**

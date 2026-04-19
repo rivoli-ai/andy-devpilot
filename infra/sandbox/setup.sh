@@ -1066,6 +1066,11 @@ bridge_request_in_progress = False
 live_stream_content = ""
 live_stream_user_message = ""
 
+# Headless agent (/agent/prompt): tools executed so far (live), for Ask / polling UIs.
+headless_live_tools = []
+headless_live_user_prompt = ""
+_agent_running = False
+
 # Set to True by POST /stream/abort — checked each iteration of generate_stream().
 abort_stream = False
 
@@ -1829,8 +1834,11 @@ def get_all_conversations():
     """Get all conversations from both proxy and ACP agent"""
     all_convs = []
     
-    # Add proxy conversations
-    all_convs.extend([{**c, "source": "proxy"} for c in zed_conversations])
+    # Add Zed / bridge conversations (preserve source e.g. headless_agent for Ask restore)
+    for c in zed_conversations:
+        entry = dict(c)
+        entry.setdefault("source", "proxy")
+        all_convs.append(entry)
     
     # Add ACP conversations
     try:
@@ -1848,9 +1856,14 @@ def get_all_conversations():
     response_data = {
         "conversations": all_convs,
         "count": len(all_convs),
-        "request_in_progress": bridge_request_in_progress,
+        "request_in_progress": bridge_request_in_progress or _agent_running,
     }
-    if bridge_request_in_progress and live_stream_content:
+    if _agent_running:
+        response_data["headless_progress"] = {
+            "tools": list(headless_live_tools),
+            "user_prompt": headless_live_user_prompt,
+        }
+    if response_data["request_in_progress"] and live_stream_content:
         response_data["live_response"] = {
             "content": live_stream_content,
             "user_message": live_stream_user_message,
@@ -2625,7 +2638,6 @@ import sys as _sys
 _sys.path.insert(0, '/opt/devpilot')
 
 _agent_lock = threading.Lock()
-_agent_running = False
 
 @app.route('/agent/prompt', methods=['POST'])
 def agent_prompt():
@@ -2641,6 +2653,7 @@ def agent_prompt():
 
     data = request.get_json() or {}
     prompt = data.get('prompt', '')
+    client_conversation_history = data.get('conversation_history')
     if not prompt:
         return jsonify({"error": "No prompt provided"}), 400
 
@@ -2651,15 +2664,50 @@ def agent_prompt():
     prompt_id = str(_uuid.uuid4())[:8]
 
     def _run():
-        global _agent_running
+        global _agent_running, bridge_request_in_progress, live_stream_user_message, live_stream_content
+        global headless_live_tools, headless_live_user_prompt
         _agent_running = True
+        bridge_request_in_progress = True
+        headless_live_tools = []
+        headless_live_user_prompt = prompt
+        live_stream_user_message = prompt
+        live_stream_content = ""
+
+        def _on_assistant_stream(text: str):
+            global live_stream_content
+            live_stream_content = text
+
+        def _on_tool(name, args, tool_result):
+            global headless_live_tools
+            try:
+                args_preview = json.dumps(args, default=str)[:500]
+            except Exception:
+                args_preview = str(args)[:500]
+            headless_live_tools.append({
+                "name": name,
+                "args_preview": args_preview,
+                "result_preview": (tool_result or "")[:400],
+                "at": _time_mod.time(),
+            })
+
         try:
+            from bridge.agent_loop import build_headless_chat_history as _headless_hist
+            from bridge.agent_loop import normalize_client_conversation_history as _norm_client_hist
             from bridge.agent_loop import run as _run_loop
+
+            _client_prior = _norm_client_hist(client_conversation_history, max_turns=6)
+            if _client_prior:
+                _prior = _client_prior
+            else:
+                _prior = _headless_hist(zed_conversations, max_turns=6)
             result = _run_loop(
                 prompt=prompt,
                 project_path=PROJECT_PATH,
                 llm_client=client,
                 model=MODEL,
+                on_tool_call=_on_tool,
+                on_assistant_delta=_on_assistant_stream,
+                conversation_history=_prior if _prior else None,
             )
             import time as _time
             conversation_entry = {
@@ -2691,6 +2739,11 @@ def agent_prompt():
             logger.error(traceback.format_exc())
         finally:
             _agent_running = False
+            bridge_request_in_progress = False
+            live_stream_content = ""
+            live_stream_user_message = ""
+            headless_live_tools = []
+            headless_live_user_prompt = ""
 
     threading.Thread(target=_run, daemon=True).start()
     logger.info("Agent prompt %s started in background", prompt_id)

@@ -158,7 +158,15 @@ public class SandboxService : ISandboxService
         var payload = BuildManagerPayload(request);
 
         using var response = await _httpClient.PostAsJsonAsync("/sandboxes", payload, _jsonOptions, cancellationToken);
-        response.EnsureSuccessStatusCode();
+        if (!response.IsSuccessStatusCode)
+        {
+            var errorBody = await response.Content.ReadAsStringAsync(cancellationToken);
+            _logger.LogError(
+                "Sandbox manager POST /sandboxes failed with {StatusCode}: {Body}",
+                (int)response.StatusCode,
+                string.IsNullOrWhiteSpace(errorBody) ? "(empty body)" : errorBody);
+            response.EnsureSuccessStatusCode();
+        }
 
         var raw = await response.Content.ReadFromJsonAsync<ManagerCreateResponse>(_jsonOptions, cancellationToken)
                   ?? throw new InvalidOperationException("Empty response from sandbox manager");
@@ -263,6 +271,50 @@ public class SandboxService : ISandboxService
             return true;
         }
         return false;
+    }
+
+    /// <inheritdoc />
+    public async Task<bool> TryAssignSandboxOwnershipAsync(
+        Guid userId,
+        string sandboxId,
+        CancellationToken cancellationToken = default)
+    {
+        if (IsOwner(userId, sandboxId))
+            return true;
+
+        try
+        {
+            using var response = await _httpClient.GetAsync($"/sandboxes/{sandboxId}", cancellationToken);
+            if (!response.IsSuccessStatusCode)
+                return false;
+
+            var raw = await response.Content.ReadFromJsonAsync<ManagerStatusResponse>(_jsonOptions, cancellationToken);
+            if (raw is null || string.IsNullOrEmpty(raw.SandboxToken))
+                return false;
+
+            _sandboxMap[sandboxId] = new SandboxInternalInfo
+            {
+                OwnerId = userId,
+                InternalBridgeUrl = raw.BridgeUrl,
+                InternalVncUrl = raw.Url,
+                SandboxToken = raw.SandboxToken,
+                VncPassword = raw.VncPassword ?? "",
+            };
+            _logger.LogInformation("Registered sandbox {SandboxId} for user {UserId} from manager", sandboxId, userId);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "TryAssignSandboxOwnershipAsync failed for {SandboxId}", sandboxId);
+            return false;
+        }
+    }
+
+    /// <inheritdoc />
+    public string? GetVncPasswordIfOwnedBy(Guid userId, string sandboxId)
+    {
+        if (!IsOwner(userId, sandboxId)) return null;
+        return _sandboxMap.TryGetValue(sandboxId, out var info) ? info.VncPassword : null;
     }
 
     private bool IsOwner(Guid userId, string sandboxId) =>

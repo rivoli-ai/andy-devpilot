@@ -37,13 +37,26 @@ export interface ZedConversation {
   user_message: string;
   assistant_message: string;
   model: string;
-  source?: string; // 'proxy' or 'acp_agent'
+  source?: string; // 'proxy' | 'acp_agent' | 'headless_agent'
   had_tool_execution?: boolean; // true if response involved tool calls
+  tool_calls?: { name: string; args?: Record<string, unknown>; result?: string }[];
+  iterations?: number;
 }
 
 export interface LiveResponse {
   content: string;
   user_message: string;
+}
+
+/** Live tool calls while headless /agent/prompt is running (poll GET /all-conversations). */
+export interface HeadlessProgress {
+  tools: {
+    name: string;
+    args_preview?: string;
+    result_preview?: string;
+    at?: number;
+  }[];
+  user_prompt?: string;
 }
 
 export interface ZedConversationsResponse {
@@ -53,6 +66,8 @@ export interface ZedConversationsResponse {
   request_in_progress?: boolean;
   /** Partial assistant text while LLM is still generating */
   live_response?: LiveResponse;
+  /** Headless agent only: tools executed so far for the in-flight prompt */
+  headless_progress?: HeadlessProgress;
 }
 
 export interface SandboxStats {
@@ -160,6 +175,39 @@ export class SandboxBridgeService {
         console.error('Failed to abort stream:', error);
         return of({ status: 'error' });
       })
+    );
+  }
+
+  /**
+   * Headless agent (same tool loop as ACP / Zed fallback) — POST only, no xdotool/Zed route.
+   * Bridge runs the task in a background thread; poll {@link getAllConversations} for {@code prompt_id}.
+   *
+   * Optional {@code conversationHistory}: prior user/assistant turns (e.g. restored from DB) so the
+   * model keeps context when in-container conversation storage is empty or stale.
+   */
+  sendHeadlessAgentPrompt(
+    sandboxId: string,
+    prompt: string,
+    conversationHistory?: ConversationMessage[]
+  ): Observable<{
+    status: string;
+    prompt_id?: string;
+    error?: string;
+  }> {
+    const body: { prompt: string; conversation_history?: ConversationMessage[] } = { prompt };
+    if (conversationHistory && conversationHistory.length > 0) {
+      body.conversation_history = conversationHistory;
+    }
+    return this.http.post<{ status: string; prompt_id?: string; error?: string }>(
+      `${this.getBridgeUrl(sandboxId)}/agent/prompt`,
+      body
+    );
+  }
+
+  /** True while the sandbox bridge is running a headless agent task (HTTP 409 if a second starts). */
+  getAgentRunningStatus(sandboxId: string): Observable<{ running: boolean }> {
+    return this.http.get<{ running: boolean }>(`${this.getBridgeUrl(sandboxId)}/agent/status`).pipe(
+      catchError(() => of({ running: false }))
     );
   }
 

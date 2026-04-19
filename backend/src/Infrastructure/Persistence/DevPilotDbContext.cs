@@ -28,6 +28,8 @@ public class DevPilotDbContext : DbContext
     public DbSet<McpServerConfig> McpServerConfigs => Set<McpServerConfig>();
     public DbSet<ArtifactFeedConfig> ArtifactFeedConfigs => Set<ArtifactFeedConfig>();
     public DbSet<StorySandboxConversationSnapshot> StorySandboxConversationSnapshots => Set<StorySandboxConversationSnapshot>();
+    public DbSet<UserRepositorySandboxBinding> UserRepositorySandboxBindings => Set<UserRepositorySandboxBinding>();
+    public DbSet<CodeAskConversationSnapshot> CodeAskConversationSnapshots => Set<CodeAskConversationSnapshot>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -318,6 +320,38 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.Model).HasColumnName("model").HasMaxLength(128);
             entity.HasOne(e => e.Repository).WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
             entity.HasIndex(e => new { e.RepositoryId, e.FilePath, e.Branch }).IsUnique();
+        });
+
+        modelBuilder.Entity<CodeAskConversationSnapshot>(entity =>
+        {
+            entity.ToTable("code_ask_conversation_snapshots");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
+            entity.Property(e => e.RepoBranchKey).HasColumnName("repo_branch_key").HasMaxLength(256).IsRequired();
+            entity.Property(e => e.PayloadJson).HasColumnName("payload_json").IsRequired();
+            entity.HasIndex(e => new { e.UserId, e.RepositoryId, e.RepoBranchKey }).IsUnique();
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Repository>().WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<UserRepositorySandboxBinding>(entity =>
+        {
+            entity.ToTable("user_repository_sandbox_bindings");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.UserId).HasColumnName("user_id");
+            entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
+            entity.Property(e => e.SandboxId).HasColumnName("sandbox_id").HasMaxLength(64).IsRequired();
+            entity.Property(e => e.RepoBranch).HasColumnName("repo_branch").HasMaxLength(256).IsRequired();
+            entity.HasIndex(e => new { e.UserId, e.RepositoryId }).IsUnique();
+            entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
+            entity.HasOne<Repository>().WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

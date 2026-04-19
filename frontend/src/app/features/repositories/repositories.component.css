@@ -641,6 +641,30 @@
   display: none;
 }
 
+/* Continue section — same card grid as project groups; heading only */
+.project-section-title--continue {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.continue-heading-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  background: color-mix(in srgb, var(--primary, #6366f1) 18%, transparent);
+  color: var(--primary, #a5b4fc);
+}
+
+.continue-heading-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
 .project-section {
   margin-bottom: 1.5rem;
 }

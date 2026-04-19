@@ -1,10 +1,20 @@
-import { Component, OnInit, OnDestroy, signal, computed } from '@angular/core';
+import {
+  Component,
+  OnInit,
+  OnDestroy,
+  HostListener,
+  signal,
+  computed,
+  viewChild,
+  ElementRef,
+  effect
+} from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
-import { Subject, Subscription, interval, firstValueFrom } from 'rxjs';
-import { takeUntil, takeWhile, switchMap } from 'rxjs/operators';
+import { Subject, Subscription, interval, firstValueFrom, of } from 'rxjs';
+import { takeUntil, takeWhile, switchMap, catchError } from 'rxjs/operators';
 import {
   RepositoryService,
   RepositoryTree,
@@ -18,11 +28,13 @@ import {
 import { SandboxService, CreateSandboxResponse } from '../../core/services/sandbox.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { VncViewerService } from '../../core/services/vnc-viewer.service';
-import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
+import { SandboxBridgeService, ZedConversation, ConversationMessage } from '../../core/services/sandbox-bridge.service';
 import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { Repository } from '../../shared/models/repository.model';
 import { CodeHighlightPipe } from '../../shared/pipes/code-highlight.pipe';
 import { VPS_CONFIG } from '../../core/config/vps.config';
+import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
+import { CodeAskConversationService } from '../../core/services/code-ask-conversation.service';
 
 // Extended tree item with children and state
 export interface TreeNode extends RepositoryTreeItem {
@@ -32,7 +44,15 @@ export interface TreeNode extends RepositoryTreeItem {
   depth: number;
 }
 
-export type TabType = 'code' | 'pullRequests' | 'analysis';
+export type TabType = 'code' | 'pullRequests' | 'analysis' | 'ask';
+
+/** One turn in the Code “Ask” panel (headless sandbox agent). */
+export interface CodeAskMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  toolCallsSummary?: string;
+}
 
 /**
  * Code browser component - VS Code-like file explorer
@@ -84,6 +104,28 @@ export class CodeComponent implements OnInit, OnDestroy {
 
   /** On narrow viewports, either full-height explorer or full-height file viewer (see CSS). */
   codeMobilePane = signal<'explorer' | 'code'>('explorer');
+
+  // Ask (headless agent — same bridge `/agent/prompt` as ACP tool loop; no VNC)
+  codeChatMessages = signal<CodeAskMessage[]>([]);
+  codeChatInput = signal<string>('');
+  codeChatBusy = signal<boolean>(false);
+  codeChatError = signal<string | null>(null);
+  codeChatStatus = signal<string>('');
+  codeChatSandboxId = signal<string | null>(null);
+  /** VNC password from create response (needed to open the desktop viewer; not returned by GET). */
+  codeChatVncPassword = signal<string | undefined>(undefined);
+  /** If true, this sandbox was created for Ask and should be deleted on branch change / destroy. */
+  codeChatSandboxOwned = signal<boolean>(false);
+  /** Live tool calls while the headless agent is running (from /all-conversations headless_progress). */
+  codeChatLiveTools = signal<{ name: string; args_preview?: string }[]>([]);
+  /** Short status line from bridge live_response.content (current tool name or “Starting agent…”). */
+  codeChatStreamHint = signal<string | null>(null);
+
+  /** Avoid double restore when branches + tree load triggers twice. */
+  private codeAskRestoreDoneForRepo: string | null = null;
+
+  /** Ask tab: scrollable message list (auto-scroll to latest). */
+  readonly codeAskScroll = viewChild<ElementRef<HTMLElement>>('codeAskScroll');
 
   // Subscriptions for cleanup
   private analysisSubscription?: Subscription;
@@ -161,21 +203,98 @@ export class CodeComponent implements OnInit, OnDestroy {
     private aiConfigService: AIConfigService,
     private vncViewerService: VncViewerService,
     private sandboxBridgeService: SandboxBridgeService,
-    private http: HttpClient
-  ) { }
+    private codeAskConversationService: CodeAskConversationService,
+    private http: HttpClient,
+    private lastVisitedRepository: LastVisitedRepositoryService
+  ) {
+    effect(() => {
+      this.activeTab();
+      this.codeChatMessages();
+      this.codeChatBusy();
+      this.codeChatLiveTools();
+      this.codeChatStreamHint();
+      this.codeChatStatus();
+      this.codeChatError();
+      if (this.activeTab() !== 'ask') {
+        this.teardownAskThreadMutationObserver();
+        return;
+      }
+      queueMicrotask(() => {
+        this.scrollAskThreadToBottom();
+        this.ensureAskThreadMutationObserver();
+      });
+    });
+  }
+
+  private askThreadMutationObserver: MutationObserver | null = null;
+  private askThreadMutationRoot: HTMLElement | null = null;
+  private askThreadMutationScheduled = false;
+
+  /** Observe DOM changes inside the thread (e.g. markdown render) and stay pinned to bottom. */
+  private ensureAskThreadMutationObserver(): void {
+    const root = this.codeAskScroll()?.nativeElement ?? null;
+    if (!root || root === this.askThreadMutationRoot) {
+      return;
+    }
+    this.teardownAskThreadMutationObserver();
+    this.askThreadMutationRoot = root;
+    this.askThreadMutationObserver = new MutationObserver(() => {
+      if (this.activeTab() !== 'ask' || this.askThreadMutationScheduled) {
+        return;
+      }
+      this.askThreadMutationScheduled = true;
+      requestAnimationFrame(() => {
+        this.askThreadMutationScheduled = false;
+        if (this.activeTab() !== 'ask') {
+          return;
+        }
+        const el = this.codeAskScroll()?.nativeElement;
+        if (el) {
+          el.scrollTop = el.scrollHeight;
+        }
+      });
+    });
+    this.askThreadMutationObserver.observe(root, {
+      childList: true,
+      subtree: true,
+      characterData: true
+    });
+  }
+
+  private teardownAskThreadMutationObserver(): void {
+    this.askThreadMutationObserver?.disconnect();
+    this.askThreadMutationObserver = null;
+    this.askThreadMutationRoot = null;
+  }
+
+  /** Keep Ask chat scrolled to the latest message / streaming row. */
+  private scrollAskThreadToBottom(): void {
+    if (this.activeTab() !== 'ask') {
+      return;
+    }
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const el = this.codeAskScroll()?.nativeElement;
+        if (!el) {
+          return;
+        }
+        el.scrollTop = el.scrollHeight;
+      });
+    });
+  }
 
   ngOnDestroy(): void {
+    this.teardownAskThreadMutationObserver();
     this.analysisSubscription?.unsubscribe();
     this.destroy$.next();
     this.destroy$.complete();
-    // Don't delete sandbox on destroy - allow reconnection after refresh
-    // Sandbox will be cleaned up when analysis completes or user explicitly cancels
   }
 
   ngOnInit(): void {
     this.aiConfigService.loadLlmSettings();
     const repoId = this.route.snapshot.paramMap.get('repositoryId');
     if (repoId) {
+      this.lastVisitedRepository.remember(repoId);
       this.repositoryId.set(repoId);
       this.loadRepository(repoId);
 
@@ -331,11 +450,15 @@ export class CodeComponent implements OnInit, OnDestroy {
         const defaultBranch = branches.find(b => b.isDefault)?.name || branches[0]?.name || 'main';
         this.currentBranch.set(defaultBranch);
         this.loadRootTree();
+        void this.tryRestoreCodeAskSession();
+        setTimeout(() => void this.tryRestoreCodeAskSession(), 400);
       },
       error: (err) => {
         console.warn('Failed to load branches:', err);
         this.currentBranch.set(this.repository()?.defaultBranch || 'main');
         this.loadRootTree();
+        void this.tryRestoreCodeAskSession();
+        setTimeout(() => void this.tryRestoreCodeAskSession(), 400);
       }
     });
   }
@@ -486,12 +609,68 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   selectBranch(branch: RepositoryBranch): void {
+    if (branch.name === this.currentBranch()) {
+      this.showBranchDropdown.set(false);
+      return;
+    }
+    if (this.codeChatSandboxId()) {
+      const ok = confirm(
+        'Switching branches will stop the running Ask sandbox and clear the in-page chat for this repository. Continue?'
+      );
+      if (!ok) {
+        this.showBranchDropdown.set(false);
+        return;
+      }
+    }
+    this.releaseCodeChatSandbox();
+    this.codeAskRestoreDoneForRepo = null;
     this.currentBranch.set(branch.name);
     this.showBranchDropdown.set(false);
     this.selectedFile.set(null);
     this.selectedFilePath.set(null);
     this.codeMobilePane.set('explorer');
     this.loadRootTree();
+    void this.tryRestoreCodeAskSession();
+  }
+
+  /**
+   * Router guard: leaving `/code/:id` with an active Ask sandbox requires confirmation and deletes the container.
+   */
+  confirmLeaveCodePage(): boolean {
+    if (!this.codeChatSandboxId()) {
+      return true;
+    }
+    const ok = confirm(
+      'You have an Ask sandbox running. Leaving will stop the container and clear the in-session chat. Continue?'
+    );
+    if (!ok) {
+      return false;
+    }
+    this.releaseCodeChatSandbox();
+    return true;
+  }
+
+  @HostListener('window:beforeunload', ['$event'])
+  protected onWindowBeforeUnload(event: BeforeUnloadEvent): void {
+    if (this.codeChatSandboxId()) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  }
+
+  @HostListener('window:pagehide', ['$event'])
+  protected onWindowPageHide(event: PageTransitionEvent): void {
+    if (event.persisted) {
+      return;
+    }
+    const sid = this.codeChatSandboxId();
+    if (!sid) {
+      return;
+    }
+    if (this.vncViewerService.getViewer(sid)) {
+      this.vncViewerService.dismissViewerKeepSandbox(sid);
+    }
+    this.sandboxService.requestDeleteSandboxOnUnload(sid);
   }
 
   getFileIcon(item: TreeNode | RepositoryTreeItem): string {
@@ -537,6 +716,373 @@ export class CodeComponent implements OnInit, OnDestroy {
     return iconMap[ext] || 'file';
   }
 
+  /** Ask tab: send message to headless agent (creates sandbox once, no desktop/VNC). */
+  async sendCodeChat(): Promise<void> {
+    const text = this.codeChatInput().trim();
+    if (!text || this.codeChatBusy()) return;
+    const repo = this.repository();
+    if (!repo) return;
+
+    this.codeChatError.set(null);
+    this.codeChatLiveTools.set([]);
+    this.codeChatStreamHint.set(null);
+    this.codeChatBusy.set(true);
+    const conversationHistoryForAgent = this.buildAgentConversationHistoryFromAskMessages(this.codeChatMessages());
+    this.codeChatMessages.update(msgs => [
+      ...msgs,
+      { id: `u-${Date.now()}`, role: 'user', content: text }
+    ]);
+    this.codeChatInput.set('');
+
+    try {
+      let sid = this.codeChatSandboxId();
+      if (!sid) {
+        this.codeChatStatus.set('Creating sandbox…');
+        const branch = this.currentBranch() || 'main';
+        try {
+          const clone = await firstValueFrom(this.repositoryService.getAuthenticatedCloneUrl(repo.id));
+          sid = await this.bootstrapCodeChatSandbox(repo, clone.cloneUrl, branch, clone.archiveUrl ?? undefined);
+        } catch {
+          sid = await this.bootstrapCodeChatSandbox(repo, repo.cloneUrl, branch);
+        }
+        this.codeChatSandboxId.set(sid);
+      }
+
+      this.codeChatStatus.set('Sending to agent…');
+      const post = await firstValueFrom(
+        this.sandboxBridgeService.sendHeadlessAgentPrompt(sid, text, conversationHistoryForAgent).pipe(
+          catchError(err => {
+            if (err?.status === 409) {
+              return of({
+                status: 'error' as const,
+                error: 'Another agent task is running. Wait a few seconds and try again.'
+              });
+            }
+            throw err;
+          })
+        )
+      );
+
+      if (post.status !== 'ok') {
+        throw new Error('error' in post && post.error ? post.error : 'Failed to start agent');
+      }
+      const promptId = post.prompt_id;
+      if (!promptId) {
+        throw new Error('Failed to start agent');
+      }
+
+      this.codeChatStatus.set('Agent is exploring the repository…');
+      const conv = await this.pollForHeadlessAnswer(sid, promptId);
+
+      const toolSummary =
+        conv.tool_calls && conv.tool_calls.length > 0
+          ? `Tools: ${conv.tool_calls.map(t => t.name).join(', ')}`
+          : undefined;
+
+      this.codeChatMessages.update(msgs => [
+        ...msgs,
+        {
+          id: promptId,
+          role: 'assistant',
+          content: conv.assistant_message || '',
+          toolCallsSummary: toolSummary
+        }
+      ]);
+      this.codeChatStatus.set('');
+      this.codeChatLiveTools.set([]);
+      this.codeChatStreamHint.set(null);
+      this.persistCodeAskToServer();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Request failed';
+      this.codeChatError.set(msg);
+      this.codeChatStatus.set('');
+      this.codeChatLiveTools.set([]);
+      this.codeChatStreamHint.set(null);
+    } finally {
+      this.codeChatBusy.set(false);
+    }
+  }
+
+  private async bootstrapCodeChatSandbox(
+    repo: Repository,
+    cloneUrl: string,
+    branch: string,
+    repoArchiveUrl?: string
+  ): Promise<string> {
+    const sandbox = await firstValueFrom(
+      this.sandboxService.createSandbox({
+        repo_url: cloneUrl,
+        repo_name: repo.name,
+        repository_id: repo.id,
+        repo_branch: branch,
+        repo_archive_url: repoArchiveUrl
+      })
+    );
+    if (!sandbox?.id) throw new Error('Sandbox ID not returned');
+
+    this.codeChatVncPassword.set(sandbox.vnc_password);
+
+    await this.delay(Math.min(5000, VPS_CONFIG.sandboxReadyDelayMs));
+    this.codeChatStatus.set('Waiting for bridge…');
+    await this.waitForCodeChatBridge(sandbox.id);
+    this.codeChatSandboxOwned.set(true);
+    return sandbox.id;
+  }
+
+  /**
+   * Reconnect Ask: load history from Postgres, then attach running sandbox + bridge when available.
+   */
+  private normalizeAskBranchName(branch: string): string {
+    return (branch || 'main').trim().toLowerCase();
+  }
+
+  /** Prefer the longer transcript (bridge vs DB); tie-break on bridge when same length. */
+  /**
+   * Prior turns sent to /agent/prompt so the headless loop matches bridge limits (6 turns, clipped).
+   * Uses toolCallsSummary as assistant text when content is empty (tool-only prior turns).
+   */
+  private buildAgentConversationHistoryFromAskMessages(msgs: CodeAskMessage[]): ConversationMessage[] {
+    const maxTurns = 6;
+    const maxChars = 6000;
+    const cap = maxTurns * 2;
+    const out: ConversationMessage[] = [];
+    for (const m of msgs) {
+      if (m.role !== 'user' && m.role !== 'assistant') {
+        continue;
+      }
+      let content = (m.content || '').trim();
+      if (m.role === 'assistant' && !content && m.toolCallsSummary?.trim()) {
+        content = m.toolCallsSummary.trim();
+      }
+      if (!content) {
+        continue;
+      }
+      const clipped =
+        content.length <= maxChars ? content : `${content.slice(0, maxChars - 24)}\n… [truncated]`;
+      out.push({ role: m.role, content: clipped });
+    }
+    return out.length > cap ? out.slice(-cap) : out;
+  }
+
+  private mergeCodeAskMessages(db: CodeAskMessage[], bridge: CodeAskMessage[]): CodeAskMessage[] {
+    if (bridge.length > db.length) {
+      return bridge;
+    }
+    if (bridge.length === db.length && bridge.length > 0) {
+      return bridge;
+    }
+    return db.length > 0 ? db : bridge;
+  }
+
+  private mapApiMessagesToAsk(rows: { id: string; role: string; content: string; toolCallsSummary?: string }[]): CodeAskMessage[] {
+    return rows.map(m => ({
+      id: m.id,
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content ?? '',
+      toolCallsSummary: m.toolCallsSummary
+    }));
+  }
+
+  private persistCodeAskToServer(): void {
+    const repoId = this.repositoryId();
+    const branch = this.currentBranch() || 'main';
+    const msgs = this.codeChatMessages();
+    if (!repoId || msgs.length === 0) {
+      return;
+    }
+    this.codeAskConversationService.saveMessages(repoId, branch, msgs).subscribe({
+      error: err => console.warn('Ask: could not persist conversation to server:', err)
+    });
+  }
+
+  private async tryRestoreCodeAskSession(): Promise<void> {
+    const repoId = this.repositoryId();
+    if (!repoId) return;
+    if (this.codeAskRestoreDoneForRepo === repoId) return;
+
+    const branch = this.currentBranch() || 'main';
+
+    const fromDb = await firstValueFrom(
+      this.codeAskConversationService.getMessages(repoId, branch).pipe(catchError(() => of([])))
+    );
+    if (fromDb.length > 0) {
+      this.codeChatMessages.set(this.mapApiMessagesToAsk(fromDb));
+    }
+
+    const session = await firstValueFrom(
+      this.sandboxService.getSandboxForRepository(repoId).pipe(catchError(() => of(null)))
+    );
+
+    const finishScroll = () => {
+      queueMicrotask(() => {
+        this.scrollAskThreadToBottom();
+        this.ensureAskThreadMutationObserver();
+      });
+    };
+
+    if (!session?.id) {
+      this.codeAskRestoreDoneForRepo = repoId;
+      finishScroll();
+      return;
+    }
+
+    const boundBranch =
+      session.repo_branch ?? (session as { repoBranch?: string }).repoBranch ?? '';
+    if (this.normalizeAskBranchName(boundBranch) !== this.normalizeAskBranchName(branch)) {
+      this.codeAskRestoreDoneForRepo = repoId;
+      finishScroll();
+      return;
+    }
+
+    const status = (session.status || '').toLowerCase();
+    if (status.includes('stop') || status.includes('terminat') || status === 'exited') {
+      this.codeAskRestoreDoneForRepo = repoId;
+      finishScroll();
+      return;
+    }
+
+    try {
+      const h = await firstValueFrom(this.sandboxBridgeService.health(session.id));
+      if (h.status !== 'ok') {
+        this.codeAskRestoreDoneForRepo = repoId;
+        finishScroll();
+        return;
+      }
+    } catch {
+      this.codeAskRestoreDoneForRepo = repoId;
+      finishScroll();
+      return;
+    }
+
+    this.codeChatSandboxId.set(session.id);
+    if (session.vnc_password) this.codeChatVncPassword.set(session.vnc_password);
+    this.codeChatSandboxOwned.set(true);
+
+    try {
+      const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(session.id));
+      const headless = (all.conversations || [])
+        .filter(c => c.source === 'headless_agent')
+        .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+
+      const bridgeMsgs: CodeAskMessage[] = [];
+      for (const c of headless) {
+        const uid = c.id ? `u-${c.id}` : `u-${c.timestamp}`;
+        bridgeMsgs.push({ id: uid, role: 'user', content: c.user_message || '' });
+        const toolSummary =
+          c.tool_calls && c.tool_calls.length > 0
+            ? `Tools: ${c.tool_calls.map(t => t.name).join(', ')}`
+            : undefined;
+        bridgeMsgs.push({
+          id: c.id || `a-${c.timestamp}`,
+          role: 'assistant',
+          content: c.assistant_message || '',
+          toolCallsSummary: toolSummary
+        });
+      }
+      const merged = this.mergeCodeAskMessages(this.codeChatMessages(), bridgeMsgs);
+      this.codeChatMessages.set(merged);
+      if (merged.length > 0) {
+        this.persistCodeAskToServer();
+      }
+    } catch (e) {
+      console.warn('Ask: could not load conversations from bridge:', e);
+    }
+
+    this.codeAskRestoreDoneForRepo = repoId;
+    finishScroll();
+  }
+
+  /** Open the running Ask sandbox in the VNC viewer (same container as headless chat). */
+  openCodeChatSandboxDesktop(): void {
+    const sid = this.codeChatSandboxId();
+    if (!sid) return;
+    const repo = this.repository();
+    const title = repo ? `${repo.name} · Ask` : `Sandbox ${sid.slice(0, 8)}`;
+    this.vncViewerService.open(sid, title, undefined, this.codeChatVncPassword(), {
+      hideMinimizedTray: true,
+    });
+    this.vncViewerService.setDockPosition(sid, 'floating');
+  }
+
+  private async waitForCodeChatBridge(sandboxId: string): Promise<void> {
+    for (let i = 0; i < 90; i++) {
+      try {
+        const h = await firstValueFrom(this.sandboxBridgeService.health(sandboxId));
+        if (h.status === 'ok') {
+          await this.delay(1500);
+          return;
+        }
+      } catch {
+        /* retry */
+      }
+      await this.delay(2000);
+    }
+    throw new Error('Sandbox bridge did not become ready in time.');
+  }
+
+  private async pollForHeadlessAnswer(sandboxId: string, promptId: string): Promise<ZedConversation> {
+    const maxAttempts = 600;
+    for (let i = 0; i < maxAttempts; i++) {
+      const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+      const hp = all.headless_progress;
+      if (hp?.tools?.length) {
+        this.codeChatLiveTools.set(
+          hp.tools.map(t => ({ name: t.name, args_preview: t.args_preview }))
+        );
+      }
+      if (all.live_response?.content) {
+        this.codeChatStreamHint.set(all.live_response.content);
+      } else if (hp?.tools?.length) {
+        const last = hp.tools[hp.tools.length - 1];
+        this.codeChatStreamHint.set(last?.name ? `Running: ${last.name}` : null);
+      }
+
+      const hit = all.conversations.find(c => c.id === promptId);
+      const body = hit?.assistant_message?.trim();
+      if (body) {
+        return hit!;
+      }
+
+      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+      if (!running.running && i > 8 && !body) {
+        throw new Error('Agent finished without a recorded answer. Try again or check sandbox logs.');
+      }
+
+      await this.delay(400);
+    }
+    throw new Error('Timed out waiting for the agent.');
+  }
+
+  onCodeChatEnter(ev: KeyboardEvent): void {
+    if (ev.key !== 'Enter' || ev.shiftKey) return;
+    ev.preventDefault();
+    void this.sendCodeChat();
+  }
+
+  private detachAskViewerIfOpen(sandboxId: string): void {
+    if (this.vncViewerService.getViewer(sandboxId)) {
+      this.vncViewerService.dismissViewerKeepSandbox(sandboxId);
+    }
+  }
+
+  private releaseCodeChatSandbox(): void {
+    const sid = this.codeChatSandboxId();
+    if (sid) {
+      this.detachAskViewerIfOpen(sid);
+      this.sandboxService.deleteSandbox(sid).subscribe({
+        error: err => console.warn('Code chat sandbox cleanup:', err)
+      });
+    }
+    this.codeChatSandboxId.set(null);
+    this.codeChatVncPassword.set(undefined);
+    this.codeChatSandboxOwned.set(false);
+    this.codeChatMessages.set([]);
+    this.codeChatStatus.set('');
+    this.codeChatError.set(null);
+    this.codeChatLiveTools.set([]);
+    this.codeChatStreamHint.set(null);
+  }
+
   formatFileSize(size?: number): string {
     if (!size) return '';
     if (size < 1024) return `${size} B`;
@@ -545,7 +1091,7 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   goBack(): void {
-    this.router.navigate(['/repositories']);
+    void this.router.navigate(['/repositories']);
   }
 
   // Tab methods
@@ -556,6 +1102,13 @@ export class CodeComponent implements OnInit, OnDestroy {
     }
     if (tab === 'analysis' && !this.analysisResult() && !this.analysisLoading()) {
       this.loadAnalysis();
+    }
+    if (tab === 'ask') {
+      void this.tryRestoreCodeAskSession();
+      setTimeout(() => {
+        this.scrollAskThreadToBottom();
+        this.ensureAskThreadMutationObserver();
+      }, 0);
     }
   }
 
