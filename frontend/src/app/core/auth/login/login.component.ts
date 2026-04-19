@@ -24,6 +24,8 @@ export class LoginComponent implements OnInit {
   // UI State
   loading = signal<boolean>(false);
   error = signal<string | null>(null);
+  /** Shown after redirect from auth interceptor when the API returned 401 (e.g. expired JWT). */
+  sessionNotice = signal<string | null>(null);
   isRegisterMode = signal<boolean>(false);
   configLoaded = signal<boolean>(false);
 
@@ -51,6 +53,15 @@ export class LoginComponent implements OnInit {
     if (this.authService.isLoggedIn()) {
       this.router.navigate(['/repositories']);
       return;
+    }
+
+    try {
+      if (sessionStorage.getItem('devpilot_session_expired') === '1') {
+        sessionStorage.removeItem('devpilot_session_expired');
+        this.sessionNotice.set('Your session expired. Please sign in again.');
+      }
+    } catch {
+      /* ignore */
     }
 
     // Load provider config from backend

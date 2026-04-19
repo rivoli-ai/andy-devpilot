@@ -53,7 +53,7 @@
                 }
               </div>
               @if (!isProviderLinked('GitHub')) {
-                <button class="connect-link" (click)="navigateToSettings(); $event.stopPropagation()">Connect</button>
+                <button class="connect-link" (click)="connectGitHubOAuth($event)">Connect</button>
               }
             </button>
             <button 
@@ -113,7 +113,7 @@
           <p class="sync-help">Sync repositories from your connected providers</p>
         } @else {
           <p class="sync-help">
-            <a (click)="navigateToSettings()" class="link">Connect a provider</a> to start syncing repositories
+            <a (click)="openSyncMenuForConnect(); $event.preventDefault()" href="#" class="link">Connect a provider</a> to start syncing repositories
           </p>
         }
       </div>

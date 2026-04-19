@@ -235,7 +235,7 @@ export class CallbackComponent implements OnInit {
           // Link the provider to the current account
           this.authService.linkProviderWithToken(provider, loginResponse.idToken, loginResponse.accessToken).subscribe({
             next: () => {
-              this.router.navigate(['/settings'], { queryParams: { linked: provider } });
+              this.router.navigate(['/repositories'], { queryParams: { linked: provider } });
             },
             error: (err) => {
               this.error.set(err.error?.message || err.message || `Failed to link ${provider} account`);
@@ -309,7 +309,7 @@ export class CallbackComponent implements OnInit {
 
     this.authService.linkProviderWithCode(provider, code, redirectUri).subscribe({
       next: () => {
-        this.router.navigate(['/settings'], { queryParams: { linked: provider.toLowerCase() } });
+        this.router.navigate(['/repositories'], { queryParams: { linked: provider.toLowerCase() } });
       },
       error: (err) => {
         this.error.set(err.error?.message || err.message || `Failed to link ${provider} account`);

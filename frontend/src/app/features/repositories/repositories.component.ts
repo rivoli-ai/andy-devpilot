@@ -1,10 +1,10 @@
 import { Component, OnInit, OnDestroy, AfterViewInit, signal, computed, HostListener, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { Subject } from 'rxjs';
+import { Subject, firstValueFrom } from 'rxjs';
 import { debounceTime, distinctUntilChanged, filter, takeUntil, switchMap } from 'rxjs/operators';
 import { of } from 'rxjs';
-import { NavigationEnd, Router, RouterLink } from '@angular/router';
+import { ActivatedRoute, NavigationEnd, Router, RouterLink } from '@angular/router';
 import { RepositoryService, SyncSource, PagedRepositoriesResult, AvailableRepoItem } from '../../core/services/repository.service';
 import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
@@ -159,6 +159,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     private analysisService: AnalysisService,
     public authService: AuthService,
     private router: Router,
+    private route: ActivatedRoute,
     private vncViewerService: VncViewerService,
     private sandboxService: SandboxService,
     private aiConfigService: AIConfigService,
@@ -190,6 +191,17 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     
     // Load sync sources
     this.loadSyncSources();
+
+    this.route.queryParams.pipe(takeUntil(this.destroy$)).subscribe(params => {
+      if (params['linked']) {
+        const provider = params['linked'] as string;
+        const displayName = this.linkedProviderDisplayName(provider);
+        this.successMessage.set(`${displayName} account linked successfully!`);
+        this.loadSyncSources();
+        this.router.navigate([], { relativeTo: this.route, queryParams: {} });
+        setTimeout(() => this.successMessage.set(null), 5000);
+      }
+    });
     
     // Initialize grid columns with method references
     this.gridColumns = [
@@ -826,6 +838,45 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
 
   navigateToSettings(): void {
     this.router.navigate(['/settings']);
+  }
+
+  /** Opens the sync menu so the user can choose GitHub or Azure DevOps. */
+  openSyncMenuForConnect(): void {
+    this.showSyncMenu.set(true);
+  }
+
+  private linkedProviderDisplayName(provider: string): string {
+    const nameMap: Record<string, string> = {
+      github: 'GitHub',
+      azuread: 'Microsoft',
+      duende: 'Duende',
+    };
+    return nameMap[provider.toLowerCase()] ?? provider;
+  }
+
+  /**
+   * Start GitHub OAuth link from the repositories page (same as Settings → Connect with OAuth).
+   * Azure DevOps still uses PAT in Settings.
+   */
+  async connectGitHubOAuth(event?: Event): Promise<void> {
+    event?.stopPropagation();
+    this.closeSyncMenu();
+    this.error.set(null);
+    try {
+      await this.authService.loadProviderConfig();
+      const cfg = this.authService.getProviderConfig('GitHub');
+      if (!cfg || cfg.type !== 'BackendOAuth') {
+        this.error.set('GitHub OAuth is not available. Connect from Settings or use a PAT.');
+        return;
+      }
+      const response = await firstValueFrom(this.authService.getLinkAuthorizationUrl(cfg.name));
+      if (response?.authorizationUrl) {
+        window.location.href = response.authorizationUrl;
+      }
+    } catch (err: unknown) {
+      const msg = err && typeof err === 'object' && 'message' in err ? String((err as { message?: string }).message) : 'Failed to start GitHub connection';
+      this.error.set(msg);
+    }
   }
 
   setProviderTab(tab: 'all' | 'GitHub' | 'AzureDevOps'): void {
