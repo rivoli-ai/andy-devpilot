@@ -37,6 +37,20 @@ public class PostgresEpicRepository : IEpicRepository
             .ToListAsync(cancellationToken);
     }
 
+    public async System.Threading.Tasks.Task DeleteAllForRepositoryAsync(Guid repositoryId, CancellationToken cancellationToken = default)
+    {
+        var epics = await _context.Epics
+            .Where(e => e.RepositoryId == repositoryId)
+            .ToListAsync(cancellationToken);
+        if (epics.Count == 0)
+        {
+            return;
+        }
+
+        _context.Epics.RemoveRange(epics);
+        await _context.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<Epic> AddAsync(Epic epic, CancellationToken cancellationToken = default)
     {
         _context.Epics.Add(epic);

@@ -5,7 +5,7 @@
   max-width: 100%;
 }
 
-/* Path strip: compact pill that fits the glass header */
+/* Path trail: reads like a filesystem / URL path, not tabs or pills */
 .breadcrumb {
   min-width: 0;
   display: inline-flex;
@@ -15,72 +15,80 @@
 .breadcrumb-list {
   display: inline-flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 2px 0;
+  align-items: baseline;
+  gap: 0;
   margin: 0;
-  padding: 5px 10px 5px 8px;
+  padding: 2px 0 2px 11px;
   list-style: none;
-  font-size: 12px;
+  position: relative;
+  font-size: 12.5px;
   font-weight: 500;
-  letter-spacing: 0.01em;
-  line-height: 1.3;
-  background: var(--surface-hover);
-  border: 1px solid var(--border-light);
-  border-radius: 999px;
-  box-shadow: var(--shadow-xs);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  letter-spacing: -0.02em;
+  line-height: 1.45;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
   max-width: 100%;
+}
+
+/* Vertical “trunk” line — subtle path-tree cue */
+.breadcrumb-list::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0.2em;
+  bottom: 0.2em;
+  width: 2px;
+  border-radius: 1px;
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--brand-primary) 50%, transparent) 0%,
+    color-mix(in srgb, var(--text-tertiary) 35%, transparent) 100%
+  );
+  opacity: 0.55;
 }
 
 .breadcrumb-item {
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   min-width: 0;
 }
 
-.breadcrumb-item:not(:last-child) {
-  margin-right: 2px;
-}
-
-/*
- * Separators: stroke chevron (not a mask) so it stays sharp and high-contrast.
- * Heavier stroke + larger box than before so “>” reads clearly on the pill background.
- */
+/* Path separator: slash (not chevron / tab affordance) */
 .breadcrumb-item:not(:last-child)::after {
-  content: '';
-  display: inline-block;
-  width: 22px;
-  height: 20px;
-  flex-shrink: 0;
-  margin-left: 2px;
-  margin-right: 2px;
-  background: transparent
-    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23475569' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='9 18 16 12 9 6'/%3E%3C/svg%3E")
-    center / 15px 15px no-repeat;
-}
-
-[data-theme='dark'] .breadcrumb-item:not(:last-child)::after {
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2.75' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='9 18 16 12 9 6'/%3E%3C/svg%3E");
+  content: '/';
+  display: inline;
+  margin: 0 0.4em;
+  color: var(--text-tertiary);
+  font-weight: 400;
+  font-size: 0.92em;
+  opacity: 0.85;
+  user-select: none;
+  pointer-events: none;
 }
 
 .breadcrumb-link {
   color: var(--text-secondary);
   text-decoration: none;
-  border-radius: 999px;
-  padding: 3px 8px;
-  margin: -3px -2px;
+  border-radius: 3px;
+  padding: 1px 2px;
+  margin: -1px -2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: min(26ch, 38vw);
   transition:
-    color 0.15s ease,
-    background 0.15s ease,
-    box-shadow 0.15s ease;
+    color 0.12s ease,
+    background 0.12s ease;
 }
 
 .breadcrumb-link:hover {
   color: var(--brand-primary);
-  background: color-mix(in srgb, var(--brand-primary) 10%, transparent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  background: transparent;
 }
 
 .breadcrumb-link:focus-visible {
@@ -88,52 +96,50 @@
   outline-offset: 2px;
 }
 
-/* Middle segments (e.g. repo name): readable but not the destination */
+/* Middle segments: directory-like, muted */
 .breadcrumb-static {
   color: var(--text-tertiary);
   font-weight: 500;
-  padding: 3px 6px;
+  padding: 1px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: min(36ch, 48vw);
 }
 
-/* Current page: small capsule accent */
+/* Current segment: end of path — emphasis without a tab chip */
 .breadcrumb-leaf {
   color: var(--text-primary);
   font-weight: 600;
-  padding: 3px 10px;
-  margin-left: -2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--brand-primary) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--brand-primary) 28%, var(--border-light));
+  padding: 1px 0;
+  margin-left: 0;
+  border-radius: 0;
+  background: transparent;
+  border: none;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: min(40ch, 52vw);
 }
 
-[data-theme='dark'] .breadcrumb-list {
-  background: var(--surface-elevated);
-  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.04) inset;
+[data-theme='dark'] .breadcrumb-list::before {
+  opacity: 0.5;
 }
 
 [data-theme='dark'] .breadcrumb-link:hover {
-  background: color-mix(in srgb, var(--brand-primary) 18%, transparent);
+  background: transparent;
 }
 
 [data-theme='dark'] .breadcrumb-leaf {
-  background: color-mix(in srgb, var(--brand-primary) 20%, transparent);
-  border-color: color-mix(in srgb, var(--brand-primary) 35%, var(--border-default));
+  color: var(--text-primary);
 }
 
-/* Top-level only (e.g. Repositories list): calmer, not a “destination” chip */
+/* Single segment (e.g. Repositories): keep flat, no extra chrome */
 .breadcrumb-list:has(> .breadcrumb-item:only-child) .breadcrumb-leaf {
-  background: transparent;
-  border: none;
-  padding: 3px 8px;
-  margin-left: 0;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+.breadcrumb-list:has(> .breadcrumb-item:only-child)::before {
+  opacity: 0.35;
 }

@@ -189,6 +189,42 @@ public class CreateAndSaveBacklogTests
     }
 
     [Fact]
+    public async System.Threading.Tasks.Task CreateBacklog_ReplaceExisting_DeletesEpicsBeforeInsert()
+    {
+        var repo = new Repository("n", "f", "c", "GitHub", "o", Guid.NewGuid());
+        var mockR = new Mock<IRepositoryRepository>();
+        mockR.Setup(x => x.GetByIdAsync(repo.Id, default)).ReturnsAsync(repo);
+        var mockE = new Mock<IEpicRepository>();
+        mockE.Setup(x => x.DeleteAllForRepositoryAsync(repo.Id, It.IsAny<CancellationToken>()))
+            .Returns(System.Threading.Tasks.Task.CompletedTask);
+        mockE.Setup(x => x.AddAsync(It.IsAny<Epic>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((Epic e, CancellationToken _) => e);
+        var h = new CreateBacklogCommandHandler(mockE.Object, mockR.Object, NullLogger<CreateBacklogCommandHandler>.Instance);
+        var req = new CreateBacklogRequest
+        {
+            ReplaceExisting = true,
+            Epics = {
+                new CreateEpicRequest {
+                    Title = "E2",
+                    Description = "d",
+                    Features = {
+                        new CreateFeatureRequest {
+                            Title = "F",
+                            Description = "d",
+                            UserStories = {
+                                new CreateUserStoryRequest { Title = "S", Description = "d" }
+                            }
+                        }
+                    }
+                }
+            }
+        };
+        await h.Handle(new CreateBacklogCommand(repo.Id, req), default);
+        mockE.Verify(x => x.DeleteAllForRepositoryAsync(repo.Id, It.IsAny<CancellationToken>()), Times.Once);
+        mockE.Verify(x => x.AddAsync(It.IsAny<Epic>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public async System.Threading.Tasks.Task SaveAnalysis_Throws_WhenRepoMissing()
     {
         var mockR = new Mock<IRepositoryRepository>();

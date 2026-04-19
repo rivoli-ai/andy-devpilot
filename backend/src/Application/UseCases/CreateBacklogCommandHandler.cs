@@ -12,6 +12,8 @@ using Microsoft.Extensions.Logging;
 public class CreateBacklogRequest
 {
     public List<CreateEpicRequest> Epics { get; set; } = new();
+    /// <summary>When true, existing epics for the repository are removed before inserting this tree (AI regenerate).</summary>
+    public bool ReplaceExisting { get; set; }
 }
 
 public class CreateEpicRequest
@@ -75,6 +77,12 @@ public class CreateBacklogCommandHandler : IRequestHandler<CreateBacklogCommand,
         if (repository == null)
         {
             throw new InvalidOperationException($"Repository with ID {command.RepositoryId} not found");
+        }
+
+        if (command.Request.ReplaceExisting)
+        {
+            await _epicRepository.DeleteAllForRepositoryAsync(command.RepositoryId, cancellationToken);
+            _logger.LogInformation("ReplaceExisting: cleared epics for repository {RepositoryId}", command.RepositoryId);
         }
 
         var createdEpics = new List<Epic>();

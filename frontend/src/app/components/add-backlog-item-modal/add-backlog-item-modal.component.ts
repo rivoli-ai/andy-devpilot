@@ -56,13 +56,59 @@ export interface StoryAgentRuleOption {
             <div class="form-section">
               <h4 class="section-title">Parent</h4>
               <div class="form-group">
-                <label for="parentEpic">Epic *</label>
-                <select id="parentEpic" [(ngModel)]="selectedEpicId" name="parentEpic" required>
-                  <option value="">Select an epic...</option>
-                  @for (epic of epics(); track epic.id) {
-                    <option [value]="epic.id">{{ epic.title }}</option>
+                <label class="story-profile-label" id="parentEpicFieldLabel">Epic *</label>
+                <div class="story-profile-dropdown" #parentEpicRoot>
+                  <div class="story-profile-trigger-wrap">
+                    <button
+                      type="button"
+                      class="story-profile-trigger"
+                      id="parentEpic"
+                      aria-haspopup="listbox"
+                      [attr.aria-expanded]="parentEpicMenuOpen"
+                      [attr.aria-controls]="parentEpicMenuOpen ? 'parentEpicListbox' : null"
+                      aria-labelledby="parentEpicFieldLabel"
+                      (click)="toggleParentEpicMenu($event)">
+                      <span class="story-profile-trigger__text">{{ parentEpicDisplayLabel() }}</span>
+                      <span class="story-profile-trigger__chevron" [class.story-profile-trigger__chevron--open]="parentEpicMenuOpen" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </span>
+                    </button>
+                  </div>
+                  @if (parentEpicMenuOpen && parentEpicMenuFixedStyle) {
+                    <div
+                      class="story-profile-menu"
+                      id="parentEpicListbox"
+                      role="listbox"
+                      aria-labelledby="parentEpicFieldLabel"
+                      [style.top]="parentEpicMenuFixedStyle.top"
+                      [style.left]="parentEpicMenuFixedStyle.left"
+                      [style.width]="parentEpicMenuFixedStyle.width"
+                    >
+                      <button
+                        type="button"
+                        class="story-profile-menu__item"
+                        role="option"
+                        [attr.aria-selected]="!selectedEpicId"
+                        [class.story-profile-menu__item--active]="!selectedEpicId"
+                        (click)="pickParentEpic('')">
+                        Select an epic…
+                      </button>
+                      @for (epic of epics(); track epic.id) {
+                        <button
+                          type="button"
+                          class="story-profile-menu__item"
+                          role="option"
+                          [attr.aria-selected]="selectedEpicId === epic.id"
+                          [class.story-profile-menu__item--active]="selectedEpicId === epic.id"
+                          (click)="pickParentEpic(epic.id)">
+                          {{ epic.title }}
+                        </button>
+                      }
+                    </div>
                   }
-                </select>
+                </div>
               </div>
             </div>
           }
@@ -70,13 +116,60 @@ export interface StoryAgentRuleOption {
             <div class="form-section">
               <h4 class="section-title">Parent</h4>
               <div class="form-group">
-                <label for="parentFeature">Feature *</label>
-                <select id="parentFeature" [(ngModel)]="selectedFeatureId" name="parentFeature" required>
-                  <option value="">Select a feature...</option>
-                  @for (f of features(); track f.id) {
-                    <option [value]="f.id">{{ f.epicTitle }} › {{ f.title }}</option>
+                <label class="story-profile-label" id="parentFeatureFieldLabel">Feature *</label>
+                <div class="story-profile-dropdown" #parentFeatureRoot>
+                  <div class="story-profile-trigger-wrap">
+                    <button
+                      type="button"
+                      class="story-profile-trigger"
+                      id="parentFeature"
+                      aria-haspopup="listbox"
+                      [attr.aria-expanded]="parentFeatureMenuOpen"
+                      [attr.aria-controls]="parentFeatureMenuOpen ? 'parentFeatureListbox' : null"
+                      aria-labelledby="parentFeatureFieldLabel"
+                      (click)="toggleParentFeatureMenu($event)">
+                      <span class="story-profile-trigger__text">{{ parentFeatureDisplayLabel() }}</span>
+                      <span class="story-profile-trigger__chevron" [class.story-profile-trigger__chevron--open]="parentFeatureMenuOpen" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18">
+                          <polyline points="6 9 12 15 18 9"/>
+                        </svg>
+                      </span>
+                    </button>
+                  </div>
+                  @if (parentFeatureMenuOpen && parentFeatureMenuFixedStyle) {
+                    <div
+                      class="story-profile-menu"
+                      id="parentFeatureListbox"
+                      role="listbox"
+                      aria-labelledby="parentFeatureFieldLabel"
+                      [style.top]="parentFeatureMenuFixedStyle.top"
+                      [style.left]="parentFeatureMenuFixedStyle.left"
+                      [style.width]="parentFeatureMenuFixedStyle.width"
+                    >
+                      <button
+                        type="button"
+                        class="story-profile-menu__item"
+                        role="option"
+                        [attr.aria-selected]="!selectedFeatureId"
+                        [class.story-profile-menu__item--active]="!selectedFeatureId"
+                        (click)="pickParentFeature('')">
+                        Select a feature…
+                      </button>
+                      @for (f of features(); track f.id) {
+                        <button
+                          type="button"
+                          class="story-profile-menu__item story-profile-menu__item--stacked"
+                          role="option"
+                          [attr.aria-selected]="selectedFeatureId === f.id"
+                          [class.story-profile-menu__item--active]="selectedFeatureId === f.id"
+                          (click)="pickParentFeature(f.id)">
+                          <span class="parent-picker-primary">{{ f.title }}</span>
+                          <span class="parent-picker-secondary">{{ f.epicTitle }}</span>
+                        </button>
+                      }
+                    </div>
                   }
-                </select>
+                </div>
               </div>
             </div>
           }
@@ -610,6 +703,22 @@ export interface StoryAgentRuleOption {
       background: rgba(59, 130, 246, 0.15);
       color: #93c5fd;
     }
+    .story-profile-menu__item--stacked {
+      text-align: left;
+    }
+    .parent-picker-primary {
+      display: block;
+      font-weight: 500;
+      line-height: 1.3;
+    }
+    .parent-picker-secondary {
+      display: block;
+      margin-top: 0.2rem;
+      font-size: 0.72rem;
+      font-weight: 500;
+      color: var(--text-muted, #94a3b8);
+      line-height: 1.25;
+    }
     :host-context([data-theme="dark"]) .story-profile-trigger-wrap {
       background: var(--surface-card);
       border-color: var(--border-default);
@@ -957,6 +1066,9 @@ export interface StoryAgentRuleOption {
       background: rgba(59, 130, 246, 0.12);
       color: #1d4ed8;
     }
+    :host-context([data-theme="light"]) .parent-picker-secondary {
+      color: #6b7280;
+    }
     :host-context([data-theme="light"]) .story-profile-hint {
       color: var(--text-tertiary);
     }
@@ -1017,6 +1129,8 @@ export class AddBacklogItemModalComponent implements OnInit {
   private backlogService = inject(BacklogService);
 
   @ViewChild('storyProfileRoot') storyProfileRoot?: ElementRef<HTMLElement>;
+  @ViewChild('parentEpicRoot') parentEpicRoot?: ElementRef<HTMLElement>;
+  @ViewChild('parentFeatureRoot') parentFeatureRoot?: ElementRef<HTMLElement>;
 
   itemType = input.required<AddItemType>();
   /** Pre-selected parent ID (epicId for feature, featureId for story). When set, no parent picker shown. */
@@ -1056,6 +1170,12 @@ export class AddBacklogItemModalComponent implements OnInit {
   storyProfileMenuOpen = false;
   storyProfileMenuFixedStyle: { top: string; left: string; width: string } | null = null;
 
+  /** Parent epic / feature pickers (same UX as agent rules dropdown). */
+  parentEpicMenuOpen = false;
+  parentEpicMenuFixedStyle: { top: string; left: string; width: string } | null = null;
+  parentFeatureMenuOpen = false;
+  parentFeatureMenuFixedStyle: { top: string; left: string; width: string } | null = null;
+
   // AI suggest state
   suggestingDescription = false;
   suggestingAcceptanceCriteria = false;
@@ -1080,32 +1200,45 @@ export class AddBacklogItemModalComponent implements OnInit {
 
   @HostListener('document:click', ['$event'])
   onDocumentClick(ev: MouseEvent): void {
-    if (!this.storyProfileMenuOpen) return;
     const t = ev.target as Node;
-    const root = this.storyProfileRoot?.nativeElement;
-    if (root && !root.contains(t)) {
-      this.closeStoryProfileMenu();
+    if (this.storyProfileMenuOpen) {
+      const root = this.storyProfileRoot?.nativeElement;
+      if (root && !root.contains(t)) {
+        this.closeStoryProfileMenu();
+      }
+    }
+    if (this.parentEpicMenuOpen) {
+      const root = this.parentEpicRoot?.nativeElement;
+      if (root && !root.contains(t)) {
+        this.closeParentEpicMenu();
+      }
+    }
+    if (this.parentFeatureMenuOpen) {
+      const root = this.parentFeatureRoot?.nativeElement;
+      if (root && !root.contains(t)) {
+        this.closeParentFeatureMenu();
+      }
     }
   }
 
   @HostListener('document:keydown.escape')
   onEscape(): void {
-    if (this.storyProfileMenuOpen) {
-      this.closeStoryProfileMenu();
-    }
+    this.closeAllCustomDropdowns();
   }
 
   @HostListener('window:resize')
   onWindowResize(): void {
-    if (this.storyProfileMenuOpen) {
-      this.closeStoryProfileMenu();
-    }
+    this.closeAllCustomDropdowns();
   }
 
   onModalBodyScroll(): void {
-    if (this.storyProfileMenuOpen) {
-      this.closeStoryProfileMenu();
-    }
+    this.closeAllCustomDropdowns();
+  }
+
+  private closeAllCustomDropdowns(): void {
+    this.closeStoryProfileMenu();
+    this.closeParentEpicMenu();
+    this.closeParentFeatureMenu();
   }
 
   toggleStoryProfileMenu(event: MouseEvent): void {
@@ -1114,6 +1247,8 @@ export class AddBacklogItemModalComponent implements OnInit {
       this.closeStoryProfileMenu();
       return;
     }
+    this.closeParentEpicMenu();
+    this.closeParentFeatureMenu();
     const btn = event.currentTarget as HTMLElement | null;
     if (btn?.getBoundingClientRect) {
       const r = btn.getBoundingClientRect();
@@ -1129,6 +1264,84 @@ export class AddBacklogItemModalComponent implements OnInit {
   closeStoryProfileMenu(): void {
     this.storyProfileMenuOpen = false;
     this.storyProfileMenuFixedStyle = null;
+  }
+
+  toggleParentEpicMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.parentEpicMenuOpen) {
+      this.closeParentEpicMenu();
+      return;
+    }
+    this.closeStoryProfileMenu();
+    this.closeParentFeatureMenu();
+    const btn = event.currentTarget as HTMLElement | null;
+    if (btn?.getBoundingClientRect) {
+      const r = btn.getBoundingClientRect();
+      this.parentEpicMenuFixedStyle = {
+        top: `${Math.round(r.bottom + 6)}px`,
+        left: `${Math.round(r.left)}px`,
+        width: `${Math.round(r.width)}px`
+      };
+    }
+    this.parentEpicMenuOpen = true;
+  }
+
+  closeParentEpicMenu(): void {
+    this.parentEpicMenuOpen = false;
+    this.parentEpicMenuFixedStyle = null;
+  }
+
+  pickParentEpic(id: string): void {
+    this.selectedEpicId = id;
+    this.closeParentEpicMenu();
+  }
+
+  parentEpicDisplayLabel(): string {
+    if (!this.selectedEpicId) {
+      return 'Select an epic…';
+    }
+    return this.epics().find(e => e.id === this.selectedEpicId)?.title ?? 'Select an epic…';
+  }
+
+  toggleParentFeatureMenu(event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.parentFeatureMenuOpen) {
+      this.closeParentFeatureMenu();
+      return;
+    }
+    this.closeStoryProfileMenu();
+    this.closeParentEpicMenu();
+    const btn = event.currentTarget as HTMLElement | null;
+    if (btn?.getBoundingClientRect) {
+      const r = btn.getBoundingClientRect();
+      this.parentFeatureMenuFixedStyle = {
+        top: `${Math.round(r.bottom + 6)}px`,
+        left: `${Math.round(r.left)}px`,
+        width: `${Math.round(r.width)}px`
+      };
+    }
+    this.parentFeatureMenuOpen = true;
+  }
+
+  closeParentFeatureMenu(): void {
+    this.parentFeatureMenuOpen = false;
+    this.parentFeatureMenuFixedStyle = null;
+  }
+
+  pickParentFeature(id: string): void {
+    this.selectedFeatureId = id;
+    this.closeParentFeatureMenu();
+  }
+
+  parentFeatureDisplayLabel(): string {
+    if (!this.selectedFeatureId) {
+      return 'Select a feature…';
+    }
+    const f = this.features().find(x => x.id === this.selectedFeatureId);
+    if (!f) {
+      return 'Select a feature…';
+    }
+    return `${f.epicTitle} › ${f.title}`;
   }
 
   pickStoryProfile(id: string): void {
@@ -1291,7 +1504,7 @@ export class AddBacklogItemModalComponent implements OnInit {
   }
 
   private resetForm(): void {
-    this.closeStoryProfileMenu();
+    this.closeAllCustomDropdowns();
     this.title = '';
     this.description = '';
     this.acceptanceCriteria = '';

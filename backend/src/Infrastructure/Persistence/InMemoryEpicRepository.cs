@@ -26,6 +26,16 @@ public class InMemoryEpicRepository : IEpicRepository
         return System.Threading.Tasks.Task.FromResult<IEnumerable<Epic>>(epics);
     }
 
+    public System.Threading.Tasks.Task DeleteAllForRepositoryAsync(Guid repositoryId, CancellationToken cancellationToken = default)
+    {
+        foreach (var id in _epics.Values.Where(e => e.RepositoryId == repositoryId).Select(e => e.Id).ToList())
+        {
+            _epics.Remove(id);
+        }
+
+        return System.Threading.Tasks.Task.CompletedTask;
+    }
+
     public System.Threading.Tasks.Task<Epic> AddAsync(Epic epic, CancellationToken cancellationToken = default)
     {
         _epics[epic.Id] = epic;

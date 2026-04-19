@@ -682,7 +682,7 @@
         <div class="code-ask-composer-card">
           <textarea
             class="code-ask-textarea"
-            rows="2"
+            rows="1"
             placeholder="Message…"
             [ngModel]="codeChatInput()"
             (ngModelChange)="codeChatInput.set($event)"
@@ -830,8 +830,12 @@
                       {{ pr.comments }}
                     </span>
                   }
-                  <span class="pr-stat additions" title="Additions">+{{ pr.additions }}</span>
-                  <span class="pr-stat deletions" title="Deletions">-{{ pr.deletions }}</span>
+                  @if (pr.additions > 0 || pr.deletions > 0) {
+                    <span class="pr-stat additions" title="Additions">+{{ pr.additions }}</span>
+                    <span class="pr-stat deletions" title="Deletions">-{{ pr.deletions }}</span>
+                  } @else if (pr.changedFiles > 0) {
+                    <span class="pr-stat files" title="Files changed">{{ pr.changedFiles }} files</span>
+                  }
                 </div>
               </div>
             }

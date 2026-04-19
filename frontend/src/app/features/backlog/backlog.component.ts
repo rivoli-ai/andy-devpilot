@@ -1735,19 +1735,6 @@ ${jsonFormatRequirement}`;
       return;
     }
 
-    // If we already have backlog items (e.g. reconnected after refresh and response was already saved),
-    // do not parse/save again to avoid duplicates.
-    if (this.epics().length > 0) {
-      this.generationState.set('complete');
-      this.clearHeadlessBacklogSession();
-      this.cleanupHeadlessBacklogSandbox();
-      this.clearGenerationLiveTelemetry();
-      this.generationStatus.set('');
-      this.loadBacklog(repoId);
-      setTimeout(() => this.generationState.set('idle'), 2000);
-      return;
-    }
-
     this.generationState.set('parsing');
 
     try {
@@ -1773,7 +1760,7 @@ ${jsonFormatRequirement}`;
 
       this.generationState.set('saving');
 
-      this.backlogService.createBacklog(repoId, backlog).subscribe({
+      this.backlogService.createBacklog(repoId, backlog, { replaceExisting: true }).subscribe({
         next: () => {
           this.generationState.set('complete');
           this.clearHeadlessBacklogSession();
@@ -2067,6 +2054,17 @@ ${jsonFormatRequirement}`;
 
   isStorySelectedForSync(storyId: string): boolean {
     return this.selectedSyncToAzureStories().has(storyId);
+  }
+
+  /** Build GitHub issue URL when repo is GitHub and epic has issue number */
+  getGitHubEpicIssueUrl(epic: Epic): string | null {
+    const repo = this.repository() ?? this.repositoryService.getRepositoryById(this.repositoryId()) ?? null;
+    if (!repo?.fullName) return null;
+    const provider = (repo.provider ?? '').toLowerCase();
+    if (provider !== 'github') return null;
+    const issueNumber = epic?.gitHubIssueNumber;
+    if (issueNumber == null) return null;
+    return `https://github.com/${repo.fullName}/issues/${issueNumber}`;
   }
 
   /** Build GitHub issue URL when repo is GitHub and story has issue number */

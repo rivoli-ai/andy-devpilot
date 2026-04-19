@@ -17,6 +17,8 @@ export interface StorySandboxAgentSessionRow {
 }
 
 export interface CreateBacklogRequest {
+  /** When true, server removes existing epics for the repo before saving (AI regenerate). */
+  replaceExisting?: boolean;
   epics: {
     title: string;
     description: string;
@@ -65,8 +67,16 @@ export class BacklogService {
   /**
    * Create backlog from AI-generated data
    */
-  createBacklog(repositoryId: string, backlog: CreateBacklogRequest): Observable<Epic[]> {
-    return this.apiService.post<Epic[]>(`/backlog/repository/${repositoryId}`, backlog).pipe(
+  createBacklog(
+    repositoryId: string,
+    backlog: CreateBacklogRequest,
+    options?: { replaceExisting?: boolean }
+  ): Observable<Epic[]> {
+    const body: CreateBacklogRequest = {
+      ...backlog,
+      ...(options?.replaceExisting ? { replaceExisting: true } : {})
+    };
+    return this.apiService.post<Epic[]>(`/backlog/repository/${repositoryId}`, body).pipe(
       tap(epics => this.backlogSignal.set(epics))
     );
   }

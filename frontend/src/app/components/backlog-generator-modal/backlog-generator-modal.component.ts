@@ -668,7 +668,7 @@ IMPORTANT: Return ONLY valid JSON in this exact format:
   private saveBacklog(backlog: GeneratedBacklog): void {
     this.state.set('saving');
 
-    this.backlogService.createBacklog(this.repositoryId(), backlog).subscribe({
+    this.backlogService.createBacklog(this.repositoryId(), backlog, { replaceExisting: true }).subscribe({
       next: () => {
         this.state.set('complete');
         this.cleanupBacklogSandbox();

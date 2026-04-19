@@ -1474,8 +1474,9 @@ public class AzureDevOpsService : IAzureDevOpsService
                 throw new HttpRequestException($"Azure DevOps API returned {response.StatusCode}");
             }
 
-            var prResponse = JsonDocument.Parse(content);
+            using var prResponse = JsonDocument.Parse(content);
             var result = new List<PullRequestDto>();
+            var enrichmentRows = new List<(PullRequestDto Dto, JsonElement Pr)>();
 
             if (prResponse.RootElement.TryGetProperty("value", out var valueArray))
             {
@@ -1536,8 +1537,26 @@ public class AzureDevOpsService : IAzureDevOpsService
                         }
                     }
 
+                    enrichmentRows.Add((prDto, pr));
                     result.Add(prDto);
                 }
+            }
+
+            if (enrichmentRows.Count > 0)
+            {
+                const int enrichMax = 20;
+                var enrichTasks = enrichmentRows
+                    .Take(enrichMax)
+                    .Select(r => TryEnrichAzureDevOpsPullRequestStatsAsync(
+                        httpClient,
+                        organization,
+                        project,
+                        repositoryId,
+                        r.Dto,
+                        r.Pr,
+                        cancellationToken))
+                    .ToArray();
+                await System.Threading.Tasks.Task.WhenAll(enrichTasks);
             }
 
             _logger.LogInformation("Found {Count} pull requests in {Organization}/{Project}/{Repo}", 
@@ -1553,6 +1572,278 @@ public class AzureDevOpsService : IAzureDevOpsService
             _logger.LogError(ex, "Error fetching pull requests from Azure DevOps for {Organization}/{Project}/{Repo}", 
                 organization, project, repositoryId);
             throw;
+        }
+    }
+
+    private async System.Threading.Tasks.Task TryEnrichAzureDevOpsPullRequestStatsAsync(
+        HttpClient httpClient,
+        string organization,
+        string project,
+        string repositoryId,
+        PullRequestDto dto,
+        JsonElement listPrElement,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var orgSeg = AzureDevOpsPathSegment(organization, nameof(organization));
+            var projSeg = AzureDevOpsPathSegment(project, nameof(project));
+            var repoSeg = AzureDevOpsPathSegment(repositoryId, nameof(repositoryId));
+
+            string? sourceCommit = null;
+            string? targetCommit = null;
+            if (listPrElement.ValueKind == JsonValueKind.Object)
+            {
+                if (listPrElement.TryGetProperty("lastMergeSourceCommit", out var lms0)
+                    && lms0.ValueKind == JsonValueKind.Object
+                    && lms0.TryGetProperty("commitId", out var sid0)
+                    && sid0.ValueKind == JsonValueKind.String)
+                    sourceCommit = sid0.GetString();
+                if (listPrElement.TryGetProperty("lastMergeTargetCommit", out var lmt0)
+                    && lmt0.ValueKind == JsonValueKind.Object
+                    && lmt0.TryGetProperty("commitId", out var tid0)
+                    && tid0.ValueKind == JsonValueKind.String)
+                    targetCommit = tid0.GetString();
+            }
+
+            if (string.IsNullOrEmpty(sourceCommit) || string.IsNullOrEmpty(targetCommit))
+            {
+                using var detailDoc = await FetchRepositoryPullRequestDetailJsonAsync(
+                    httpClient,
+                    organization,
+                    project,
+                    repositoryId,
+                    dto.Number,
+                    cancellationToken);
+                if (detailDoc != null)
+                {
+                    var root = detailDoc.RootElement;
+                    if (string.IsNullOrEmpty(sourceCommit)
+                        && root.TryGetProperty("lastMergeSourceCommit", out var lms)
+                        && lms.ValueKind == JsonValueKind.Object
+                        && lms.TryGetProperty("commitId", out var sid)
+                        && sid.ValueKind == JsonValueKind.String)
+                        sourceCommit = sid.GetString();
+                    if (string.IsNullOrEmpty(targetCommit)
+                        && root.TryGetProperty("lastMergeTargetCommit", out var lmt)
+                        && lmt.ValueKind == JsonValueKind.Object
+                        && lmt.TryGetProperty("commitId", out var tid)
+                        && tid.ValueKind == JsonValueKind.String)
+                        targetCommit = tid.GetString();
+                }
+            }
+
+            if (!string.IsNullOrEmpty(sourceCommit) && !string.IsNullOrEmpty(targetCommit))
+            {
+                var orientations = new (string Base, string Target)[]
+                {
+                    (targetCommit, sourceCommit),
+                    (sourceCommit, targetCommit),
+                };
+
+                var bestLineSum = -1;
+                foreach (var (baseCommit, targetC) in orientations)
+                {
+                    var diffUrl =
+                        $"https://dev.azure.com/{orgSeg}/{projSeg}/_apis/git/repositories/{repoSeg}/diffs/commits?api-version={AzureDevOpsApiVersion}" +
+                        $"&baseVersion={Uri.EscapeDataString(baseCommit)}" +
+                        $"&targetVersion={Uri.EscapeDataString(targetC)}" +
+                        "&baseVersionType=commit&targetVersionType=commit";
+                    var diffResp = await httpClient.GetAsync(diffUrl, cancellationToken);
+                    var diffBody = await diffResp.Content.ReadAsStringAsync(cancellationToken);
+                    if (!diffResp.IsSuccessStatusCode || diffBody.TrimStart().StartsWith("<", StringComparison.Ordinal))
+                        continue;
+                    JsonDocument? diffDoc = null;
+                    try
+                    {
+                        diffDoc = JsonDocument.Parse(diffBody);
+                    }
+                    catch (JsonException)
+                    {
+                        continue;
+                    }
+
+                    using (diffDoc)
+                    {
+                        var root = diffDoc!.RootElement;
+                        var files = ComputeChangedFilesFromDiffRoot(root);
+                        if (files > dto.ChangedFiles)
+                            dto.ChangedFiles = files;
+
+                        var ba = 0;
+                        var bd = 0;
+                        var bs = -1;
+                        CollectBestLineStatsPair(root, ref ba, ref bd, ref bs);
+                        if (bs >= 0 && bs > bestLineSum)
+                        {
+                            bestLineSum = bs;
+                            dto.Additions = ba;
+                            dto.Deletions = bd;
+                        }
+                    }
+                }
+            }
+
+            if (dto.ChangedFiles == 0 && dto.Additions == 0 && dto.Deletions == 0)
+                await TryEnrichPullRequestStatsFromLatestIterationAsync(
+                    httpClient,
+                    orgSeg,
+                    projSeg,
+                    repoSeg,
+                    dto,
+                    cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Azure DevOps PR {PrId} stats enrichment failed", dto.Number);
+        }
+    }
+
+    private async System.Threading.Tasks.Task<JsonDocument?> FetchRepositoryPullRequestDetailJsonAsync(
+        HttpClient httpClient,
+        string organization,
+        string project,
+        string repositoryId,
+        int pullRequestId,
+        CancellationToken cancellationToken)
+    {
+        var url =
+            $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/" +
+            $"{AzureDevOpsPathSegment(project, nameof(project))}/_apis/git/repositories/" +
+            $"{AzureDevOpsPathSegment(repositoryId, nameof(repositoryId))}/pullrequests/{pullRequestId}" +
+            $"?api-version={AzureDevOpsApiVersion}";
+        var response = await httpClient.GetAsync(url, cancellationToken);
+        var body = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (!response.IsSuccessStatusCode || body.TrimStart().StartsWith("<", StringComparison.Ordinal))
+            return null;
+        try
+        {
+            return JsonDocument.Parse(body);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    private async System.Threading.Tasks.Task TryEnrichPullRequestStatsFromLatestIterationAsync(
+        HttpClient httpClient,
+        string orgSeg,
+        string projSeg,
+        string repoSeg,
+        PullRequestDto dto,
+        CancellationToken cancellationToken)
+    {
+        var iterUrl =
+            $"https://dev.azure.com/{orgSeg}/{projSeg}/_apis/git/repositories/{repoSeg}/pullrequests/{dto.Number}/iterations?api-version={AzureDevOpsApiVersion}";
+        var iterResp = await httpClient.GetAsync(iterUrl, cancellationToken);
+        var iterBody = await iterResp.Content.ReadAsStringAsync(cancellationToken);
+        if (!iterResp.IsSuccessStatusCode || iterBody.TrimStart().StartsWith("<", StringComparison.Ordinal))
+            return;
+
+        using var iterDoc = JsonDocument.Parse(iterBody);
+        if (!iterDoc.RootElement.TryGetProperty("value", out var iterArr) || iterArr.ValueKind != JsonValueKind.Array)
+            return;
+
+        int? latestId = null;
+        foreach (var it in iterArr.EnumerateArray())
+        {
+            if (!it.TryGetProperty("id", out var idEl) || idEl.ValueKind != JsonValueKind.Number)
+                continue;
+            var id = idEl.GetInt32();
+            if (!latestId.HasValue || id > latestId.Value)
+                latestId = id;
+        }
+
+        if (!latestId.HasValue)
+            return;
+
+        var chUrl =
+            $"https://dev.azure.com/{orgSeg}/{projSeg}/_apis/git/repositories/{repoSeg}/pullrequests/{dto.Number}/iterations/{latestId.Value}/changes?api-version={AzureDevOpsApiVersion}";
+        var chResp = await httpClient.GetAsync(chUrl, cancellationToken);
+        var chBody = await chResp.Content.ReadAsStringAsync(cancellationToken);
+        if (!chResp.IsSuccessStatusCode || chBody.TrimStart().StartsWith("<", StringComparison.Ordinal))
+            return;
+
+        using var chDoc = JsonDocument.Parse(chBody);
+        var root = chDoc.RootElement;
+        if (root.TryGetProperty("changeEntries", out var entries) && entries.ValueKind == JsonValueKind.Array)
+            dto.ChangedFiles = Math.Max(dto.ChangedFiles, entries.GetArrayLength());
+        else
+            dto.ChangedFiles = Math.Max(dto.ChangedFiles, ComputeChangedFilesFromDiffRoot(root));
+
+        var ba = 0;
+        var bd = 0;
+        var bs = -1;
+        CollectBestLineStatsPair(root, ref ba, ref bd, ref bs);
+        if (bs >= 0)
+        {
+            dto.Additions = ba;
+            dto.Deletions = bd;
+        }
+    }
+
+    private static int ComputeChangedFilesFromDiffRoot(JsonElement root)
+    {
+        var fromArray = 0;
+        if (root.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array)
+            fromArray = changes.GetArrayLength();
+        return Math.Max(fromArray, SumChangeCountsObject(root));
+    }
+
+    private static int SumChangeCountsObject(JsonElement root)
+    {
+        if (!root.TryGetProperty("changeCounts", out var cc) || cc.ValueKind != JsonValueKind.Object)
+            return 0;
+        var sum = 0;
+        foreach (var p in cc.EnumerateObject())
+        {
+            if (p.Value.ValueKind == JsonValueKind.Number)
+                sum += p.Value.GetInt32();
+        }
+        return sum;
+    }
+
+    private static void CollectBestLineStatsPair(JsonElement el, ref int bestAdd, ref int bestDel, ref int bestSum)
+    {
+        switch (el.ValueKind)
+        {
+            case JsonValueKind.Object:
+                int? la = null;
+                int? ld = null;
+                foreach (var p in el.EnumerateObject())
+                {
+                    if (p.Value.ValueKind != JsonValueKind.Number)
+                        continue;
+                    var n = p.Name;
+                    if (n.Equals("linesAdded", StringComparison.OrdinalIgnoreCase)
+                        || n.Equals("lineAdditions", StringComparison.OrdinalIgnoreCase)
+                        || n.Equals("addLines", StringComparison.OrdinalIgnoreCase))
+                        la = p.Value.GetInt32();
+                    else if (n.Equals("linesDeleted", StringComparison.OrdinalIgnoreCase)
+                        || n.Equals("lineDeletions", StringComparison.OrdinalIgnoreCase)
+                        || n.Equals("deleteLines", StringComparison.OrdinalIgnoreCase))
+                        ld = p.Value.GetInt32();
+                }
+
+                if (la.HasValue && ld.HasValue)
+                {
+                    var sum = la.Value + ld.Value;
+                    if (sum > bestSum)
+                    {
+                        bestSum = sum;
+                        bestAdd = la.Value;
+                        bestDel = ld.Value;
+                    }
+                }
+
+                foreach (var p in el.EnumerateObject())
+                    CollectBestLineStatsPair(p.Value, ref bestAdd, ref bestDel, ref bestSum);
+                break;
+            case JsonValueKind.Array:
+                foreach (var item in el.EnumerateArray())
+                    CollectBestLineStatsPair(item, ref bestAdd, ref bestDel, ref bestSum);
+                break;
         }
     }
 

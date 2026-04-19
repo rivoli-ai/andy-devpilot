@@ -109,6 +109,11 @@
   overflow: hidden;
   cursor: grab;
   touch-action: none;
+  /* Light: keep clean white; dark: slightly deepened canvas (mixing black breaks light grays). */
+  background: var(--surface-ground, #0d1117);
+}
+
+:host-context([data-theme='dark']) .mermaid-modal-viewport {
   background: color-mix(in srgb, var(--surface-ground, #0d1117) 92%, #000);
 }
 
@@ -180,6 +185,43 @@
 
 :host-context([data-theme='light']) .mermaid-modal-stage .mermaid svg .edgePath path {
   stroke: #57606a !important;
+}
+
+/* Light: modal chrome matches a clean diagram viewer (white), not gray page background */
+:host-context([data-theme='light']) .mermaid-modal-backdrop {
+  background: rgba(15, 23, 42, 0.35);
+}
+
+:host-context([data-theme='light']) .mermaid-modal-panel {
+  background: #ffffff;
+  border-color: var(--border-default, #e2e8f0);
+  box-shadow:
+    0 24px 48px rgba(15, 23, 42, 0.12),
+    0 0 0 1px rgba(15, 23, 42, 0.06);
+}
+
+:host-context([data-theme='light']) .mermaid-modal-toolbar {
+  background: #ffffff;
+  border-bottom-color: var(--border-light, #e2e8f0);
+}
+
+:host-context([data-theme='light']) .mermaid-modal-hint {
+  color: var(--text-tertiary, #64748b);
+}
+
+:host-context([data-theme='light']) .mermaid-modal-viewport {
+  background: #ffffff;
+}
+
+:host-context([data-theme='light']) .mermaid-modal-btn {
+  background: #f1f5f9;
+  border-color: var(--border-default, #e2e8f0);
+  color: var(--text-primary, #0f172a);
+}
+
+:host-context([data-theme='light']) .mermaid-modal-btn:hover {
+  background: #e2e8f0;
+  border-color: var(--border-hover, #cbd5e1);
 }
 
 @media (max-width: 640px) {
