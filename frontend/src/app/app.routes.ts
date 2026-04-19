@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { backlogCanDeactivateGuard } from './features/backlog/backlog-deactivate.guard';
 import { codeCanDeactivateGuard } from './features/code/code-deactivate.guard';
 
 export const routes: Routes = [
@@ -26,7 +27,8 @@ export const routes: Routes = [
   },
   {
     path: 'backlog/:repositoryId',
-    loadComponent: () => import('./features/backlog/backlog.component').then(m => m.BacklogComponent)
+    loadComponent: () => import('./features/backlog/backlog.component').then(m => m.BacklogComponent),
+    canDeactivate: [backlogCanDeactivateGuard]
   },
   {
     path: 'code/:repositoryId',

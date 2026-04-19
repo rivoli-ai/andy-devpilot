@@ -13,6 +13,7 @@ import { AIConfigService } from '../../core/services/ai-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { AuthService } from '../../core/services/auth.service';
 import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
+import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { VPS_CONFIG } from '../../core/config/vps.config';
 import { Epic } from '../../shared/models/epic.model';
 import { Feature } from '../../shared/models/feature.model';
@@ -92,7 +93,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
   azureIdentityVerifying = signal<boolean>(false);
   azureIdentityVerifySuccess = signal<string | null>(null);
   azureIdentityVerifyError = signal<string | null>(null);
-  /** Session dismiss for “configure Azure Identity” banner (per repository). */
+  /** User dismissed “configure Azure Identity” banner; persisted per repository in localStorage. */
   azureIdentityWarningDismissed = signal<boolean>(false);
 
   // Lightbox
@@ -494,7 +495,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
     private authService: AuthService,
     private sanitizer: DomSanitizer,
     private markdownPipe: MarkdownPipe,
-    private lastVisitedRepository: LastVisitedRepositoryService
+    private lastVisitedRepository: LastVisitedRepositoryService,
+    private confirmDialog: ConfirmDialogService
   ) {
     // Sync with backlog service signal for real-time updates (e.g., when PR is created)
     effect(() => {
@@ -588,6 +590,14 @@ export class BacklogComponent implements OnInit, OnDestroy {
     sessionStorage.removeItem(BacklogComponent.BACKLOG_HEADLESS_SESSION_KEY);
   }
 
+  @HostListener('window:beforeunload', ['$event'])
+  protected onWindowBeforeUnload(event: BeforeUnloadEvent): void {
+    if (this.isBacklogGenerationActive()) {
+      event.preventDefault();
+      event.returnValue = '';
+    }
+  }
+
   @HostListener('window:pagehide', ['$event'])
   protected onWindowPageHide(event: PageTransitionEvent): void {
     if (event.persisted) return;
@@ -595,6 +605,46 @@ export class BacklogComponent implements OnInit, OnDestroy {
     if (sid) {
       this.sandboxService.requestDeleteSandboxOnUnload(sid);
     }
+  }
+
+  /** True while headless AI backlog generation is running (not idle / complete / error). */
+  private isBacklogGenerationActive(): boolean {
+    const s = this.generationState();
+    return (
+      s === 'creating_sandbox' ||
+      s === 'waiting_sandbox' ||
+      s === 'sending' ||
+      s === 'waiting_response' ||
+      s === 'parsing' ||
+      s === 'saving'
+    );
+  }
+
+  /**
+   * Router guard: leaving `/backlog/:id` during generation requires confirmation and cleans up the sandbox.
+   */
+  async confirmLeaveBacklogPage(): Promise<boolean> {
+    if (!this.isBacklogGenerationActive()) {
+      return true;
+    }
+    const ok = await this.confirmDialog.confirm({
+      title: 'Leave this page?',
+      message:
+        'AI backlog generation is still running. Leaving will stop it and remove the temporary sandbox. Unsaved generated content will be lost.',
+      confirmText: 'Leave',
+      cancelText: 'Stay',
+      variant: 'danger'
+    });
+    if (!ok) {
+      return false;
+    }
+    this.clearHeadlessBacklogSession();
+    this.clearGenerationLiveTelemetry();
+    this.generationState.set('idle');
+    this.generationStatus.set('');
+    this.generationError.set(null);
+    this.cleanupHeadlessBacklogSandbox();
+    return true;
   }
 
   loadBacklog(repositoryId: string): void {
@@ -3525,9 +3575,20 @@ ${jsonFormatRequirement}`;
   }
 
   private readAzureIdentityWarningDismissedFromStorage(repositoryId: string): boolean {
-    if (typeof sessionStorage === 'undefined') return false;
     try {
-      return sessionStorage.getItem(this.azureIdentityWarningDismissStorageKey(repositoryId)) === '1';
+      const key = this.azureIdentityWarningDismissStorageKey(repositoryId);
+      if (typeof localStorage !== 'undefined' && localStorage.getItem(key) === '1') {
+        return true;
+      }
+      // One-time migration from earlier sessionStorage-only dismiss
+      if (typeof sessionStorage !== 'undefined' && sessionStorage.getItem(key) === '1') {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem(key, '1');
+        }
+        sessionStorage.removeItem(key);
+        return true;
+      }
+      return false;
     } catch {
       return false;
     }
@@ -3541,7 +3602,13 @@ ${jsonFormatRequirement}`;
     const id = this.repositoryId();
     if (!id) return;
     try {
-      sessionStorage.setItem(this.azureIdentityWarningDismissStorageKey(id), '1');
+      const key = this.azureIdentityWarningDismissStorageKey(id);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(key, '1');
+      }
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(key);
+      }
     } catch {
       /* storage unavailable */
     }
@@ -3550,7 +3617,13 @@ ${jsonFormatRequirement}`;
 
   private clearAzureIdentityWarningDismissalForRepo(repositoryId: string): void {
     try {
-      sessionStorage.removeItem(this.azureIdentityWarningDismissStorageKey(repositoryId));
+      const key = this.azureIdentityWarningDismissStorageKey(repositoryId);
+      if (typeof localStorage !== 'undefined') {
+        localStorage.removeItem(key);
+      }
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem(key);
+      }
     } catch {
       /* ignore */
     }

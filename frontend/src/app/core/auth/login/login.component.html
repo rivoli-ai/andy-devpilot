@@ -65,12 +65,6 @@
           </p>
         </div>
 
-        @if (sessionNotice()) {
-          <div class="session-notice" role="status">
-            <span>{{ sessionNotice() }}</span>
-          </div>
-        }
-
         <!-- Error message -->
         @if (error()) {
           <div class="error-message">
