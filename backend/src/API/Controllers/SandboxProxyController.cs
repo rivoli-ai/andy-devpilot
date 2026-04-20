@@ -537,7 +537,10 @@ public class SandboxProxyController : ControllerBase
                     continue;
                 if (header.Key.Equals("Location", StringComparison.OrdinalIgnoreCase))
                 {
-                    var rewritten = RewritePreviewLocation(header.Value.FirstOrDefault(), htmlRewritePrefix!);
+                    var rewritten = RewritePreviewLocation(
+                        header.Value.FirstOrDefault(),
+                        htmlRewritePrefix!,
+                        gatewayUrl: GetVpsGatewayTrimmed());
                     if (rewritten is not null)
                     {
                         Response.Headers[header.Key] = rewritten;
@@ -597,14 +600,15 @@ public class SandboxProxyController : ControllerBase
 
     /// <summary>
     /// Rewrites a 3xx <c>Location</c> header from an upstream dev server so the
-    /// browser stays under the preview prefix. Root-absolute paths
-    /// (<c>/swagger/index.html</c>) get the preview prefix prepended; absolute
-    /// URLs pointing at <c>localhost:*</c> get the host stripped and the path
-    /// prefixed; path-relative and other cross-origin URLs pass through
-    /// unchanged (the browser resolves path-relative against the current URL,
-    /// which is already the preview URL).
+    /// browser stays under the preview prefix. Handles:
+    /// <list type="bullet">
+    /// <item>Root-absolute paths (<c>/swagger/index.html</c>) — prefix with preview mount.</item>
+    /// <item>Internal manager paths (<c>/sandbox/{id}/preview/{port}/…</c>) — map to <c>/api/sandboxes/…</c>.</item>
+    /// <item>Absolute URLs whose host is loopback or the configured gateway — strip host, prefix the path.</item>
+    /// <item>Path-relative / protocol-relative / cross-origin — leave alone.</item>
+    /// </list>
     /// </summary>
-    internal static string? RewritePreviewLocation(string? location, string prefix)
+    internal static string? RewritePreviewLocation(string? location, string prefix, string? gatewayUrl)
     {
         if (string.IsNullOrEmpty(location)) return null;
         var safePrefix = prefix.EndsWith('/') ? prefix : prefix + "/";
@@ -615,19 +619,23 @@ public class SandboxProxyController : ControllerBase
         // Root-absolute: /swagger/index.html → /api/sandboxes/…/preview/4200/swagger/index.html
         if (location.StartsWith('/'))
         {
-            return safePrefix + location.TrimStart('/');
+            return MapInternalManagerPathOrPrefix(location, safePrefix);
         }
 
-        // Absolute URL to loopback — rewrite to preview prefix + path.
+        // Absolute URL — rewrite if the host is one we own (loopback / gateway).
         if (Uri.TryCreate(location, UriKind.Absolute, out var abs))
         {
             var host = abs.Host;
-            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            var isLoopback = host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
                 || host.Equals("127.0.0.1", StringComparison.Ordinal)
-                || host.Equals("0.0.0.0", StringComparison.Ordinal))
+                || host.Equals("0.0.0.0", StringComparison.Ordinal);
+            var isGateway = IsGatewayHost(abs, gatewayUrl);
+            if (isLoopback || isGateway)
             {
-                var path = abs.PathAndQuery.TrimStart('/');
-                return safePrefix + path + abs.Fragment;
+                var mapped = MapInternalManagerPathOrPrefix(abs.AbsolutePath, safePrefix);
+                return mapped
+                    + (string.IsNullOrEmpty(abs.Query) ? "" : abs.Query)
+                    + (string.IsNullOrEmpty(abs.Fragment) ? "" : abs.Fragment);
             }
             // Other absolute URLs (e.g. external SSO) pass through unchanged.
             return null;
@@ -637,6 +645,43 @@ public class SandboxProxyController : ControllerBase
         // the current preview URL, which is correct.
         return null;
     }
+
+    /// <summary>Matches the host+port of an absolute URL against the configured gateway URL.</summary>
+    private static bool IsGatewayHost(Uri target, string? gatewayUrl)
+    {
+        if (string.IsNullOrEmpty(gatewayUrl)) return false;
+        if (!Uri.TryCreate(gatewayUrl, UriKind.Absolute, out var gw)) return false;
+        if (!string.Equals(target.Host, gw.Host, StringComparison.OrdinalIgnoreCase)) return false;
+        // Port-agnostic if the gateway URL uses default port; otherwise require exact match.
+        return gw.IsDefaultPort || target.Port == gw.Port;
+    }
+
+    /// <summary>
+    /// If <paramref name="path"/> looks like an internal manager preview path
+    /// (<c>/sandbox/{id}/preview/{port}/…</c>), map it to the public preview
+    /// mount. Otherwise prepend the preview prefix.
+    /// </summary>
+    private static string MapInternalManagerPathOrPrefix(string path, string safePrefix)
+    {
+        if (string.IsNullOrEmpty(path)) return safePrefix;
+        var trimmed = path.StartsWith('/') ? path : "/" + path;
+
+        // /sandbox/<id>/preview/<port>[/<rest>] → preview prefix already targets
+        // this sandbox/port, so strip the manager-internal segments and take
+        // only the remainder.
+        var m = InternalManagerPreviewPathRegex.Match(trimmed);
+        if (m.Success)
+        {
+            var rest = m.Groups["rest"].Value;
+            return safePrefix + rest.TrimStart('/');
+        }
+
+        return safePrefix + trimmed.TrimStart('/');
+    }
+
+    private static readonly Regex InternalManagerPreviewPathRegex = new(
+        "^/sandbox/[^/]+/preview/\\d+(?<rest>/.*)?$",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
     // ── HTML rewriting for the preview proxy ─────────────────────────────────
     // Angular/Vite emit `<base href="/">` plus many absolute `/foo` attributes,

@@ -870,15 +870,12 @@ _PREVIEW_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
     "/sandbox/<sandbox_id>/preview/<int:preview_port>",
     defaults={"subpath": ""},
     methods=_PREVIEW_METHODS,
-)
-@app.route(
-    "/sandbox/<sandbox_id>/preview/<int:preview_port>/",
-    defaults={"subpath": ""},
-    methods=_PREVIEW_METHODS,
+    strict_slashes=False,
 )
 @app.route(
     "/sandbox/<sandbox_id>/preview/<int:preview_port>/<path:subpath>",
     methods=_PREVIEW_METHODS,
+    strict_slashes=False,
 )
 def proxy_preview(sandbox_id, preview_port, subpath):
     """HTTP reverse proxy to an app dev server inside the sandbox (e.g. Vite :5173)."""
