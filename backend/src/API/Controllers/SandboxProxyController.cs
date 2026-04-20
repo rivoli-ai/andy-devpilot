@@ -535,7 +535,10 @@ public class SandboxProxyController : ControllerBase
         if (isHtml)
         {
             var html = await upstream.Content.ReadAsStringAsync(HttpContext.RequestAborted);
-            var rewritten = RewritePreviewHtml(html, htmlRewritePrefix!);
+            // Current request path so we can inject a <base> matching the
+            // document's directory when upstream has none (Swagger UI, etc.).
+            var currentPath = Request.Path.HasValue ? Request.Path.Value! : htmlRewritePrefix!;
+            var rewritten = RewritePreviewHtml(html, htmlRewritePrefix!, currentPath);
             var bytes = Encoding.UTF8.GetBytes(rewritten);
             await Response.Body.WriteAsync(bytes, HttpContext.RequestAborted);
         }
@@ -614,33 +617,38 @@ public class SandboxProxyController : ControllerBase
         "\\b(src|href|action|poster|data-src)\\s*=\\s*(\"|')/(?!/)",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
-    internal static string RewritePreviewHtml(string html, string prefix)
+    internal static string RewritePreviewHtml(string html, string prefix, string currentRequestPath)
     {
         var safePrefix = prefix.EndsWith('/') ? prefix : prefix + "/";
         // strip trailing slash for attribute rewrites so we don't produce `//…` paths.
         var attrPrefix = safePrefix.TrimEnd('/');
 
-        // 1) Inspect the upstream <base href>. Sub-path apps (Swagger UI, docs
-        //    sites, Spring Boot's actuator UI, …) set `<base href="/swagger/">`
-        //    which we must preserve as a sub-path under the preview prefix —
-        //    otherwise relative refs like `./swagger-ui.css` resolve to the
-        //    preview root and 404. Root SPAs (Angular/Vite) ship with
-        //    `<base href="/">` which we collapse to the preview root.
-        var upstreamSubPath = string.Empty;
+        // 1) Inspect the upstream <base href> to decide what base to inject.
+        //    - Sub-path apps with `<base href="/swagger/">`: keep the sub-path
+        //      under the preview prefix.
+        //    - SPAs with `<base href="/">`: collapse to the preview root so
+        //      absolute refs like `/runtime.js` resolve (combined with the
+        //      attribute rewrite below, which pins them on the preview root).
+        //    - No upstream <base>: anchor to the document's own directory so
+        //      relative refs (`./swagger-ui.css`) resolve inside the sub-path.
+        //      This matches browser defaults once redirects land the iframe
+        //      URL in the right directory.
+        string? injectedHref = null;
         var baseMatch = BaseHrefValueRegex.Match(html);
         if (baseMatch.Success)
         {
             var raw = baseMatch.Groups["u"].Value.Trim();
-            // Only act on root-absolute base hrefs (`/foo/`). Protocol/host or
-            // relative bases are application-defined and we don't try to rewrite.
             if (raw.StartsWith('/') && !raw.StartsWith("//", StringComparison.Ordinal))
             {
                 var trimmed = raw.Trim('/');
-                if (trimmed.Length > 0)
-                {
-                    upstreamSubPath = trimmed + "/";
-                }
+                injectedHref = trimmed.Length > 0
+                    ? safePrefix + trimmed + "/"
+                    : safePrefix;
             }
+        }
+        if (injectedHref is null)
+        {
+            injectedHref = ComputeDocumentDirectoryHref(currentRequestPath, safePrefix);
         }
 
         // 2) Drop any existing <base> tag — Angular/Vite emit `<base href="/">`
@@ -659,15 +667,40 @@ public class SandboxProxyController : ControllerBase
         });
 
         // 4) Finally, inject a fresh <base> right after <head> so every relative
-        //    asset resolves against the preview prefix (plus any upstream
-        //    sub-path so relative refs in sub-path apps still resolve).
-        var injectedHref = safePrefix + upstreamSubPath;
+        //    asset resolves against the chosen base.
         var baseTag = $"<base href=\"{injectedHref}\">";
         html = HeadOpenRegex.IsMatch(html)
             ? HeadOpenRegex.Replace(html, m => m.Value + baseTag, 1)
             : baseTag + html;
 
         return html;
+    }
+
+    /// <summary>
+    /// Returns the directory portion of the current request path (everything
+    /// up to and including the last '/'), guaranteed to be within the preview
+    /// prefix. Used as a <c>&lt;base href&gt;</c> fallback so URL-relative refs
+    /// resolve against the document's own directory (e.g. Swagger UI serving
+    /// <c>./swagger-ui.css</c> from <c>/swagger/index.html</c>).
+    /// </summary>
+    internal static string ComputeDocumentDirectoryHref(string currentRequestPath, string safePrefix)
+    {
+        if (string.IsNullOrEmpty(currentRequestPath)) return safePrefix;
+        // Strip any query/fragment (shouldn't be present in Path, defensive).
+        var pathOnly = currentRequestPath;
+        var q = pathOnly.IndexOf('?');
+        if (q >= 0) pathOnly = pathOnly[..q];
+        var h = pathOnly.IndexOf('#');
+        if (h >= 0) pathOnly = pathOnly[..h];
+
+        // Directory = everything up to and including the last '/'.
+        var lastSlash = pathOnly.LastIndexOf('/');
+        var dir = lastSlash >= 0 ? pathOnly[..(lastSlash + 1)] : safePrefix;
+        if (!dir.EndsWith('/')) dir += "/";
+
+        // Safety: never escape the preview prefix (e.g. if path is weirdly short).
+        if (!dir.StartsWith(safePrefix, StringComparison.Ordinal)) dir = safePrefix;
+        return dir;
     }
 
     private static async Task PipeAsync(WebSocket from, WebSocket to, CancellationTokenSource cts)
