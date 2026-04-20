@@ -443,11 +443,12 @@ public class SandboxProxyController : ControllerBase
     }
 
     /// <summary>Short connect timeout so bad manager/dev-server routes fail fast (avoids 2+ minute hangs).</summary>
-    private static HttpClient CreateSandboxProxyHttpClient()
+    private static HttpClient CreateSandboxProxyHttpClient(bool allowAutoRedirect = true)
     {
         var handler = new SocketsHttpHandler
         {
             ConnectTimeout = TimeSpan.FromSeconds(10),
+            AllowAutoRedirect = allowAutoRedirect,
         };
         return new HttpClient(handler, disposeHandler: true)
         {
@@ -460,7 +461,13 @@ public class SandboxProxyController : ControllerBase
 
     private async Task<IActionResult> ForwardHttpAsync(string targetUrl, string? sandboxToken, string? htmlRewritePrefix)
     {
-        using var client = CreateSandboxProxyHttpClient();
+        // Disable server-side redirect following for preview traffic so the
+        // browser sees the 3xx and updates the iframe URL. Without this, apps
+        // like Swagger UI (GET /swagger → 301 /swagger/index.html) return the
+        // final HTML at the wrong iframe path, so relative `./swagger-ui.css`
+        // references resolve to the preview root and 401/404.
+        var isPreview = htmlRewritePrefix is not null;
+        using var client = CreateSandboxProxyHttpClient(allowAutoRedirect: !isPreview);
 
         var method = new HttpMethod(Request.Method);
         using var req = new HttpRequestMessage(method, targetUrl);
@@ -513,6 +520,15 @@ public class SandboxProxyController : ControllerBase
         foreach (var header in upstream.Headers)
         {
             if (header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
+            if (isPreview && header.Key.Equals("Location", StringComparison.OrdinalIgnoreCase))
+            {
+                var rewritten = RewritePreviewLocation(header.Value.FirstOrDefault(), htmlRewritePrefix!);
+                if (rewritten is not null)
+                {
+                    Response.Headers[header.Key] = rewritten;
+                    continue;
+                }
+            }
             Response.Headers[header.Key] = header.Value.ToArray();
         }
 
@@ -528,6 +544,49 @@ public class SandboxProxyController : ControllerBase
             await upstream.Content.CopyToAsync(Response.Body, HttpContext.RequestAborted);
         }
         return new EmptyResult();
+    }
+
+    /// <summary>
+    /// Rewrites a 3xx <c>Location</c> header from an upstream dev server so the
+    /// browser stays under the preview prefix. Root-absolute paths
+    /// (<c>/swagger/index.html</c>) get the preview prefix prepended; absolute
+    /// URLs pointing at <c>localhost:*</c> get the host stripped and the path
+    /// prefixed; path-relative and other cross-origin URLs pass through
+    /// unchanged (the browser resolves path-relative against the current URL,
+    /// which is already the preview URL).
+    /// </summary>
+    internal static string? RewritePreviewLocation(string? location, string prefix)
+    {
+        if (string.IsNullOrEmpty(location)) return null;
+        var safePrefix = prefix.EndsWith('/') ? prefix : prefix + "/";
+
+        // Protocol-relative (//host/path) → leave alone.
+        if (location.StartsWith("//", StringComparison.Ordinal)) return null;
+
+        // Root-absolute: /swagger/index.html → /api/sandboxes/…/preview/4200/swagger/index.html
+        if (location.StartsWith('/'))
+        {
+            return safePrefix + location.TrimStart('/');
+        }
+
+        // Absolute URL to loopback — rewrite to preview prefix + path.
+        if (Uri.TryCreate(location, UriKind.Absolute, out var abs))
+        {
+            var host = abs.Host;
+            if (host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+                || host.Equals("127.0.0.1", StringComparison.Ordinal)
+                || host.Equals("0.0.0.0", StringComparison.Ordinal))
+            {
+                var path = abs.PathAndQuery.TrimStart('/');
+                return safePrefix + path + abs.Fragment;
+            }
+            // Other absolute URLs (e.g. external SSO) pass through unchanged.
+            return null;
+        }
+
+        // Path-relative (swagger/index.html, ./foo) → browser resolves against
+        // the current preview URL, which is correct.
+        return null;
     }
 
     // ── HTML rewriting for the preview proxy ─────────────────────────────────

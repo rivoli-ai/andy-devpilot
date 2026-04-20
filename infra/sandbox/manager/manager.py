@@ -946,12 +946,18 @@ def proxy_preview(sandbox_id, preview_port, subpath):
 
     def _do_request():
         # (connect, read) — fail fast if nothing accepts TCP; if connect works but page hangs, check dev server bind.
+        # allow_redirects=False: let the browser follow 3xx so the iframe URL
+        # tracks the real path. Otherwise Swagger-style apps (GET /swagger →
+        # 301 /swagger/index.html) leave the iframe URL stuck at /swagger while
+        # serving the final HTML, and relative `./swagger-ui.css` refs resolve
+        # one directory too high (→ /swagger-ui.css, 401/404).
         return http_requests.request(
             method=request.method,
             url=url,
             headers=headers,
             data=request.get_data(),
             stream=True,
+            allow_redirects=False,
             timeout=(8, 90),
         )
 
