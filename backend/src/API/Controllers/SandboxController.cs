@@ -27,6 +27,7 @@ public class SandboxController : ControllerBase
     private readonly IRepositoryRepository _repositoryRepository;
     private readonly IEffectiveAiConfigResolver _aiConfigResolver;
     private readonly IMcpServerConfigRepository _mcpRepository;
+    private readonly IArtifactFeedConfigRepository _artifactFeedRepository;
     private readonly IUserStoryRepository _userStoryRepository;
     private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
     private readonly IUserRepositorySandboxBindingRepository _userRepositorySandboxBindingRepository;
@@ -38,6 +39,7 @@ public class SandboxController : ControllerBase
         IRepositoryRepository repositoryRepository,
         IEffectiveAiConfigResolver aiConfigResolver,
         IMcpServerConfigRepository mcpRepository,
+        IArtifactFeedConfigRepository artifactFeedRepository,
         IUserStoryRepository userStoryRepository,
         IRepositoryAgentRuleRepository repositoryAgentRuleRepository,
         IUserRepositorySandboxBindingRepository userRepositorySandboxBindingRepository,
@@ -48,6 +50,7 @@ public class SandboxController : ControllerBase
         _repositoryRepository = repositoryRepository;
         _aiConfigResolver = aiConfigResolver;
         _mcpRepository = mcpRepository;
+        _artifactFeedRepository = artifactFeedRepository;
         _userStoryRepository = userStoryRepository;
         _repositoryAgentRuleRepository = repositoryAgentRuleRepository;
         _userRepositorySandboxBindingRepository = userRepositorySandboxBindingRepository;
@@ -82,8 +85,38 @@ public class SandboxController : ControllerBase
 
         try
         {
+            // Resolve artifact feeds server-side (same pattern as MCP/AI):
+            // if the frontend didn't send a list (code Ask, code Analysis, etc.),
+            // fall back to the admin-defined shared catalog so every headless
+            // flow gets NuGet/npm/pip configured automatically.
+            var artifactFeedsForSandbox = request.ArtifactFeeds?
+                .Select(f => new SandboxArtifactFeed
+                {
+                    Name = f.Name,
+                    Organization = f.Organization,
+                    FeedName = f.FeedName,
+                    ProjectName = f.ProjectName,
+                    FeedType = f.FeedType,
+                })
+                .ToList();
+
+            if (artifactFeedsForSandbox is null || artifactFeedsForSandbox.Count == 0)
+            {
+                var sharedFeeds = await _artifactFeedRepository.GetEnabledSharedAsync(cancellationToken);
+                artifactFeedsForSandbox = sharedFeeds
+                    .Select(f => new SandboxArtifactFeed
+                    {
+                        Name = f.Name,
+                        Organization = f.Organization,
+                        FeedName = f.FeedName,
+                        ProjectName = f.ProjectName,
+                        FeedType = f.FeedType,
+                    })
+                    .ToList();
+            }
+
             var azureDevOpsPat = request.AzureDevOpsPat;
-            if (string.IsNullOrEmpty(azureDevOpsPat) && request.ArtifactFeeds?.Count > 0)
+            if (string.IsNullOrEmpty(azureDevOpsPat) && artifactFeedsForSandbox.Count > 0)
             {
                 var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
                 azureDevOpsPat = user?.AzureDevOpsAccessToken;
@@ -167,14 +200,7 @@ public class SandboxController : ControllerBase
                     AzureDevOpsPat = azureDevOpsPat,
                     AiConfig = sandboxAiConfig,
                     ZedSettings = zedSettings,
-                    ArtifactFeeds = request.ArtifactFeeds?.Select(f => new SandboxArtifactFeed
-                    {
-                        Name = f.Name,
-                        Organization = f.Organization,
-                        FeedName = f.FeedName,
-                        ProjectName = f.ProjectName,
-                        FeedType = f.FeedType,
-                    }).ToList(),
+                    ArtifactFeeds = artifactFeedsForSandbox.Count > 0 ? artifactFeedsForSandbox : null,
                     AgentRules = agentRulesForSandbox,
                     AzureIdentityClientId = azureIdClientId,
                     AzureIdentityClientSecret = azureIdClientSecret,
