@@ -520,16 +520,43 @@ public class SandboxProxyController : ControllerBase
         foreach (var header in upstream.Headers)
         {
             if (header.Key.Equals("Transfer-Encoding", StringComparison.OrdinalIgnoreCase)) continue;
-            if (isPreview && header.Key.Equals("Location", StringComparison.OrdinalIgnoreCase))
+            if (isPreview)
             {
-                var rewritten = RewritePreviewLocation(header.Value.FirstOrDefault(), htmlRewritePrefix!);
-                if (rewritten is not null)
+                // Strip framing-restrictive headers so the preview iframe can
+                // always render; we intentionally embed dev servers in a
+                // same-origin iframe gated by the sandbox ID.
+                if (header.Key.Equals("X-Frame-Options", StringComparison.OrdinalIgnoreCase)) continue;
+                if (header.Key.Equals("Content-Security-Policy", StringComparison.OrdinalIgnoreCase))
                 {
-                    Response.Headers[header.Key] = rewritten;
+                    var sanitized = StripFrameAncestors(header.Value.FirstOrDefault());
+                    if (!string.IsNullOrEmpty(sanitized))
+                        Response.Headers[header.Key] = sanitized;
                     continue;
+                }
+                if (header.Key.Equals("Content-Security-Policy-Report-Only", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                if (header.Key.Equals("Location", StringComparison.OrdinalIgnoreCase))
+                {
+                    var rewritten = RewritePreviewLocation(header.Value.FirstOrDefault(), htmlRewritePrefix!);
+                    if (rewritten is not null)
+                    {
+                        Response.Headers[header.Key] = rewritten;
+                        continue;
+                    }
                 }
             }
             Response.Headers[header.Key] = header.Value.ToArray();
+        }
+
+        // Dev-server HTML and 3xx redirects should never be cached by the
+        // browser: intermediate changes (port switch, sub-path edit, backend
+        // rewrite updates) must take effect on the next load without relying
+        // on a hard refresh inside the iframe.
+        if (isPreview && (isHtml || ((int)upstream.StatusCode is >= 300 and < 400)))
+        {
+            Response.Headers["Cache-Control"] = "no-store, no-cache, must-revalidate";
+            Response.Headers["Pragma"] = "no-cache";
+            Response.Headers["Expires"] = "0";
         }
 
         if (isHtml)
@@ -547,6 +574,25 @@ public class SandboxProxyController : ControllerBase
             await upstream.Content.CopyToAsync(Response.Body, HttpContext.RequestAborted);
         }
         return new EmptyResult();
+    }
+
+    /// <summary>
+    /// Removes the <c>frame-ancestors</c> directive from a CSP header value so
+    /// the preview iframe isn't blocked. Other directives (script-src, etc.)
+    /// are preserved untouched.
+    /// </summary>
+    internal static string? StripFrameAncestors(string? csp)
+    {
+        if (string.IsNullOrWhiteSpace(csp)) return csp;
+        var parts = csp.Split(';', StringSplitOptions.RemoveEmptyEntries);
+        var kept = new List<string>(parts.Length);
+        foreach (var p in parts)
+        {
+            var trimmed = p.Trim();
+            if (trimmed.StartsWith("frame-ancestors", StringComparison.OrdinalIgnoreCase)) continue;
+            kept.Add(trimmed);
+        }
+        return kept.Count == 0 ? null : string.Join("; ", kept);
     }
 
     /// <summary>
