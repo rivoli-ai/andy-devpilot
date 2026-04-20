@@ -116,7 +116,15 @@ export class SandboxBridgeService {
   }
 
   private getBridgeUrl(sandboxId: string): string {
-    return `${this.apiUrl}/sandboxes/${sandboxId}/bridge`;
+    return `${this.apiUrl}/sandboxes/${encodeURIComponent(sandboxId)}/bridge`;
+  }
+
+  /**
+   * In-sandbox dev server (Vite, webpack, etc.) via backend reverse proxy.
+   * Same access model as VNC: gated by sandbox id (no JWT on iframe navigation).
+   */
+  buildPreviewUrl(sandboxId: string, port: number): string {
+    return `${this.apiUrl}/sandboxes/${encodeURIComponent(sandboxId)}/preview/${port}/`;
   }
 
   health(sandboxId: string): Observable<HealthResponse> {

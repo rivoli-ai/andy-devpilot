@@ -7,12 +7,14 @@ import {
   computed,
   viewChild,
   ElementRef,
-  effect
+  effect,
+  inject
 } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
+import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { Subject, Subscription, interval, firstValueFrom, of } from 'rxjs';
 import { takeUntil, takeWhile, switchMap, catchError } from 'rxjs/operators';
 import {
@@ -67,6 +69,8 @@ export interface CodeAskMessage {
   styleUrl: './code.component.css'
 })
 export class CodeComponent implements OnInit, OnDestroy {
+  private readonly sanitizer = inject(DomSanitizer);
+
   // State signals
   repository = signal<Repository | null>(null);
   repositoryId = signal<string>('');
@@ -134,6 +138,28 @@ export class CodeComponent implements OnInit, OnDestroy {
   codeChatLiveTools = signal<{ name: string; args_preview?: string }[]>([]);
   /** Short status line from bridge live_response.content (current tool name or “Starting agent…”). */
   codeChatStreamHint = signal<string | null>(null);
+
+  /** Dev-server port for Ask app preview; null until the user picks one (iframe stays empty). */
+  codeAskPreviewPort = signal<number | null>(null);
+  /** When true, split Ask into two columns: chat left, sandbox app preview right. */
+  codeAskPreviewEmbedded = signal<boolean>(false);
+  /** Custom port dropdown (same pattern as branch selector). */
+  showCodeAskPreviewPortDropdown = signal<boolean>(false);
+  /** Free-form port input backing value for the dropdown's text field. */
+  codeAskPreviewPortInput = signal<string>('');
+  /** Transient validation message for the port field. */
+  codeAskPreviewPortError = signal<string | null>(null);
+
+  /** Ports blocked by the proxy (keep in sync with DENIED_PREVIEW_PORTS on the backend / manager). */
+  private readonly codeAskPreviewDeniedPorts: ReadonlySet<number> = new Set([
+    0, 22, 25, 111, 135, 139, 445, 389, 636, 1433, 3306, 5432,
+    5900, 6379, 6080, 6081, 8090, 8091, 9042, 11211, 27017
+  ]);
+
+  /** Common dev-server ports shown as quick-pick suggestions (any other port works too). */
+  readonly codeAskPreviewPortOptions: readonly number[] = [
+    3000, 3001, 4173, 4200, 5000, 5173, 5174, 8000, 8080, 8081, 8888, 9000
+  ];
 
   /** Avoid double restore when branches + tree load triggers twice. */
   private codeAskRestoreDoneForRepo: string | null = null;
@@ -209,6 +235,17 @@ export class CodeComponent implements OnInit, OnDestroy {
   openPrCount = computed(() => this.pullRequests().filter(pr => pr.state === 'open').length);
   closedPrCount = computed(() => this.pullRequests().filter(pr => pr.state !== 'open').length);
 
+  /** Safe URL for split-view preview iframe (null until port is chosen or column hidden). */
+  askPreviewSafeUrl = computed((): SafeResourceUrl | null => {
+    if (!this.codeAskPreviewEmbedded()) return null;
+    const sid = this.codeChatSandboxId();
+    if (!sid) return null;
+    const port = this.codeAskPreviewPort();
+    if (port == null) return null;
+    const raw = this.sandboxBridgeService.buildPreviewUrl(sid, port);
+    return this.sanitizer.bypassSecurityTrustResourceUrl(raw);
+  });
+
   constructor(
     private route: ActivatedRoute,
     private router: Router,
@@ -231,6 +268,7 @@ export class CodeComponent implements OnInit, OnDestroy {
       this.codeChatStatus();
       this.codeChatError();
       if (this.activeTab() !== 'ask') {
+        this.showCodeAskPreviewPortDropdown.set(false);
         this.teardownAskThreadMutationObserver();
         return;
       }
@@ -1003,6 +1041,88 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.vncViewerService.setDockPosition(sid, 'floating');
   }
 
+  /** Open proxied dev-server preview in a new tab (e.g. after agent runs `npm run dev`). */
+  openCodeAskPreviewInNewTab(): void {
+    const sid = this.codeChatSandboxId();
+    const port = this.codeAskPreviewPort();
+    if (!sid || port == null) return;
+    const url = this.sandboxBridgeService.buildPreviewUrl(sid, port);
+    window.open(url, '_blank', 'noopener,noreferrer');
+  }
+
+  /** Same preview URL in a separate window (user preference vs. a normal tab). */
+  openCodeAskPreviewPopOut(): void {
+    const sid = this.codeChatSandboxId();
+    const port = this.codeAskPreviewPort();
+    if (!sid || port == null) return;
+    const url = this.sandboxBridgeService.buildPreviewUrl(sid, port);
+    const w = Math.min(1280, Math.max(800, window.screen.availWidth - 96));
+    const h = Math.min(860, Math.max(560, window.screen.availHeight - 96));
+    const name = `devpilot-preview-${sid.slice(0, 8)}`;
+    const features = `popup=yes,width=${w},height=${h},left=${Math.max(0, Math.floor((window.screen.availWidth - w) / 2))},top=${Math.max(0, Math.floor((window.screen.availHeight - h) / 2))},menubar=no,toolbar=no`;
+    window.open(url, name, features);
+  }
+
+  toggleCodeAskPreviewEmbedded(): void {
+    this.codeAskPreviewEmbedded.update(v => {
+      const next = !v;
+      if (next) {
+        this.codeAskPreviewPort.set(null);
+        this.codeAskPreviewPortInput.set('');
+        this.codeAskPreviewPortError.set(null);
+      }
+      this.showCodeAskPreviewPortDropdown.set(false);
+      return next;
+    });
+  }
+
+  toggleCodeAskPreviewPortDropdown(): void {
+    this.showCodeAskPreviewPortDropdown.update(open => {
+      const next = !open;
+      if (next) {
+        this.codeAskPreviewPortInput.set(String(this.codeAskPreviewPort() ?? ''));
+        this.codeAskPreviewPortError.set(null);
+      }
+      return next;
+    });
+  }
+
+  selectCodeAskPreviewPort(port: number): void {
+    this.codeAskPreviewPort.set(port);
+    this.codeAskPreviewPortInput.set(String(port));
+    this.codeAskPreviewPortError.set(null);
+    this.showCodeAskPreviewPortDropdown.set(false);
+  }
+
+  /** Apply the free-form port from the dropdown input (Enter / Apply button). */
+  applyCustomCodeAskPreviewPort(): void {
+    const raw = this.codeAskPreviewPortInput().trim();
+    if (!raw) {
+      this.codeAskPreviewPortError.set('Enter a port number.');
+      return;
+    }
+    const port = Number(raw);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+      this.codeAskPreviewPortError.set('Port must be a whole number between 1 and 65535.');
+      return;
+    }
+    if (this.codeAskPreviewDeniedPorts.has(port)) {
+      this.codeAskPreviewPortError.set(
+        `Port ${port} is reserved for an internal service and cannot be previewed.`);
+      return;
+    }
+    this.selectCodeAskPreviewPort(port);
+  }
+
+  onCodeAskPreviewPortKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.applyCustomCodeAskPreviewPort();
+    } else if (event.key === 'Escape') {
+      this.showCodeAskPreviewPortDropdown.set(false);
+    }
+  }
+
   /**
    * Clear all Ask messages for the current branch: UI, persisted snapshot, and bridge history when connected.
    */
@@ -1121,6 +1241,11 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.codeChatSandboxId.set(null);
     this.codeChatVncPassword.set(undefined);
     this.codeChatSandboxOwned.set(false);
+    this.codeAskPreviewEmbedded.set(false);
+    this.codeAskPreviewPort.set(null);
+    this.codeAskPreviewPortInput.set('');
+    this.codeAskPreviewPortError.set(null);
+    this.showCodeAskPreviewPortDropdown.set(false);
     this.codeChatMessages.set([]);
     this.codeChatStatus.set('');
     this.codeChatError.set(null);

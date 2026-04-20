@@ -525,7 +525,9 @@
 
   <!-- ASK TAB (headless sandbox agent — same tool loop as ACP; no VNC) -->
   @if (activeTab() === 'ask') {
-    <div class="code-ask-shell">
+    <div
+      class="code-ask-shell"
+      [class.code-ask-shell--preview-split]="codeAskPreviewEmbedded() && codeChatSandboxId()">
       <header class="code-ask-hero">
         <div class="code-ask-hero-row">
           <div class="code-ask-hero-text">
@@ -554,6 +556,19 @@
             @if (codeChatSandboxId()) {
               <button
                 type="button"
+                class="code-ask-preview-split-toggle"
+                [class.code-ask-preview-split-toggle--on]="codeAskPreviewEmbedded()"
+                (click)="toggleCodeAskPreviewEmbedded()"
+                [attr.aria-pressed]="codeAskPreviewEmbedded()"
+                title="Split view: chat on the left, sandbox app preview on the right">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                  <rect x="3" y="3" width="7" height="18" rx="1"/>
+                  <rect x="14" y="3" width="7" height="18" rx="1"/>
+                </svg>
+                <span>{{ codeAskPreviewEmbedded() ? 'Hide preview' : 'Preview' }}</span>
+              </button>
+              <button
+                type="button"
                 class="code-ask-open-desktop"
                 (click)="openCodeChatSandboxDesktop()"
                 title="Open the running sandbox in the VNC viewer">
@@ -569,11 +584,13 @@
         </div>
       </header>
 
-      @if (codeChatError()) {
-        <div class="code-ask-error" role="alert">{{ codeChatError() }}</div>
-      }
+      <div class="code-ask-body">
+        <div class="code-ask-chat-pane">
+          @if (codeChatError()) {
+            <div class="code-ask-error" role="alert">{{ codeChatError() }}</div>
+          }
 
-      <div class="code-ask-thread" #codeAskScroll>
+          <div class="code-ask-thread" #codeAskScroll>
         @if (codeChatMessages().length === 0 && !codeChatBusy()) {
           <div class="code-ask-empty">
             <div class="code-ask-empty-icon" aria-hidden="true">
@@ -710,6 +727,122 @@
           </div>
         </div>
       </footer>
+        </div>
+
+        @if (codeAskPreviewEmbedded() && codeChatSandboxId()) {
+          <aside class="code-ask-preview-pane" role="complementary" aria-label="Sandbox app preview">
+            <div class="code-ask-preview-pane-toolbar">
+              <span class="code-ask-preview-pane-title">App</span>
+              <span class="code-ask-preview-port-label">Port</span>
+              <div class="branch-selector code-ask-preview-port-selector">
+                <button
+                  type="button"
+                  class="branch-btn code-ask-preview-port-trigger"
+                  (click)="toggleCodeAskPreviewPortDropdown(); $event.stopPropagation()"
+                  [attr.aria-expanded]="showCodeAskPreviewPortDropdown()"
+                  aria-haspopup="listbox"
+                  aria-label="Choose dev server port">
+                  <span class="code-ask-preview-port-trigger-text">
+                    {{ codeAskPreviewPort() === null ? 'Choose port…' : ':' + codeAskPreviewPort() }}
+                  </span>
+                  <svg class="dropdown-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M6 9l6 6 6-6"/>
+                  </svg>
+                </button>
+                @if (showCodeAskPreviewPortDropdown()) {
+                  <div class="branch-dropdown code-ask-preview-port-dropdown" role="listbox">
+                    <div class="dropdown-header">Dev server port</div>
+                    <div class="code-ask-preview-port-input-row">
+                      <input
+                        type="number"
+                        inputmode="numeric"
+                        min="1"
+                        max="65535"
+                        class="code-ask-preview-port-input"
+                        placeholder="e.g. 3000"
+                        [value]="codeAskPreviewPortInput()"
+                        (input)="codeAskPreviewPortInput.set($any($event.target).value); codeAskPreviewPortError.set(null)"
+                        (keydown)="onCodeAskPreviewPortKeydown($event)"
+                        (click)="$event.stopPropagation()"
+                        aria-label="Custom dev server port"/>
+                      <button
+                        type="button"
+                        class="code-ask-preview-port-apply"
+                        (click)="applyCustomCodeAskPreviewPort(); $event.stopPropagation()">
+                        Preview
+                      </button>
+                    </div>
+                    @if (codeAskPreviewPortError(); as err) {
+                      <div class="code-ask-preview-port-error">{{ err }}</div>
+                    }
+                    <div class="dropdown-header code-ask-preview-port-subheader">Common ports</div>
+                    <div class="branch-list">
+                      @for (p of codeAskPreviewPortOptions; track p) {
+                        <button
+                          type="button"
+                          class="branch-item"
+                          role="option"
+                          [class.active]="codeAskPreviewPort() === p"
+                          (click)="selectCodeAskPreviewPort(p)">
+                          @if (codeAskPreviewPort() === p) {
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                              <polyline points="20 6 9 17 4 12"/>
+                            </svg>
+                          }
+                          <span>:{{ p }}</span>
+                        </button>
+                      }
+                    </div>
+                  </div>
+                }
+              </div>
+              <div class="code-ask-preview-pane-actions">
+                <button
+                  type="button"
+                  class="code-ask-preview-icon-btn"
+                  (click)="openCodeAskPreviewInNewTab()"
+                  [disabled]="codeAskPreviewPort() === null"
+                  aria-label="Open preview in new tab"
+                  title="Open in new tab">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/>
+                    <polyline points="15 3 21 3 21 9"/>
+                    <line x1="10" y1="14" x2="21" y2="3"/>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="code-ask-preview-icon-btn"
+                  (click)="openCodeAskPreviewPopOut()"
+                  [disabled]="codeAskPreviewPort() === null"
+                  aria-label="Open preview in pop-out window"
+                  title="Pop-out window">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <rect x="2" y="4" width="10" height="8" rx="1"/>
+                    <rect x="12" y="10" width="10" height="10" rx="1"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            @if (codeAskPreviewPort() === null) {
+              <div class="code-ask-preview-placeholder">
+                <p>Select the port your dev server uses (for example <strong>:4200</strong> or <strong>:5173</strong>), then the preview loads here.</p>
+              </div>
+            } @else {
+              @if (askPreviewSafeUrl(); as safeUrl) {
+                <div class="code-ask-preview-frame-wrap">
+                  <iframe
+                    class="code-ask-preview-iframe"
+                    [src]="safeUrl"
+                    title="Sandbox app preview"
+                    sandbox="allow-scripts allow-forms allow-same-origin allow-pointer-lock allow-popups"
+                    referrerpolicy="no-referrer"></iframe>
+                </div>
+              }
+            }
+          </aside>
+        }
+      </div>
     </div>
   }
 

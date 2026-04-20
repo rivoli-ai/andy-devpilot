@@ -34,6 +34,69 @@ HTTPS_PROXY_BASE = os.environ.get("HTTPS_PROXY_BASE", "").rstrip("/")
 SANDBOX_NETWORK  = "devpilot-sandbox-net"
 MANAGER_PORT     = 8090
 
+# SSRF mitigation for /sandbox/<id>/preview/<port>/.
+# Any port outside this blocklist (and within the valid TCP range) is allowed,
+# so users can preview dev servers on arbitrary ports. We just refuse to proxy
+# toward the manager / bridge / VNC / common infra ports to avoid loops and
+# accidental access to internal services.
+DENIED_PREVIEW_PORTS = frozenset({
+    0,        # invalid
+    22,       # ssh
+    25,       # smtp
+    111,      # rpcbind
+    135, 139, 445,  # windows rpc / smb
+    389, 636, # ldap
+    1433,     # mssql
+    3306,     # mysql
+    5432,     # postgres
+    5900,     # VNC raw
+    6379,     # redis
+    6080, 6081,  # noVNC (sandbox)
+    8090,     # sandbox manager itself
+    8091,     # sandbox bridge
+    9042,     # cassandra
+    11211,    # memcached
+    27017,    # mongodb
+})
+
+def _valid_preview_port(port: int) -> bool:
+    return 1 <= port <= 65535 and port not in DENIED_PREVIEW_PORTS
+
+# Ports published to the host on `docker run` so a host-mode manager
+# (e.g. Docker Desktop on macOS/Windows where container bridge IPs are not
+# routable from the host) can still reach the dev server via 127.0.0.1.
+# Set SANDBOX_PUBLISHED_PREVIEW_PORTS="3000,4200,8080-8089" to override.
+def _parse_port_spec(spec: str) -> set[int]:
+    out: set[int] = set()
+    for raw in spec.split(","):
+        part = raw.strip()
+        if not part:
+            continue
+        try:
+            if "-" in part:
+                lo_s, hi_s = part.split("-", 1)
+                lo, hi = int(lo_s), int(hi_s)
+                if 0 < lo <= hi <= 65535:
+                    out.update(range(lo, hi + 1))
+            else:
+                p = int(part)
+                if 0 < p <= 65535:
+                    out.add(p)
+        except ValueError:
+            continue
+    return out
+
+_DEFAULT_PUBLISHED_PREVIEW_PORTS_SPEC = (
+    "3000-3010,4173,4200-4210,5000-5010,5173-5183,8000-8010,8080-8090,8888,9000-9010"
+)
+
+PUBLISHED_PREVIEW_PORTS = frozenset(
+    _parse_port_spec(os.environ.get(
+        "SANDBOX_PUBLISHED_PREVIEW_PORTS",
+        _DEFAULT_PUBLISHED_PREVIEW_PORTS_SPEC,
+    )) - DENIED_PREVIEW_PORTS
+)
+
 def _running_inside_docker() -> bool:
     if os.path.exists("/.dockerenv"):
         return True
@@ -406,7 +469,14 @@ def _docker_create_sandbox():
 
     ports = None
     if not MANAGER_IN_DOCKER:
+        # Host-run managers (esp. Docker Desktop on macOS/Windows) cannot reach
+        # the container's bridge IP, so every port we want to proxy has to be
+        # published to the host at `docker run` time. Covers VNC/bridge +
+        # common dev-server ports. For arbitrary ports, we still fall back to
+        # the container IP (works only on native Linux hosts).
         ports = {"6080/tcp": None, "8091/tcp": None}
+        for p in PUBLISHED_PREVIEW_PORTS:
+            ports[f"{int(p)}/tcp"] = None
 
     try:
         container = docker_client.containers.run(
@@ -488,6 +558,10 @@ def _docker_delete_sandbox(sandbox_id):
     if sandbox_id not in sandboxes:
         return jsonify({"error": "Sandbox not found"}), 404
     info = sandboxes.pop(sandbox_id)
+    with _preview_forwarders_lock:
+        for key in list(_preview_forwarders):
+            if key[0] == sandbox_id:
+                _preview_forwarders.pop(key, None)
     try:
         container = docker_client.containers.get(info["container_id"])
         container.stop(timeout=5)
@@ -511,11 +585,28 @@ def _docker_stop_sandbox(sandbox_id):
 # ── Reverse proxy routes (Docker mode) ────────────────────────────────────────
 # All sandbox traffic is proxied through the manager so only port 8090 is needed.
 
+def _docker_container_ipv4_for_proxy(container) -> str | None:
+    """IPv4 reachable from the manager process (host or another container on the same bridge)."""
+    nets = (container.attrs.get("NetworkSettings") or {}).get("Networks") or {}
+    if SANDBOX_NETWORK in nets:
+        ip = (nets[SANDBOX_NETWORK] or {}).get("IPAddress") or ""
+        if ip:
+            return ip
+    for name, cfg in nets.items():
+        if name == "host":
+            continue
+        ip = (cfg or {}).get("IPAddress") or ""
+        if ip:
+            return ip
+    return None
+
+
 def _resolve_sandbox_target(sandbox_id: str, container_port: int = 8091) -> tuple[str, int] | None:
     """Return (host, port) reachable from the manager for the given sandbox.
 
     Inside Docker: use container name + internal port.
-    On host: use localhost + Docker-published host port.
+    On host: prefer localhost + published host port; fall back to container IPv4 on
+    the sandbox bridge (only routable on Linux hosts – NOT on Docker Desktop).
     """
     if sandbox_id not in sandboxes:
         return None
@@ -527,8 +618,18 @@ def _resolve_sandbox_target(sandbox_id: str, container_port: int = 8091) -> tupl
         port_map = container.ports.get(f"{container_port}/tcp")
         if port_map:
             return ("127.0.0.1", int(port_map[0]["HostPort"]))
-    except Exception:
-        pass
+        ip = _docker_container_ipv4_for_proxy(container)
+        if ip:
+            # Warn: on Docker Desktop (macOS/Windows) this IP is NOT reachable
+            # from the host, which is why callers may see timeouts here. The
+            # only reliable fix is to publish the port at create-time.
+            print(
+                f"[proxy] sandbox={sandbox_id} port={container_port} has no host mapping; "
+                f"falling back to container IP {ip} (only works on Linux hosts)."
+            )
+            return (ip, container_port)
+    except Exception as exc:
+        print(f"[proxy] resolve target failed for {sandbox_id}:{container_port}: {exc!r}")
     return None
 
 
@@ -560,6 +661,298 @@ def proxy_bridge(sandbox_id, subpath):
         return Response(resp.iter_content(chunk_size=4096), status=resp.status_code, headers=proxy_headers)
     except http_requests.exceptions.ConnectionError:
         return jsonify({"error": "Sandbox bridge not reachable (container may still be starting)"}), 502
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+
+
+# ── In-container preview forwarder (127.0.0.1-only dev servers) ─────────────
+# Many dev servers bind to 127.0.0.1 by default (CRA, `python -m http.server`,
+# older Next.js, bare `vite`, etc.). Docker's `-p host:container` NATs packets
+# onto the container's eth0 interface, so loopback-only sockets never see them
+# and the preview hangs. Telling the user to restart with `--host 0.0.0.0`
+# works but is friction-heavy.
+#
+# Instead, when the manager cannot connect to a preview port, it checks inside
+# the container whether the server is listening on 127.0.0.1. If so, it exec's
+# a tiny Python TCP forwarder that binds to the container's **eth0** address
+# on the same port and relays bytes to 127.0.0.1. Docker's DNAT then reaches
+# the forwarder, and through it the loopback server — completely transparent
+# to the user.
+#
+# We intentionally bind to eth0's specific IPv4 (not 0.0.0.0) so we never
+# collide with the dev server's existing 127.0.0.1 bind (EADDRINUSE on Linux).
+
+_preview_forwarders_lock = threading.Lock()
+_preview_forwarders: dict[tuple[str, int], float] = {}
+
+_PREVIEW_FORWARDER_SCRIPT = """
+import socket, sys, threading
+
+port = int(sys.argv[1])
+# Upstream loopback address to relay into (127.0.0.1 for IPv4-only servers,
+# ::1 for Node >=17 / Angular which default-bind to IPv6 loopback).
+upstream_host = sys.argv[2] if len(sys.argv) > 2 else '127.0.0.1'
+
+# Pick the container's primary non-loopback IPv4 via a UDP "connect" trick.
+_probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+try:
+    _probe.connect(('8.8.8.8', 80))
+    bind_ip = _probe.getsockname()[0]
+finally:
+    _probe.close()
+
+if bind_ip in ('127.0.0.1', '0.0.0.0', ''):
+    print('devpilot-preview-forwarder: no eth0 address available', file=sys.stderr)
+    raise SystemExit(1)
+
+srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+srv.bind((bind_ip, port))
+srv.listen(128)
+print(
+    'devpilot-preview-forwarder: ' + bind_ip + ':' + str(port)
+    + ' -> ' + upstream_host + ':' + str(port),
+    flush=True,
+)
+
+def _pipe(src, dst):
+    try:
+        while True:
+            chunk = src.recv(65536)
+            if not chunk:
+                break
+            dst.sendall(chunk)
+    except OSError:
+        pass
+    finally:
+        try: dst.shutdown(socket.SHUT_WR)
+        except OSError: pass
+
+while True:
+    cli, _ = srv.accept()
+    try:
+        # create_connection handles both IPv4 (127.0.0.1) and IPv6 (::1).
+        up = socket.create_connection((upstream_host, port), timeout=5)
+    except OSError:
+        cli.close()
+        continue
+    cli.setblocking(True); up.setblocking(True)
+    threading.Thread(target=_pipe, args=(cli, up), daemon=True).start()
+    threading.Thread(target=_pipe, args=(up, cli), daemon=True).start()
+""".strip()
+
+
+def _probe_preview_bind(container, preview_port: int) -> str:
+    """Return one of:
+      * 'eth0'     – dev server already reachable on the container's eth0 IP
+      * 'v4'       – bound only to IPv4 loopback (127.0.0.1)
+      * 'v6'       – bound only to IPv6 loopback (::1) ← Node >=17, Angular, etc.
+      * 'none'     – nothing listening on that port
+
+    Uses short-timeout connects; no dependency on /proc parsing or iproute2.
+    """
+    probe = (
+        "import socket, sys\n"
+        "port = int(sys.argv[1])\n"
+        "def ok4(host):\n"
+        "    try:\n"
+        "        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)\n"
+        "        s.settimeout(0.8)\n"
+        "        s.connect((host, port))\n"
+        "        s.close()\n"
+        "        return True\n"
+        "    except OSError:\n"
+        "        return False\n"
+        "def ok6(host):\n"
+        "    try:\n"
+        "        s = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)\n"
+        "        s.settimeout(0.8)\n"
+        "        s.connect((host, port, 0, 0))\n"
+        "        s.close()\n"
+        "        return True\n"
+        "    except OSError:\n"
+        "        return False\n"
+        "s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)\n"
+        "try:\n"
+        "    s.connect(('8.8.8.8', 80))\n"
+        "    eth0 = s.getsockname()[0]\n"
+        "finally:\n"
+        "    s.close()\n"
+        "if ok4(eth0):\n"
+        "    print('eth0')\n"
+        "elif ok4('127.0.0.1'):\n"
+        "    print('v4')\n"
+        "elif ok6('::1'):\n"
+        "    print('v6')\n"
+        "else:\n"
+        "    print('none')\n"
+    )
+    try:
+        rc, out = container.exec_run(
+            ["python3", "-c", probe, str(preview_port)],
+            demux=False,
+        )
+        text = (out or b"").decode("utf-8", errors="ignore").strip().splitlines()
+        if rc != 0 or not text:
+            return "none"
+        return text[-1].strip()
+    except Exception as exc:
+        print(f"[preview-forwarder] probe failed: {exc!r}")
+        return "none"
+
+
+def _ensure_preview_forwarder(sandbox_id: str, preview_port: int) -> None:
+    """If the dev server is bound to 127.0.0.1 inside the container, start a
+    one-shot eth0 → loopback TCP forwarder. Idempotent and best-effort; never
+    raises. Safe to call before every preview request."""
+    if sandbox_id not in sandboxes:
+        return
+
+    key = (sandbox_id, preview_port)
+    with _preview_forwarders_lock:
+        if key in _preview_forwarders:
+            return
+
+    try:
+        container = docker_client.containers.get(sandboxes[sandbox_id]["container_id"])
+    except Exception as exc:
+        print(f"[preview-forwarder] cannot load container {sandbox_id}: {exc!r}")
+        return
+
+    state = _probe_preview_bind(container, preview_port)
+    if state == "eth0":
+        # Dev server is already reachable via the published host port; nothing to do.
+        with _preview_forwarders_lock:
+            _preview_forwarders[key] = time.time()
+        return
+    if state not in ("v4", "v6"):
+        # Nothing listening – let the caller return a normal 502.
+        return
+
+    upstream_host = "127.0.0.1" if state == "v4" else "::1"
+
+    import base64
+    b64 = base64.b64encode(_PREVIEW_FORWARDER_SCRIPT.encode("utf-8")).decode("ascii")
+    script_path = f"/tmp/dp_preview_forwarder_{preview_port}.py"
+    log_path = f"/tmp/dp_preview_forwarder_{preview_port}.log"
+    try:
+        container.exec_run(
+            ["sh", "-c", f"echo '{b64}' | base64 -d > {script_path}"],
+        )
+        container.exec_run(
+            [
+                "sh",
+                "-c",
+                f"nohup python3 -u {script_path} {preview_port} {upstream_host} "
+                f"> {log_path} 2>&1 &",
+            ],
+            detach=True,
+        )
+    except Exception as exc:
+        print(f"[preview-forwarder] start failed for {sandbox_id}:{preview_port}: {exc!r}")
+        return
+
+    with _preview_forwarders_lock:
+        _preview_forwarders[key] = time.time()
+
+    # Small grace period so the first proxy request doesn't race the listener.
+    time.sleep(0.4)
+    print(
+        f"[preview-forwarder] launched eth0 -> {upstream_host} forwarder for "
+        f"{sandbox_id}:{preview_port}"
+    )
+
+
+_PREVIEW_METHODS = ["GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"]
+
+
+@app.route(
+    "/sandbox/<sandbox_id>/preview/<int:preview_port>",
+    defaults={"subpath": ""},
+    methods=_PREVIEW_METHODS,
+)
+@app.route(
+    "/sandbox/<sandbox_id>/preview/<int:preview_port>/",
+    defaults={"subpath": ""},
+    methods=_PREVIEW_METHODS,
+)
+@app.route(
+    "/sandbox/<sandbox_id>/preview/<int:preview_port>/<path:subpath>",
+    methods=_PREVIEW_METHODS,
+)
+def proxy_preview(sandbox_id, preview_port, subpath):
+    """HTTP reverse proxy to an app dev server inside the sandbox (e.g. Vite :5173)."""
+    if not _valid_preview_port(preview_port):
+        return jsonify({"error": f"Preview port {preview_port} is blocked (internal service or invalid)."}), 400
+
+    # Handle loopback-only dev servers (bind 127.0.0.1) by starting an
+    # in-container forwarder. Cached/no-op on subsequent calls.
+    _ensure_preview_forwarder(sandbox_id, preview_port)
+
+    target = _resolve_sandbox_target(sandbox_id, preview_port)
+    if not target:
+        return jsonify(
+            {
+                "error": "Sandbox not found or preview port unreachable from manager "
+                "(unknown id, or manager cannot reach container on this port)."
+            }
+        ), 404
+
+    host, port = target
+    path = (subpath or "").lstrip("/")
+    url = f"http://{host}:{port}/{path}" if path else f"http://{host}:{port}/"
+    if request.query_string:
+        url += f"?{request.query_string.decode()}"
+
+    if request.method == "OPTIONS":
+        return Response(
+            status=204,
+            headers={
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Methods": ", ".join(_PREVIEW_METHODS),
+                "Access-Control-Allow-Headers": "Content-Type, Authorization",
+                "Access-Control-Max-Age": "86400",
+            },
+        )
+
+    headers = {k: v for k, v in request.headers if k.lower() not in ("host", "content-length")}
+
+    def _do_request():
+        # (connect, read) — fail fast if nothing accepts TCP; if connect works but page hangs, check dev server bind.
+        return http_requests.request(
+            method=request.method,
+            url=url,
+            headers=headers,
+            data=request.get_data(),
+            stream=True,
+            timeout=(8, 90),
+        )
+
+    try:
+        try:
+            resp = _do_request()
+        except http_requests.exceptions.ConnectionError:
+            # Likely a loopback-only server that started between our earlier
+            # probe and this request. Try to launch the forwarder now and retry.
+            with _preview_forwarders_lock:
+                _preview_forwarders.pop((sandbox_id, preview_port), None)
+            _ensure_preview_forwarder(sandbox_id, preview_port)
+            resp = _do_request()
+
+        excluded = {"content-encoding", "transfer-encoding", "content-length", "connection"}
+        proxy_headers = [(k, v) for k, v in resp.raw.headers.items() if k.lower() not in excluded]
+        return Response(resp.iter_content(chunk_size=4096), status=resp.status_code, headers=proxy_headers)
+    except http_requests.exceptions.ConnectionError:
+        return jsonify(
+            {"error": "Preview target not reachable (server may not be running on this port yet)"}
+        ), 502
+    except http_requests.exceptions.Timeout:
+        return jsonify(
+            {
+                "error": "Preview timed out — start dev server with host 0.0.0.0, e.g. ng serve --host 0.0.0.0 --port "
+                + str(preview_port),
+            }
+        ), 504
     except Exception as e:
         return jsonify({"error": str(e)}), 502
 

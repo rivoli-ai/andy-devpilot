@@ -86,26 +86,43 @@ public class SandboxService : ISandboxService
 
         try
         {
-            using var response = await _httpClient.GetAsync($"/sandboxes/{sandboxId}", ct);
-            if (!response.IsSuccessStatusCode) return null;
+            using var response = await _httpClient.GetAsync($"/sandboxes/{Uri.EscapeDataString(sandboxId)}", ct);
+            if (!response.IsSuccessStatusCode)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                _logger.LogWarning(
+                    "Manager GET /sandboxes/{SandboxId} failed: {Status}. Body: {Body}",
+                    sandboxId,
+                    (int)response.StatusCode,
+                    string.IsNullOrWhiteSpace(body) ? "(empty)" : body.Trim());
+                return null;
+            }
 
             var raw = await response.Content.ReadFromJsonAsync<ManagerStatusResponse>(_jsonOptions, ct);
-            if (raw is null || string.IsNullOrEmpty(raw.SandboxToken)) return null;
+            // Preview/VNC only need bridge/VNC URLs. Token may be empty in edge cases; bridge proxy still needs it.
+            if (raw is null || string.IsNullOrWhiteSpace(raw.BridgeUrl))
+            {
+                _logger.LogWarning(
+                    "Manager GET /sandboxes/{SandboxId}: missing or empty bridge_url in JSON",
+                    sandboxId);
+                return null;
+            }
 
             var info = new SandboxInternalInfo
             {
                 OwnerId = Guid.Empty,
                 InternalBridgeUrl = raw.BridgeUrl,
-                InternalVncUrl = raw.Url,
-                SandboxToken = raw.SandboxToken,
+                InternalVncUrl = raw.Url ?? "",
+                SandboxToken = raw.SandboxToken ?? "",
                 VncPassword = raw.VncPassword ?? "",
             };
             _sandboxMap[sandboxId] = info;
-            _logger.LogInformation("Re-discovered sandbox {SandboxId} from manager (VNC path)", sandboxId);
+            _logger.LogInformation("Re-discovered sandbox {SandboxId} from manager (anonymous proxy path)", sandboxId);
             return info;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogWarning(ex, "Re-discover sandbox {SandboxId} from manager failed", sandboxId);
             return null;
         }
     }
@@ -121,18 +138,18 @@ public class SandboxService : ISandboxService
 
         try
         {
-            using var response = await _httpClient.GetAsync($"/sandboxes/{sandboxId}", ct);
+            using var response = await _httpClient.GetAsync($"/sandboxes/{Uri.EscapeDataString(sandboxId)}", ct);
             if (!response.IsSuccessStatusCode) return null;
 
             var raw = await response.Content.ReadFromJsonAsync<ManagerStatusResponse>(_jsonOptions, ct);
-            if (raw is null || string.IsNullOrEmpty(raw.SandboxToken)) return null;
+            if (raw is null || string.IsNullOrWhiteSpace(raw.BridgeUrl)) return null;
 
             var info = new SandboxInternalInfo
             {
                 OwnerId = userId,
                 InternalBridgeUrl = raw.BridgeUrl,
-                InternalVncUrl = raw.Url,
-                SandboxToken = raw.SandboxToken,
+                InternalVncUrl = raw.Url ?? "",
+                SandboxToken = raw.SandboxToken ?? "",
                 VncPassword = raw.VncPassword ?? "",
             };
             _sandboxMap[sandboxId] = info;
@@ -238,7 +255,7 @@ public class SandboxService : ISandboxService
             return null;
         }
 
-        using var response = await _httpClient.GetAsync($"/sandboxes/{sandboxId}", cancellationToken);
+        using var response = await _httpClient.GetAsync($"/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
             return null;
         response.EnsureSuccessStatusCode();
@@ -248,8 +265,8 @@ public class SandboxService : ISandboxService
 
         return new SandboxStatusResult
         {
-            Id = raw.Id,
-            Status = raw.Status,
+            Id = raw.Id ?? sandboxId,
+            Status = raw.Status ?? "",
         };
     }
 
@@ -264,7 +281,7 @@ public class SandboxService : ISandboxService
             return false;
         }
 
-        using var response = await _httpClient.DeleteAsync($"/sandboxes/{sandboxId}", cancellationToken);
+        using var response = await _httpClient.DeleteAsync($"/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
         if (response.IsSuccessStatusCode)
         {
             _sandboxMap.TryRemove(sandboxId, out _);
@@ -284,19 +301,19 @@ public class SandboxService : ISandboxService
 
         try
         {
-            using var response = await _httpClient.GetAsync($"/sandboxes/{sandboxId}", cancellationToken);
+            using var response = await _httpClient.GetAsync($"/sandboxes/{Uri.EscapeDataString(sandboxId)}", cancellationToken);
             if (!response.IsSuccessStatusCode)
                 return false;
 
             var raw = await response.Content.ReadFromJsonAsync<ManagerStatusResponse>(_jsonOptions, cancellationToken);
-            if (raw is null || string.IsNullOrEmpty(raw.SandboxToken))
+            if (raw is null || string.IsNullOrEmpty(raw.SandboxToken) || string.IsNullOrWhiteSpace(raw.BridgeUrl))
                 return false;
 
             _sandboxMap[sandboxId] = new SandboxInternalInfo
             {
                 OwnerId = userId,
                 InternalBridgeUrl = raw.BridgeUrl,
-                InternalVncUrl = raw.Url,
+                InternalVncUrl = raw.Url ?? "",
                 SandboxToken = raw.SandboxToken,
                 VncPassword = raw.VncPassword ?? "",
             };
@@ -376,10 +393,10 @@ public class SandboxService : ISandboxService
         [property: JsonPropertyName("vnc_password")] string VncPassword);
 
     private record ManagerStatusResponse(
-        [property: JsonPropertyName("id")] string Id,
-        [property: JsonPropertyName("url")] string Url,
-        [property: JsonPropertyName("bridge_url")] string BridgeUrl,
-        [property: JsonPropertyName("status")] string Status,
+        [property: JsonPropertyName("id")] string? Id = null,
+        [property: JsonPropertyName("url")] string? Url = null,
+        [property: JsonPropertyName("bridge_url")] string? BridgeUrl = null,
+        [property: JsonPropertyName("status")] string? Status = null,
         [property: JsonPropertyName("sandbox_token")] string? SandboxToken = null,
         [property: JsonPropertyName("vnc_password")] string? VncPassword = null);
 }
