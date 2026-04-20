@@ -523,19 +523,32 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
   private async pollForHeadlessBacklogAnswer(sandboxId: string, promptId: string): Promise<string> {
     const maxAttempts = 3000;
     for (let i = 0; i < maxAttempts; i++) {
+      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+
       const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
       const hit = all.conversations.find(c => c.id === promptId);
       const body = hit?.assistant_message?.trim();
       if (body && this.containsBacklogJson(body)) {
         return body;
       }
-      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
-      if (!running.running && i > 8 && body && !this.containsBacklogJson(body)) {
-        throw new Error('Agent finished without valid backlog JSON. Try again.');
-      }
-      if (!running.running && i > 8 && !body) {
+
+      if (!running.running && i > 8) {
+        await this.delay(800);
+        const finalAll = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+        const finalHit = finalAll.conversations.find(c => c.id === promptId);
+        const finalBody = finalHit?.assistant_message?.trim();
+        if (finalBody && this.containsBacklogJson(finalBody)) {
+          return finalBody;
+        }
+        if (finalBody) {
+          throw new Error('Agent finished without valid backlog JSON. Try again.');
+        }
+        if (finalHit) {
+          throw new Error('Agent finished but returned an empty answer. Try rephrasing your prompt.');
+        }
         throw new Error('Agent finished without a recorded answer. Try again.');
       }
+
       await this.delay(400);
     }
     throw new Error('Backlog generation timed out. Please try again.');

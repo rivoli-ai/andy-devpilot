@@ -1188,6 +1188,11 @@ export class CodeComponent implements OnInit, OnDestroy {
   private async pollForHeadlessAnswer(sandboxId: string, promptId: string): Promise<ZedConversation> {
     const maxAttempts = 600;
     for (let i = 0; i < maxAttempts; i++) {
+      // Check running FIRST. The bridge appends the conversation entry then
+      // flips _agent_running to false, so reading conversations AFTER we
+      // observed running=false guarantees we see the final write.
+      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+
       const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
       const hp = all.headless_progress;
       if (hp?.tools?.length) {
@@ -1208,8 +1213,19 @@ export class CodeComponent implements OnInit, OnDestroy {
         return hit!;
       }
 
-      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
-      if (!running.running && i > 8 && !body) {
+      if (!running.running && i > 8) {
+        // Grace re-check: the append may have happened between the two
+        // HTTP reads above, or the bridge may still be flushing.
+        await this.delay(800);
+        const finalAll = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+        const finalHit = finalAll.conversations.find(c => c.id === promptId);
+        const finalBody = finalHit?.assistant_message?.trim();
+        if (finalBody) {
+          return finalHit!;
+        }
+        if (finalHit) {
+          throw new Error('Agent finished but returned an empty answer. Try rephrasing your prompt.');
+        }
         throw new Error('Agent finished without a recorded answer. Try again or check sandbox logs.');
       }
 
@@ -1488,6 +1504,8 @@ export class CodeComponent implements OnInit, OnDestroy {
   private async pollForHeadlessAnalysisAnswer(sandboxId: string, promptId: string): Promise<string> {
     const maxAttempts = 3000;
     for (let i = 0; i < maxAttempts; i++) {
+      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+
       const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
       this.analysisBridgeRequestInProgress.set(!!all.request_in_progress);
 
@@ -1511,8 +1529,17 @@ export class CodeComponent implements OnInit, OnDestroy {
         return body;
       }
 
-      const running = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
-      if (!running.running && i > 8 && !body) {
+      if (!running.running && i > 8) {
+        await this.delay(800);
+        const finalAll = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+        const finalHit = finalAll.conversations.find(c => c.id === promptId);
+        const finalBody = finalHit?.assistant_message?.trim();
+        if (finalBody) {
+          return finalBody;
+        }
+        if (finalHit) {
+          throw new Error('Agent finished but returned an empty answer. Try rephrasing your prompt.');
+        }
         throw new Error('Agent finished without a recorded answer. Try again or check sandbox logs.');
       }
 
