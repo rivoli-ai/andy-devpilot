@@ -540,6 +540,11 @@ public class SandboxProxyController : ControllerBase
         "<base\\b[^>]*\\bhref\\s*=\\s*(?:\"[^\"]*\"|'[^']*'|[^\\s>]+)[^>]*>",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    // Captures only the URL value inside the <base href="…"> tag.
+    private static readonly Regex BaseHrefValueRegex = new(
+        "<base\\b[^>]*\\bhref\\s*=\\s*(?:\"(?<u>[^\"]*)\"|'(?<u>[^']*)'|(?<u>[^\\s>]+))[^>]*>",
+        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+
     private static readonly Regex HeadOpenRegex = new(
         "<head\\b[^>]*>",
         RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -556,12 +561,35 @@ public class SandboxProxyController : ControllerBase
         // strip trailing slash for attribute rewrites so we don't produce `//…` paths.
         var attrPrefix = safePrefix.TrimEnd('/');
 
-        // 1) Drop any existing <base> tag first — it's always `/` in Angular/Vite
-        //    builds and would otherwise fight with (or get mangled by) the rewrites
-        //    below.
+        // 1) Inspect the upstream <base href>. Sub-path apps (Swagger UI, docs
+        //    sites, Spring Boot's actuator UI, …) set `<base href="/swagger/">`
+        //    which we must preserve as a sub-path under the preview prefix —
+        //    otherwise relative refs like `./swagger-ui.css` resolve to the
+        //    preview root and 404. Root SPAs (Angular/Vite) ship with
+        //    `<base href="/">` which we collapse to the preview root.
+        var upstreamSubPath = string.Empty;
+        var baseMatch = BaseHrefValueRegex.Match(html);
+        if (baseMatch.Success)
+        {
+            var raw = baseMatch.Groups["u"].Value.Trim();
+            // Only act on root-absolute base hrefs (`/foo/`). Protocol/host or
+            // relative bases are application-defined and we don't try to rewrite.
+            if (raw.StartsWith('/') && !raw.StartsWith("//", StringComparison.Ordinal))
+            {
+                var trimmed = raw.Trim('/');
+                if (trimmed.Length > 0)
+                {
+                    upstreamSubPath = trimmed + "/";
+                }
+            }
+        }
+
+        // 2) Drop any existing <base> tag — Angular/Vite emit `<base href="/">`
+        //    which fights with our rewrites; sub-path apps' base is replaced
+        //    below with the same path under the preview prefix.
         html = BaseHrefRegex.Replace(html, string.Empty);
 
-        // 2) Rewrite root-absolute attributes. Must run before we inject our own
+        // 3) Rewrite root-absolute attributes. Must run before we inject our own
         //    <base href="/api/sandboxes/…/"> — otherwise this regex would match
         //    the href we just added and double the prefix.
         html = RootAbsoluteAttrRegex.Replace(html, m =>
@@ -571,9 +599,11 @@ public class SandboxProxyController : ControllerBase
             return $"{attr}={quote}{attrPrefix}/";
         });
 
-        // 3) Finally, inject a fresh <base> right after <head> so every relative
-        //    asset resolves against the preview prefix.
-        var baseTag = $"<base href=\"{safePrefix}\">";
+        // 4) Finally, inject a fresh <base> right after <head> so every relative
+        //    asset resolves against the preview prefix (plus any upstream
+        //    sub-path so relative refs in sub-path apps still resolve).
+        var injectedHref = safePrefix + upstreamSubPath;
+        var baseTag = $"<base href=\"{injectedHref}\">";
         html = HeadOpenRegex.IsMatch(html)
             ? HeadOpenRegex.Replace(html, m => m.Value + baseTag, 1)
             : baseTag + html;
