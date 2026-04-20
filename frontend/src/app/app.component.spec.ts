@@ -39,7 +39,11 @@ describe('AppComponent', () => {
         },
         {
           provide: AuthService,
-          useValue: { isLoggedIn: (): boolean => false }
+          useValue: {
+            isLoggedIn: (): boolean => false,
+            isAuthenticated: (): boolean => false,
+            token: (): string | null => null,
+          }
         }
       ]
     }).compileComponents();
