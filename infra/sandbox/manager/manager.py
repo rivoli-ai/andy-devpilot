@@ -915,7 +915,34 @@ def proxy_preview(sandbox_id, preview_port, subpath):
             },
         )
 
-    headers = {k: v for k, v in request.headers if k.lower() not in ("host", "content-length")}
+    # Strip incoming Host/Origin/Referer: dev servers (webpack-dev-server,
+    # vite, Angular CLI) reject unknown Host values with `Invalid Host header`,
+    # and unrelated Origin/Referer confuse CORS and HMR. Replace Host with
+    # `localhost:<port>` so the dev server sees a value it always allowlists,
+    # and set a local Referer for the same reason.
+    _public_scheme = request.headers.get("X-Forwarded-Proto") or (
+        "https" if request.is_secure else "http"
+    )
+    _public_host = request.headers.get("X-Forwarded-Host") or request.host
+    headers = {
+        k: v
+        for k, v in request.headers
+        if k.lower()
+        not in (
+            "host",
+            "content-length",
+            "origin",
+            "referer",
+            "connection",
+        )
+    }
+    headers["Host"] = f"localhost:{preview_port}"
+    headers["Referer"] = f"http://localhost:{preview_port}/"
+    headers["X-Forwarded-Host"] = _public_host
+    headers["X-Forwarded-Proto"] = _public_scheme
+    headers["X-Forwarded-Prefix"] = f"/sandbox/{sandbox_id}/preview/{preview_port}"
+    if request.remote_addr and "X-Forwarded-For" not in headers:
+        headers["X-Forwarded-For"] = request.remote_addr
 
     def _do_request():
         # (connect, read) — fail fast if nothing accepts TCP; if connect works but page hangs, check dev server bind.
