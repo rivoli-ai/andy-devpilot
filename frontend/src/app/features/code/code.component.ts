@@ -149,6 +149,17 @@ export class CodeComponent implements OnInit, OnDestroy {
   codeAskPreviewPortInput = signal<string>('');
   /** Transient validation message for the port field. */
   codeAskPreviewPortError = signal<string | null>(null);
+  /**
+   * Optional sub-path appended to the preview URL (e.g. "/login", "app/dashboard?x=1").
+   * Kept as the raw user string while editing; normalized when the URL is built.
+   */
+  codeAskPreviewPath = signal<string>('');
+  /**
+   * Last-applied path (the one actually loaded in the iframe). Mutating the text
+   * field above shouldn't reload the iframe on every keystroke — we only reload
+   * when the user hits Enter, clicks Go, or picks a new port.
+   */
+  codeAskPreviewAppliedPath = signal<string>('');
 
   /** Ports blocked by the proxy (keep in sync with DENIED_PREVIEW_PORTS on the backend / manager). */
   private readonly codeAskPreviewDeniedPorts: ReadonlySet<number> = new Set([
@@ -242,9 +253,23 @@ export class CodeComponent implements OnInit, OnDestroy {
     if (!sid) return null;
     const port = this.codeAskPreviewPort();
     if (port == null) return null;
-    const raw = this.sandboxBridgeService.buildPreviewUrl(sid, port);
+    const raw = this.buildCodeAskPreviewUrl(sid, port, this.codeAskPreviewAppliedPath());
     return this.sanitizer.bypassSecurityTrustResourceUrl(raw);
   });
+
+  /**
+   * Build a preview URL with an optional sub-path. Keeps the trailing `/` on the
+   * base so sandboxed dev servers (Angular/Vite) resolve relative assets correctly,
+   * then appends the user-provided path segment (leading `/` is stripped).
+   */
+  private buildCodeAskPreviewUrl(sandboxId: string, port: number, subPath: string): string {
+    const base = this.sandboxBridgeService.buildPreviewUrl(sandboxId, port);
+    const trimmed = (subPath || '').trim();
+    if (!trimmed) return base;
+    const hasQueryOrHash = trimmed.startsWith('?') || trimmed.startsWith('#');
+    const normalized = hasQueryOrHash ? trimmed : trimmed.replace(/^\/+/, '');
+    return `${base}${normalized}`;
+  }
 
   constructor(
     private route: ActivatedRoute,
@@ -1046,7 +1071,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     const sid = this.codeChatSandboxId();
     const port = this.codeAskPreviewPort();
     if (!sid || port == null) return;
-    const url = this.sandboxBridgeService.buildPreviewUrl(sid, port);
+    const url = this.buildCodeAskPreviewUrl(sid, port, this.codeAskPreviewAppliedPath());
     window.open(url, '_blank', 'noopener,noreferrer');
   }
 
@@ -1055,7 +1080,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     const sid = this.codeChatSandboxId();
     const port = this.codeAskPreviewPort();
     if (!sid || port == null) return;
-    const url = this.sandboxBridgeService.buildPreviewUrl(sid, port);
+    const url = this.buildCodeAskPreviewUrl(sid, port, this.codeAskPreviewAppliedPath());
     const w = Math.min(1280, Math.max(800, window.screen.availWidth - 96));
     const h = Math.min(860, Math.max(560, window.screen.availHeight - 96));
     const name = `devpilot-preview-${sid.slice(0, 8)}`;
@@ -1070,10 +1095,27 @@ export class CodeComponent implements OnInit, OnDestroy {
         this.codeAskPreviewPort.set(null);
         this.codeAskPreviewPortInput.set('');
         this.codeAskPreviewPortError.set(null);
+        this.codeAskPreviewPath.set('');
+        this.codeAskPreviewAppliedPath.set('');
       }
       this.showCodeAskPreviewPortDropdown.set(false);
       return next;
     });
+  }
+
+  /** Commit the edited path (Enter / Go button): reloads the iframe. */
+  applyCodeAskPreviewPath(): void {
+    this.codeAskPreviewAppliedPath.set(this.codeAskPreviewPath());
+  }
+
+  /** Enter commits the path; Escape reverts to the last applied value. */
+  onCodeAskPreviewPathKeydown(event: KeyboardEvent): void {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      this.applyCodeAskPreviewPath();
+    } else if (event.key === 'Escape') {
+      this.codeAskPreviewPath.set(this.codeAskPreviewAppliedPath());
+    }
   }
 
   toggleCodeAskPreviewPortDropdown(): void {
@@ -1092,6 +1134,8 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.codeAskPreviewPortInput.set(String(port));
     this.codeAskPreviewPortError.set(null);
     this.showCodeAskPreviewPortDropdown.set(false);
+    // Keep the pending text-field path but commit it now so the iframe loads the combined URL.
+    this.codeAskPreviewAppliedPath.set(this.codeAskPreviewPath());
   }
 
   /** Apply the free-form port from the dropdown input (Enter / Apply button). */
@@ -1261,6 +1305,8 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.codeAskPreviewPort.set(null);
     this.codeAskPreviewPortInput.set('');
     this.codeAskPreviewPortError.set(null);
+    this.codeAskPreviewPath.set('');
+    this.codeAskPreviewAppliedPath.set('');
     this.showCodeAskPreviewPortDropdown.set(false);
     this.codeChatMessages.set([]);
     this.codeChatStatus.set('');

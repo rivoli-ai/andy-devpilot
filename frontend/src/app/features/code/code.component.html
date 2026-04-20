@@ -796,6 +796,30 @@
                   </div>
                 }
               </div>
+              <div class="code-ask-preview-path-selector" [class.is-disabled]="codeAskPreviewPort() === null">
+                <span class="code-ask-preview-path-slash" aria-hidden="true">/</span>
+                <input
+                  type="text"
+                  class="code-ask-preview-path-input"
+                  placeholder="path (optional, e.g. dashboard)"
+                  [value]="codeAskPreviewPath()"
+                  (input)="codeAskPreviewPath.set($any($event.target).value)"
+                  (keydown)="onCodeAskPreviewPathKeydown($event)"
+                  (blur)="applyCodeAskPreviewPath()"
+                  [disabled]="codeAskPreviewPort() === null"
+                  autocomplete="off"
+                  spellcheck="false"
+                  aria-label="Sub-path appended to the preview URL"/>
+                <button
+                  type="button"
+                  class="code-ask-preview-path-go"
+                  (click)="applyCodeAskPreviewPath()"
+                  [disabled]="codeAskPreviewPort() === null"
+                  aria-label="Load this path"
+                  title="Load this path (Enter)">
+                  Go
+                </button>
+              </div>
               <div class="code-ask-preview-pane-actions">
                 <button
                   type="button"
