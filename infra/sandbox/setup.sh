@@ -1123,6 +1123,62 @@ def zed_readiness():
         "log_size": log_size,
     }), 200 if ready else 503
 
+@app.route('/repo-status', methods=['GET'])
+def repo_status():
+    """Report whether the repository has finished cloning/extracting.
+
+    The bridge API starts well before the clone/archive step in setup.sh
+    completes (especially for big repos), so /health alone is not enough to
+    decide when it is safe to send prompts to the agent.
+
+    A setup-side marker file (/tmp/devpilot-repo-ready) is written once the
+    clone (or archive fallback) phase finishes. We also validate that the repo
+    folder exists on disk and contains at least one entry, so the frontend
+    does not send prompts against an empty project.
+    """
+    repo_name = os.environ.get('REPO_NAME', '') or ''
+    repo_url = os.environ.get('REPO_URL', '') or ''
+    marker_path = '/tmp/devpilot-repo-ready'
+    setup_done = os.path.exists(marker_path)
+
+    repo_dir = os.path.join(PROJECT_PATH, repo_name) if repo_name else PROJECT_PATH
+    repo_exists = os.path.isdir(repo_dir)
+
+    entries = []
+    try:
+        if os.path.isdir(PROJECT_PATH):
+            entries = [e for e in os.listdir(PROJECT_PATH) if not e.startswith('.')]
+    except OSError:
+        entries = []
+
+    has_repo_dir = False
+    try:
+        if repo_exists:
+            repo_entries = [e for e in os.listdir(repo_dir) if not e.startswith('.')]
+            has_repo_dir = len(repo_entries) > 0 or os.path.isdir(os.path.join(repo_dir, '.git'))
+    except OSError:
+        has_repo_dir = False
+
+    # If no REPO_URL was provided, there is nothing to clone — consider it ready
+    # as soon as setup.sh wrote the marker (or, defensively, immediately).
+    if not repo_url:
+        ready = True
+        cloned = False
+    else:
+        ready = setup_done and (has_repo_dir or len(entries) > 0)
+        cloned = has_repo_dir
+
+    return jsonify({
+        "ready": ready,
+        "setup_done": setup_done,
+        "cloned": cloned,
+        "repo_name": repo_name,
+        "repo_url_set": bool(repo_url),
+        "project_path": PROJECT_PATH,
+        "repo_dir": repo_dir,
+        "project_entries": entries,
+    }), 200 if ready else 503
+
 @app.route('/system-info', methods=['GET'])
 def system_info():
     """Return system information for the frontend stats overlay."""
@@ -3405,6 +3461,22 @@ if [ -n "$REPO_ARCHIVE_URL" ] && [ ! -d "$WORK_DIR/$REPO_NAME" ] && [ ! -d "/hom
         echo "Warning: Failed to download repository archive"
     fi
 fi
+
+# ── Mark repository setup phase as complete ──────────────────────────────────
+# The DevPilot Bridge API started earlier (see "Start DevPilot Bridge API") and
+# answers /health OK long before the clone/archive finishes. For big repos this
+# caused the frontend Ask flow to send prompts against an empty project.
+# The /repo-status endpoint in the bridge consults this marker to report when
+# the repo is actually on disk and safe to send prompts against.
+REPO_READY_MARKER="/tmp/devpilot-repo-ready"
+{
+    echo "repo_name=${REPO_NAME:-}"
+    echo "repo_branch=${REPO_BRANCH:-}"
+    echo "work_dir=${WORK_DIR:-}"
+    echo "finished_at=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+} > "$REPO_READY_MARKER" 2>/dev/null || true
+chmod 644 "$REPO_READY_MARKER" 2>/dev/null || true
+echo "Repo setup marker written: $REPO_READY_MARKER" >> /tmp/sandbox-debug.log
 
 # ── Ensure private NuGet feeds survive project-level <clear /> ────────────────
 # A project nuget.config with <clear /> in <packageSources> wipes user-level

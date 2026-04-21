@@ -21,6 +21,18 @@ export interface HealthResponse {
   project_path: string;
 }
 
+/** Response from GET /repo-status — indicates whether the repo has finished cloning/extracting. */
+export interface RepoStatusResponse {
+  ready: boolean;
+  setup_done: boolean;
+  cloned: boolean;
+  repo_name: string;
+  repo_url_set: boolean;
+  project_path: string;
+  repo_dir: string;
+  project_entries: string[];
+}
+
 export interface ProjectFile {
   name: string;
   type: 'file' | 'directory';
@@ -133,6 +145,19 @@ export class SandboxBridgeService {
         console.error('Bridge health check failed:', error);
         return of({ status: 'error', api_configured: false, model: '', project_path: '' });
       })
+    );
+  }
+
+  /**
+   * Repo readiness probe: the bridge API starts well before the in-sandbox
+   * clone/archive step finishes (especially for big repos), so /health alone
+   * isn't enough before sending prompts to the agent. /repo-status returns
+   * `ready: true` only once the repository is present on disk.
+   * Returns null on transient errors so callers can keep polling.
+   */
+  repoStatus(sandboxId: string): Observable<RepoStatusResponse | null> {
+    return this.http.get<RepoStatusResponse>(`${this.getBridgeUrl(sandboxId)}/repo-status`).pipe(
+      catchError(() => of(null))
     );
   }
 

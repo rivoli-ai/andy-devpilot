@@ -887,6 +887,8 @@ export class CodeComponent implements OnInit, OnDestroy {
     await this.delay(Math.min(5000, VPS_CONFIG.sandboxReadyDelayMs));
     this.codeChatStatus.set('Waiting for bridge…');
     await this.waitForCodeChatBridge(sandbox.id);
+    this.codeChatStatus.set('Cloning repository…');
+    await this.waitForCodeChatRepoReady(sandbox.id);
     this.codeChatSandboxOwned.set(true);
     return sandbox.id;
   }
@@ -1227,6 +1229,43 @@ export class CodeComponent implements OnInit, OnDestroy {
       await this.delay(2000);
     }
     throw new Error('Sandbox bridge did not become ready in time.');
+  }
+
+  /**
+   * The bridge responds OK on /health long before the in-sandbox git clone
+   * finishes. For big repositories, sending a prompt at that point makes the
+   * agent see an empty project. Poll /repo-status until the clone/archive is
+   * on disk, then proceed.
+   *
+   * Timeout is intentionally generous (~6 min): large repos on cold caches
+   * and constrained egress can legitimately take several minutes to clone.
+   */
+  private async waitForCodeChatRepoReady(sandboxId: string): Promise<void> {
+    const maxAttempts = 180;
+    const pollMs = 2000;
+    let lastEntriesLog = 0;
+    for (let i = 0; i < maxAttempts; i++) {
+      const status = await firstValueFrom(this.sandboxBridgeService.repoStatus(sandboxId));
+      if (status?.ready) {
+        return;
+      }
+      if (status) {
+        const elapsed = i * pollMs;
+        if (elapsed - lastEntriesLog >= 10000) {
+          lastEntriesLog = elapsed;
+          const hint = status.cloned
+            ? 'Repository ready, finalizing…'
+            : status.setup_done
+              ? 'Repository prepared, verifying files…'
+              : `Cloning repository… (${Math.round(elapsed / 1000)}s)`;
+          this.codeChatStatus.set(hint);
+        }
+      }
+      await this.delay(pollMs);
+    }
+    throw new Error(
+      'The repository is still being cloned inside the sandbox. Please wait a few seconds and try again.'
+    );
   }
 
   private async pollForHeadlessAnswer(sandboxId: string, promptId: string): Promise<ZedConversation> {
