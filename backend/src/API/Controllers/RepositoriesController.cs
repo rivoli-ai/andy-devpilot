@@ -218,7 +218,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Update repository's LLM setting (owner only). Set to null to use user default.
+    /// Update repository's LLM setting (owner or user with access). Set to null to use user default.
     /// </summary>
     [HttpPatch("{id}/llm-setting")]
     [Authorize]
@@ -228,9 +228,10 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized("User ID not found in token");
 
+        if (await _repositoryRepository.GetByIdIfAccessibleAsync(id, userId, cancellationToken) is null)
+            return Forbid();
         var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
-        if (repo.UserId != userId) return Forbid();
 
         if (request.LlmSettingId.HasValue)
         {
@@ -253,7 +254,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Update repository's AI agent rules (owner only). Set to null to use the default template.
+    /// Update repository's AI agent rules (owner or user with access). Set to null to use the default template.
     /// </summary>
     [HttpPatch("{id}/agent-rules")]
     [Authorize]
@@ -263,9 +264,10 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized("User ID not found in token");
 
+        if (await _repositoryRepository.GetByIdIfAccessibleAsync(id, userId, cancellationToken) is null)
+            return Forbid();
         var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
-        if (repo.UserId != userId) return Forbid();
 
         repo.UpdateAgentRules(request.AgentRules);
         await _repositoryRepository.UpdateAsync(repo, cancellationToken);
@@ -284,7 +286,7 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized("User ID not found in token");
 
-        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(id, userId, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
 
         var rules = await _repositoryAgentRuleRepository.GetByRepositoryIdAsync(id, cancellationToken);
@@ -304,7 +306,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Replace all named agent rules for a repository (owner only). At most one rule should have isDefault true.
+    /// Replace all named agent rules for a repository (owner or user with access). At most one rule should have isDefault true.
     /// </summary>
     [HttpPut("{id}/agent-rules")]
     [Authorize]
@@ -317,9 +319,10 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized("User ID not found in token");
 
+        if (await _repositoryRepository.GetByIdIfAccessibleAsync(id, userId, cancellationToken) is null)
+            return Forbid();
         var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
-        if (repo.UserId != userId) return Forbid();
 
         if (request?.Rules == null)
             return BadRequest(new { message = "rules array is required." });
@@ -359,7 +362,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Update Azure Service Principal identity for sandbox authentication (owner only).
+    /// Update Azure Service Principal identity for sandbox authentication (owner or user with access).
     /// Pass all three fields to set, or all null/empty to clear.
     /// </summary>
     [HttpPatch("{id}/azure-identity")]
@@ -370,9 +373,10 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized("User ID not found in token");
 
+        if (await _repositoryRepository.GetByIdIfAccessibleAsync(id, userId, cancellationToken) is null)
+            return Forbid();
         var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
-        if (repo.UserId != userId) return Forbid();
 
         var hasAny = !string.IsNullOrWhiteSpace(request.ClientId) || !string.IsNullOrWhiteSpace(request.ClientSecret) || !string.IsNullOrWhiteSpace(request.TenantId);
         var hasAll = !string.IsNullOrWhiteSpace(request.ClientId) && !string.IsNullOrWhiteSpace(request.ClientSecret) && !string.IsNullOrWhiteSpace(request.TenantId);
@@ -391,7 +395,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Get Azure Service Principal identity config (never returns the secret).
+    /// Get Azure Service Principal identity config (owner or user with access; never returns the secret).
     /// </summary>
     [HttpGet("{id}/azure-identity")]
     [Authorize]
@@ -401,7 +405,7 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized("User ID not found in token");
 
-        var repo = await _repositoryRepository.GetByIdAsync(id, cancellationToken);
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(id, userId, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
 
         return Ok(new
@@ -416,7 +420,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Verify Azure Service Principal credentials by acquiring an access token (owner only).
+    /// Verify Azure Service Principal credentials by acquiring an access token (owner or user with access).
     /// Request body may omit fields that are already stored; empty clientSecret reuses the stored secret.
     /// </summary>
     [HttpPost("{id:guid}/azure-identity/verify")]
@@ -427,9 +431,10 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized("User ID not found in token");
 
+        if (await _repositoryRepository.GetByIdIfAccessibleAsync(id, userId, cancellationToken) is null)
+            return Forbid();
         var repo = await _repositoryRepository.GetByIdTrackedAsync(id, cancellationToken);
         if (repo == null) return NotFound(new { message = "Repository not found" });
-        if (repo.UserId != userId) return Forbid();
 
         var clientId = !string.IsNullOrWhiteSpace(request.ClientId) ? request.ClientId.Trim() : repo.AzureIdentityClientId;
         var tenantId = !string.IsNullOrWhiteSpace(request.TenantId) ? request.TenantId.Trim() : repo.AzureIdentityTenantId;
@@ -1309,6 +1314,12 @@ public class RepositoriesController : ControllerBase
         public required string ProjectName { get; set; }
         public string? TeamId { get; set; }
         public string? PersonalAccessToken { get; set; }
+        /// <summary>Classification area node id; preferred over <see cref="AreaPath"/> (filters with <c>System.AreaId</c> to avoid WIT path validation errors).</summary>
+        public int? AreaNodeId { get; set; }
+        /// <summary>When set, WIQL is scoped to this <c>System.AreaPath</c> (and sub-areas when <see cref="IncludeDescendantAreaPaths"/> is not false). Ignored when <see cref="AreaNodeId"/> is set.</summary>
+        public string? AreaPath { get; set; }
+        /// <summary>When a team is selected: if true (default), include work items in all child area paths under each team area (WIQL "UNDER"). If false, match Azure &quot;include children&quot; per path (sub-areas may be excluded). Same for an explicit <see cref="AreaPath"/> or <see cref="AreaNodeId"/> subtree.</summary>
+        public bool? IncludeDescendantAreaPaths { get; set; }
     }
 
     /// <summary>
@@ -1385,6 +1396,77 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
+    /// All area nodes from the project Areas tree (id for WIQL, path label for the UI).
+    /// </summary>
+    [HttpGet("azure-devops/projects/{projectName}/area-paths")]
+    [Authorize]
+    public async Task<IActionResult> GetAzureDevOpsAreaPaths(string projectName, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        try
+        {
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+
+            if (user == null || string.IsNullOrEmpty(user.AzureDevOpsOrganization))
+            {
+                return BadRequest(new { message = "Azure DevOps organization is not configured. Please set it in Settings." });
+            }
+
+            string accessToken;
+            bool useBasicAuth = false;
+
+            if (!string.IsNullOrEmpty(user.AzureDevOpsAccessToken))
+            {
+                var credentials = Convert.ToBase64String(
+                    System.Text.Encoding.ASCII.GetBytes($":{user.AzureDevOpsAccessToken}"));
+                accessToken = credentials;
+                useBasicAuth = true;
+                _logger.LogInformation("Using stored PAT for Azure DevOps area paths");
+            }
+            else
+            {
+                var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(
+                    userId, ProviderTypes.AzureDevOps, cancellationToken);
+
+                if (linkedProvider == null)
+                {
+                    return BadRequest(new
+                    {
+                        message = "Azure DevOps is not configured. Please add your PAT in Settings.",
+                        requiresPat = true
+                    });
+                }
+
+                accessToken = linkedProvider.AccessToken;
+            }
+
+            var paths = await _azureDevOpsService.GetProjectAreaPathsAsync(
+                accessToken,
+                user.AzureDevOpsOrganization,
+                projectName,
+                cancellationToken,
+                useBasicAuth);
+
+            return Ok(paths);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Azure DevOps authentication failed for area paths");
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching Azure DevOps area paths for project {Project}", projectName);
+            return StatusCode(500, new { message = "Failed to fetch area paths" });
+        }
+    }
+
+    /// <summary>
     /// Get work items (Epics, Features, User Stories) from Azure DevOps project
     /// </summary>
     [HttpPost("azure-devops/work-items")]
@@ -1455,13 +1537,26 @@ public class RepositoriesController : ControllerBase
                 return BadRequest(new { message = "Organization name is required. Please configure it in Settings." });
             }
 
+            if (string.IsNullOrEmpty(request.TeamId))
+            {
+                return BadRequest(new { message = "Select a team before fetching work items." });
+            }
+
+            var includeSubAreas = request.IncludeDescendantAreaPaths is not false;
+            var areaNodeId = request.AreaNodeId is > 0 ? request.AreaNodeId : null;
+            var areaOverride = areaNodeId is not null || string.IsNullOrWhiteSpace(request.AreaPath)
+                ? null
+                : request.AreaPath!.Trim();
             var workItems = await _azureDevOpsService.GetWorkItemsAsync(
                 accessToken,
                 organizationName,
                 request.ProjectName,
                 request.TeamId,
+                areaOverride,
+                areaNodeId,
                 cancellationToken,
-                useBasicAuth);
+                useBasicAuth,
+                includeSubAreas);
 
             return Ok(workItems);
         }
@@ -2198,12 +2293,9 @@ public class RepositoriesController : ControllerBase
         if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
             return Unauthorized();
 
-        var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        var repository = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repository == null)
             return NotFound("Repository not found");
-
-        if (repository.UserId != userId)
-            return Forbid();
 
         var cloneUrl = repository.CloneUrl;
         

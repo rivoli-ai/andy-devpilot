@@ -144,17 +144,28 @@ public interface IAzureDevOpsService
         CancellationToken cancellationToken = default,
         bool useBasicAuth = false);
 
+    /// <summary>All area classification nodes: <c>id</c> (for <see cref="System.AreaId"/> WIQL) and <c>path</c> (for display; may not match WIT string form).</summary>
+    System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsAreaPathOptionDto>> GetProjectAreaPathsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
     /// <summary>
-    /// Gets work items (Epics, Features, User Stories, Tasks) from an Azure DevOps project
-    /// Optionally filtered by team's area path
+    /// Gets work items (Epics, Features, User Stories, Tasks) from an Azure DevOps project, optionally by team
+    /// area and/or a single explicit <c>System.AreaPath</c> (override).
     /// </summary>
     System.Threading.Tasks.Task<AzureDevOpsWorkItemsHierarchyDto> GetWorkItemsAsync(
         string accessToken,
         string organization,
         string project,
         string? teamId = null,
+        string? areaPathOverride = null,
+        int? areaNodeId = null,
         CancellationToken cancellationToken = default,
-        bool useBasicAuth = false);
+        bool useBasicAuth = false,
+        bool includeDescendantAreaPaths = true);
 
     /// <summary>
     /// Gets the repository file tree (directory contents)
@@ -367,4 +378,11 @@ public class AzureDevOpsBacklogWorkItemTypesDto
     public string? EpicTypeName { get; set; }
     public string? FeatureTypeName { get; set; }
     public string? StoryTypeName { get; set; }
+}
+
+/// <summary>One node in the project Areas tree (id is used for <c>System.AreaId</c> WIQL filters).</summary>
+public class AzureDevOpsAreaPathOptionDto
+{
+    public int Id { get; set; }
+    public string Path { get; set; } = "";
 }

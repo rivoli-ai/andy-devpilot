@@ -262,8 +262,9 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
             new() { Op = "add", Path = "/fields/System.Title", Value = title ?? "" },
             new() { Op = "add", Path = "/fields/System.AreaPath", Value = ts.DefaultAreaPath ?? "" }
         };
-        if (!string.IsNullOrWhiteSpace(ts.BacklogIterationPath))
-            list.Add(new AzureDevOpsWorkItemPatchOperation { Op = "add", Path = "/fields/System.IterationPath", Value = ts.BacklogIterationPath });
+        // Do not set System.IterationPath on create. Even paths from team settings / Iterations
+        // classification can be rejected as TF401347 "Invalid tree name" for the WIT store; Azure
+        // applies the team default iteration when this field is omitted.
         if (!string.IsNullOrWhiteSpace(description))
             list.Add(new AzureDevOpsWorkItemPatchOperation { Op = "add", Path = "/fields/System.Description", Value = ConvertToHtml(description) });
         if (!string.IsNullOrWhiteSpace(state))

@@ -513,6 +513,11 @@ export class BacklogService {
     return this.apiService.get<AzureDevOpsTeam[]>(`/repositories/azure-devops/projects/${encodeURIComponent(projectName)}/teams`);
   }
 
+  /** Area classification nodes (id for WIT, path for display), sorted by path. */
+  getAzureDevOpsAreaPaths(projectName: string): Observable<AzureDevOpsAreaPathOption[]> {
+    return this.apiService.get<AzureDevOpsAreaPathOption[]>(`/repositories/azure-devops/projects/${encodeURIComponent(projectName)}/area-paths`);
+  }
+
   /**
    * Fetch work items from Azure DevOps
    */
@@ -1058,11 +1063,25 @@ export interface AzureDevOpsWorkItemsHierarchy {
   bugs: AzureDevOpsWorkItem[];
 }
 
+export interface AzureDevOpsAreaPathOption {
+  id: number;
+  path: string;
+}
+
 export interface AzureDevOpsWorkItemsRequest {
   organizationName: string;
   projectName: string;
   teamId?: string;
+  /** Preferred: classification node id; filters with System.AreaId (avoids path string / TF51011). */
+  areaNodeId?: number;
+  /** Legacy: string path; ignored when areaNodeId is set. */
+  areaPath?: string;
   personalAccessToken?: string;
+  /**
+   * When a team (or area path) is used: if true (default), include work items under child area paths (WIQL "UNDER").
+   * If false, use exact match for a single path when applicable.
+   */
+  includeDescendantAreaPaths?: boolean;
 }
 
 export interface AzureDevOpsProject {

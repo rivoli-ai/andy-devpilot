@@ -81,7 +81,9 @@ public class BacklogController : ControllerBase
         var story = await _userStoryRepository.GetByIdAsync(storyId, cancellationToken);
         if (story?.Feature?.Epic?.Repository is null)
             return NotFound(new { error = "User story not found" });
-        if (story.Feature.Epic.Repository.UserId != userId)
+        var storyRepo = await _repositoryRepository.GetByIdIfAccessibleAsync(
+            story.Feature.Epic.Repository.Id, userId, cancellationToken);
+        if (storyRepo is null)
             return Forbid();
 
         var list = await _storySandboxConversationRepository.ListByUserStoryIdAsync(storyId, cancellationToken);
@@ -113,7 +115,9 @@ public class BacklogController : ControllerBase
         var story = await _userStoryRepository.GetByIdAsync(storyId, cancellationToken);
         if (story?.Feature?.Epic?.Repository is null)
             return NotFound(new { error = "User story not found" });
-        if (story.Feature.Epic.Repository.UserId != userId)
+        var storyRepo = await _repositoryRepository.GetByIdIfAccessibleAsync(
+            story.Feature.Epic.Repository.Id, userId, cancellationToken);
+        if (storyRepo is null)
             return Forbid();
 
         var snap = await _storySandboxConversationRepository.GetAsync(storyId, sandboxId, cancellationToken);

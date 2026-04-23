@@ -24,6 +24,7 @@ public class SandboxController : ControllerBase
 {
     private readonly ISandboxService _sandboxService;
     private readonly IUserRepository _userRepository;
+    private readonly ILinkedProviderRepository _linkedProviderRepository;
     private readonly IRepositoryRepository _repositoryRepository;
     private readonly IEffectiveAiConfigResolver _aiConfigResolver;
     private readonly IMcpServerConfigRepository _mcpRepository;
@@ -36,6 +37,7 @@ public class SandboxController : ControllerBase
     public SandboxController(
         ISandboxService sandboxService,
         IUserRepository userRepository,
+        ILinkedProviderRepository linkedProviderRepository,
         IRepositoryRepository repositoryRepository,
         IEffectiveAiConfigResolver aiConfigResolver,
         IMcpServerConfigRepository mcpRepository,
@@ -47,6 +49,7 @@ public class SandboxController : ControllerBase
     {
         _sandboxService = sandboxService;
         _userRepository = userRepository;
+        _linkedProviderRepository = linkedProviderRepository;
         _repositoryRepository = repositoryRepository;
         _aiConfigResolver = aiConfigResolver;
         _mcpRepository = mcpRepository;
@@ -128,8 +131,8 @@ public class SandboxController : ControllerBase
 
             if (request.RepositoryId is Guid repoGuid && repoGuid != Guid.Empty)
             {
-                var byId = await _repositoryRepository.GetByIdAsync(repoGuid, cancellationToken);
-                if (byId is not null && byId.UserId == userId)
+                var byId = await _repositoryRepository.GetByIdIfAccessibleAsync(repoGuid, userId, cancellationToken);
+                if (byId is not null)
                 {
                     resolvedRepo = byId;
                     repositoryId = byId.Id;
@@ -138,7 +141,7 @@ public class SandboxController : ControllerBase
 
             if (resolvedRepo is null && !string.IsNullOrEmpty(request.RepoName))
             {
-                var userRepos = await _repositoryRepository.GetByUserIdAsync(userId, cancellationToken);
+                var userRepos = await _repositoryRepository.GetAccessibleByUserIdAsync(userId, cancellationToken);
                 resolvedRepo = userRepos.FirstOrDefault(r =>
                     string.Equals(r.Name, request.RepoName, StringComparison.OrdinalIgnoreCase));
                 if (resolvedRepo != null)
@@ -187,6 +190,24 @@ public class SandboxController : ControllerBase
             var mcpServers = await _mcpRepository.GetEnabledForUserAsync(userId, cancellationToken);
             var zedSettings = BuildZedSettings(aiConfig, mcpServers);
 
+            // If the client sends a plain GitHub URL (no creds), use the current user's linked GitHub token
+            // so private repos work for the repo owner and for users a repo is shared with (each uses their own PAT).
+            var githubTokenForManager = request.GithubToken;
+            if (string.IsNullOrEmpty(githubTokenForManager)
+                && !string.IsNullOrEmpty(request.RepoUrl)
+                && request.RepoUrl.Contains("github.com", StringComparison.OrdinalIgnoreCase)
+                && !request.RepoUrl.Contains("@github.com", StringComparison.OrdinalIgnoreCase))
+            {
+                var linked = await _linkedProviderRepository.GetByUserAndProviderAsync(
+                    userId, ProviderTypes.GitHub, cancellationToken);
+                githubTokenForManager = linked?.AccessToken;
+                if (string.IsNullOrEmpty(githubTokenForManager))
+                {
+                    var u = await _userRepository.GetByIdAsync(userId, cancellationToken);
+                    githubTokenForManager = u?.GitHubAccessToken;
+                }
+            }
+
             var result = await _sandboxService.CreateSandboxAsync(
                 userId,
                 new SandboxCreateRequest
@@ -196,7 +217,7 @@ public class SandboxController : ControllerBase
                     RepoName = request.RepoName,
                     RepoBranch = request.RepoBranch,
                     RepoArchiveUrl = request.RepoArchiveUrl,
-                    GithubToken = request.GithubToken,
+                    GithubToken = githubTokenForManager,
                     AzureDevOpsPat = azureDevOpsPat,
                     AiConfig = sandboxAiConfig,
                     ZedSettings = zedSettings,
@@ -243,8 +264,8 @@ public class SandboxController : ControllerBase
         if (userId == Guid.Empty)
             return Unauthorized();
 
-        var repo = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
-        if (repo is null || repo.UserId != userId)
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo is null)
             return NotFound();
 
         var binding = await _userRepositorySandboxBindingRepository.GetByUserAndRepositoryAsync(

@@ -37,8 +37,8 @@ public class CodeAskConversationController : ControllerBase
         if (userId == Guid.Empty)
             return Unauthorized();
 
-        var repo = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
-        if (repo is null || repo.UserId != userId)
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo is null)
             return NotFound();
 
         var key = NormalizeBranchKey(branch);
@@ -67,8 +67,8 @@ public class CodeAskConversationController : ControllerBase
         if (userId == Guid.Empty)
             return Unauthorized();
 
-        var repo = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
-        if (repo is null || repo.UserId != userId)
+        var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repo is null)
             return NotFound();
 
         if (body?.Messages is null)

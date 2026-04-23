@@ -15,6 +15,8 @@ public class AzureDevOpsService : IAzureDevOpsService
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<AzureDevOpsService> _logger;
     private const string AzureDevOpsApiVersion = "7.0";
+    private const string ClassificationTreeAreas = "Areas";
+    private const string ClassificationTreeIterations = "Iterations";
 
     public AzureDevOpsService(
         IHttpClientFactory httpClientFactory,
@@ -420,13 +422,36 @@ public class AzureDevOpsService : IAzureDevOpsService
         }
     }
 
+    public async System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsAreaPathOptionDto>> GetProjectAreaPathsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        using var doc = await FetchClassificationTreeDocumentAsync(
+            httpClient, organization, project, ClassificationTreeAreas, cancellationToken);
+        if (doc is null)
+        {
+            return Array.Empty<AzureDevOpsAreaPathOptionDto>();
+        }
+
+        var list = new List<AzureDevOpsAreaPathOptionDto>();
+        CollectAreaPathOptionsFromClassificationNode(doc.RootElement, list);
+        return list.OrderBy(o => o.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     public async System.Threading.Tasks.Task<AzureDevOpsWorkItemsHierarchyDto> GetWorkItemsAsync(
         string accessToken,
         string organization,
         string project,
         string? teamId = null,
+        string? areaPathOverride = null,
+        int? areaNodeId = null,
         CancellationToken cancellationToken = default,
-        bool useBasicAuth = false)
+        bool useBasicAuth = false,
+        bool includeDescendantAreaPaths = true)
     {
         var httpClient = CreateHttpClient(accessToken, useBasicAuth);
 
@@ -434,10 +459,80 @@ public class AzureDevOpsService : IAzureDevOpsService
         {
             var result = new AzureDevOpsWorkItemsHierarchyDto();
 
-            // When teamId is provided, fetch team's area paths via Team Field Values API and filter WIQL
+            // When teamId is provided, fetch team's area paths via Team Field Values API and filter WIQL.
+            // includeDescendantAreaPaths: true = every path uses [AreaPath] UNDER (work items in that node and all child areas).
+            // false = use Team Field "includeChildren" per path: if false for a path, [AreaPath] = that path only; if true, UNDER.
+            // areaNodeId: filter by System.AreaId (avoids TF51011 when REST path != valid WIQL System.AreaPath string).
+            // areaPathOverride: prefer areaNodeId from UI; legacy string path, uses System.AreaPath UNDER/=.
             string? areaPathFilter = null;
-            if (!string.IsNullOrEmpty(teamId))
+            if (areaNodeId is > 0)
             {
+                using var classDoc = await FetchClassificationTreeDocumentAsync(
+                    httpClient, organization, project, ClassificationTreeAreas, cancellationToken);
+                if (classDoc is not null &&
+                    TryFindClassificationNodeById(classDoc.RootElement, areaNodeId.Value, out var matchNode))
+                {
+                    var ids = new List<int>();
+                    if (includeDescendantAreaPaths)
+                    {
+                        CollectClassificationNodeAndDescendantIds(matchNode, ids);
+                    }
+                    else if (TryGetClassificationNodeId(matchNode, out var oneId) && oneId > 0)
+                    {
+                        ids.Add(oneId);
+                    }
+
+                    if (ids.Count > 0)
+                    {
+                        var distinct = ids.Distinct().ToList();
+                        areaPathFilter = distinct.Count == 1
+                            ? $" AND [System.AreaId] = {distinct[0]}"
+                            : $" AND [System.AreaId] IN ({string.Join(", ", distinct)})";
+                        _logger.LogInformation(
+                            "WIQL using System.AreaId (node {NodeId}, {Count} ids, includeDescendantAreaPaths: {Desc})",
+                            areaNodeId, distinct.Count, includeDescendantAreaPaths);
+                    }
+                }
+                else
+                {
+                    _logger.LogWarning("Area classification node {NodeId} not found, falling back to team/path", areaNodeId);
+                }
+            }
+
+            if (areaPathFilter is null && !string.IsNullOrWhiteSpace(areaPathOverride))
+            {
+                var classificationAreaPaths = await FetchClassificationAreaPathSetAsync(
+                    httpClient, organization, project, cancellationToken);
+                var p = ResolveToCanonicalAreaPath(
+                    project, areaPathOverride.Trim(), classificationAreaPaths);
+                if (string.IsNullOrEmpty(p) && !string.IsNullOrEmpty(project))
+                {
+                    var withPrefix = project + "\\" + areaPathOverride.Trim().TrimStart('\\');
+                    p = ResolveToCanonicalAreaPath(project, withPrefix, classificationAreaPaths);
+                }
+
+                if (!string.IsNullOrEmpty(p))
+                {
+                    var escaped = p.Replace("'", "''", StringComparison.Ordinal);
+                    areaPathFilter = (includeDescendantAreaPaths
+                        ? $" AND ([System.AreaPath] UNDER '{escaped}')"
+                        : $" AND ([System.AreaPath] = '{escaped}')");
+                    _logger.LogInformation("WIQL using explicit area path: {Path}", p);
+                }
+                else
+                {
+                    _logger.LogWarning("Area path override could not be resolved, falling back to team: {Raw}", areaPathOverride);
+                }
+            }
+
+            if (areaPathFilter is null && !string.IsNullOrEmpty(teamId))
+            {
+                var classificationAreaPaths = await FetchClassificationAreaPathSetAsync(
+                    httpClient, organization, project, cancellationToken);
+                if (classificationAreaPaths.Count > 0)
+                {
+                    _logger.LogInformation("Loaded {N} area paths from classification (for team area resolution)", classificationAreaPaths.Count);
+                }
                 try
                 {
                     var teamFieldValuesUrl = $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/{AzureDevOpsPathSegment(teamId!, nameof(teamId))}/_apis/work/teamsettings/teamfieldvalues?api-version={AzureDevOpsApiVersion}";
@@ -448,32 +543,87 @@ public class AzureDevOpsService : IAzureDevOpsService
                         var teamFieldDoc = JsonDocument.Parse(teamFieldContent);
                         var root = teamFieldDoc.RootElement;
 
-                        // Team Field Values returns: { "defaultValue": "Project\\Team", "values": [{ "value": "...", "includeChildren": true }] }
-                        var areaPaths = new List<string>();
+                        // Team Field Values: { "defaultValue": "Project\\Area", "values": [{ "value": "...", "includeChildren": true|false }] }
+                        var pathEntries = new List<(string Path, bool IncludeChildren)>();
+                        void AddPath(string? raw, bool includeChildrenFromTeam)
+                        {
+                            var p = NormalizeAdoAreaPath(raw);
+                            if (string.IsNullOrEmpty(p)) return;
+                            if (pathEntries.Any(e => e.Path.Equals(p, StringComparison.OrdinalIgnoreCase)))
+                                return;
+                            pathEntries.Add((p, includeChildrenFromTeam));
+                        }
+
                         if (root.TryGetProperty("defaultValue", out var defaultVal))
                         {
                             var path = defaultVal.GetString();
-                            if (!string.IsNullOrEmpty(path)) areaPaths.Add(path);
+                            if (!string.IsNullOrEmpty(path))
+                            {
+                                // Default team area: include descendants unless we're in strict (non-UNDER) mode; treat as true.
+                                AddPath(path, true);
+                            }
                         }
+
                         if (root.TryGetProperty("values", out var valuesArr))
                         {
                             foreach (var v in valuesArr.EnumerateArray())
                             {
-                                if (v.TryGetProperty("value", out var valProp))
-                                {
-                                    var path = valProp.GetString();
-                                    if (!string.IsNullOrEmpty(path) && !areaPaths.Contains(path))
-                                        areaPaths.Add(path);
-                                }
+                                if (!v.TryGetProperty("value", out var valProp))
+                                    continue;
+                                var path = valProp.GetString();
+                                var includeChildren = true;
+                                if (v.TryGetProperty("includeChildren", out var incProp) && incProp.ValueKind == JsonValueKind.False)
+                                    includeChildren = false;
+                                AddPath(path, includeChildren);
                             }
                         }
 
-                        if (areaPaths.Count > 0)
+                        if (pathEntries.Count > 0)
                         {
-                            // Build OR clause: (AreaPath UNDER 'path1' OR AreaPath UNDER 'path2' ...)
-                            var underClauses = areaPaths.Select(p => $"[System.AreaPath] UNDER '{p.Replace("'", "''")}'");
-                            areaPathFilter = " AND (" + string.Join(" OR ", underClauses) + ")";
-                            _logger.LogInformation("Team {TeamId} area paths: {Paths}", teamId, string.Join(", ", areaPaths));
+                            // Map API strings to full System.AreaPath (e.g. Agentic\test team\TEST) so WIQL UNDER matches sub-areas
+                            var merged = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var (rawPath, teamIncludeChildren) in pathEntries)
+                            {
+                                var p = ResolveToCanonicalAreaPath(project, rawPath, classificationAreaPaths);
+                                if (string.IsNullOrEmpty(p)) continue;
+                                if (merged.ContainsKey(p))
+                                {
+                                    if (teamIncludeChildren) merged[p] = true;
+                                }
+                                else
+                                {
+                                    merged[p] = teamIncludeChildren;
+                                }
+                            }
+
+                            if (merged.Count == 0)
+                            {
+                                _logger.LogWarning("Team {TeamId} had no resolvable area paths after classification mapping", teamId);
+                            }
+                            var clauses = new List<string>();
+                            foreach (var kvp in merged)
+                            {
+                                var p = kvp.Key;
+                                var teamIncludeChildren = kvp.Value;
+                                _logger.LogDebug("Team {TeamId} WIQL area filter using path: {Path} (includeChildren from API: {Inc})", teamId, p, teamIncludeChildren);
+                                var escaped = p.Replace("'", "''", StringComparison.Ordinal);
+                                if (includeDescendantAreaPaths || teamIncludeChildren)
+                                {
+                                    clauses.Add($"[System.AreaPath] UNDER '{escaped}'");
+                                }
+                                else
+                                {
+                                    clauses.Add($"[System.AreaPath] = '{escaped}'");
+                                }
+                            }
+
+                            if (clauses.Count > 0)
+                            {
+                                areaPathFilter = " AND (" + string.Join(" OR ", clauses) + ")";
+                                _logger.LogInformation(
+                                    "Team {TeamId} area paths (includeDescendantAreaPaths={GlobalInc}, resolved: {Details})",
+                                    teamId, includeDescendantAreaPaths, string.Join("; ", merged.Select(kvp => $"{kvp.Key} (inc={kvp.Value})")));
+                            }
                         }
                         else
                         {
@@ -882,13 +1032,13 @@ public class AzureDevOpsService : IAzureDevOpsService
         if (root.TryGetProperty("teamField", out var tf) && tf.TryGetProperty("defaultValue", out var dv))
             area = NonEmptyPath(dv.GetString());
 
-        string? iteration = null;
+        string? teamIterationPathRaw = null;
         if (root.TryGetProperty("backlogIteration", out var bi) && bi.ValueKind == JsonValueKind.Object &&
             bi.TryGetProperty("path", out var bip))
-            iteration = NonEmptyPath(bip.GetString());
-        if (iteration == null && root.TryGetProperty("defaultIteration", out var di) && di.ValueKind == JsonValueKind.Object &&
+            teamIterationPathRaw = NonEmptyPath(bip.GetString());
+        if (string.IsNullOrEmpty(teamIterationPathRaw) && root.TryGetProperty("defaultIteration", out var di) && di.ValueKind == JsonValueKind.Object &&
             di.TryGetProperty("path", out var dip))
-            iteration = NonEmptyPath(dip.GetString());
+            teamIterationPathRaw = NonEmptyPath(dip.GetString());
 
         if (string.IsNullOrEmpty(area))
         {
@@ -923,11 +1073,80 @@ public class AzureDevOpsService : IAzureDevOpsService
                 _logger.LogWarning("Team field values failed {Status} for team {TeamId}: {Body}", tfvResponse.StatusCode, teamId, tfvContent);
         }
 
+        // System.IterationPath must match a node in the project Iterations tree; team settings can return a path
+        // that WIT rejects (TF401347 Invalid tree name). Resolve against classification, then fall back to a safe default.
+        var iterationPathSet = await FetchClassificationIterationPathSetAsync(
+            httpClient, organization, project, cancellationToken);
+        var backlogIterationPath = ResolveTeamIterationForWorkItems(
+            project, teamIterationPathRaw, iterationPathSet);
+
         return new AzureDevOpsTeamSettingsDto
         {
             DefaultAreaPath = area,
-            BacklogIterationPath = iteration
+            BacklogIterationPath = backlogIterationPath
         };
+    }
+
+    private static string? PickDefaultIterationPathFromClassification(string project, IReadOnlyCollection<string> iterationPaths)
+    {
+        if (iterationPaths.Count == 0) return null;
+        var p = project.Trim();
+        var atProjectRoot = iterationPaths
+            .FirstOrDefault(s => s.Equals(p, StringComparison.OrdinalIgnoreCase));
+        if (atProjectRoot is not null)
+        {
+            return atProjectRoot;
+        }
+
+        return iterationPaths
+            .OrderBy(s => s.Length)
+            .ThenBy(s => s, StringComparer.OrdinalIgnoreCase)
+            .First();
+    }
+
+    /// <summary>Maps team backlog iteration to a path that exists in the Iterations tree (WIT otherwise returns TF401347).</summary>
+    private string? ResolveTeamIterationForWorkItems(
+        string project,
+        string? teamIterationPathRaw,
+        HashSet<string> iterationPathSet)
+    {
+        if (iterationPathSet.Count == 0)
+        {
+            if (!string.IsNullOrWhiteSpace(teamIterationPathRaw))
+            {
+                _logger.LogWarning(
+                    "Iterations classification is empty; omitting System.IterationPath to avoid invalid tree (team had: {Path})",
+                    teamIterationPathRaw);
+            }
+
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(teamIterationPathRaw))
+        {
+            var normalized = NormalizeAdoAreaPath(teamIterationPathRaw).TrimStart('\\');
+            if (string.IsNullOrEmpty(normalized))
+            {
+                return PickDefaultIterationPathFromClassification(project, iterationPathSet);
+            }
+
+            var resolved = ResolveToCanonicalAreaPath(project, normalized, iterationPathSet);
+            if (iterationPathSet.Any(ip => ip.Equals(resolved, StringComparison.OrdinalIgnoreCase)))
+            {
+                return iterationPathSet.First(ip => ip.Equals(resolved, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (iterationPathSet.Any(ip => ip.Equals(normalized, StringComparison.OrdinalIgnoreCase)))
+            {
+                return iterationPathSet.First(ip => ip.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+            }
+
+            _logger.LogWarning(
+                "Team iteration path {Path} is not in project Iteration classification; using default (TF401347 prevention)",
+                teamIterationPathRaw);
+        }
+
+        return PickDefaultIterationPathFromClassification(project, iterationPathSet);
     }
 
     /// <summary>Azure often returns whitespace/empty for unset paths; treat as missing.</summary>
@@ -2060,6 +2279,277 @@ public class AzureDevOpsService : IAzureDevOpsService
 
     private static string EscapeWiqlStringLiteral(string value)
         => value.Replace("'", "''", StringComparison.Ordinal);
+
+    /// <summary>Normalizes area path from REST/JSON to WIQL (Azure uses backslash-separated nodes).</summary>
+    private static string NormalizeAdoAreaPath(string? p)
+    {
+        if (string.IsNullOrWhiteSpace(p)) return "";
+        return p.Trim().Replace('/', '\\');
+    }
+
+    /// <summary>
+    /// Loads every <see cref="System.AreaPath"/> from the project Areas tree so team field values (often partial) can
+    /// be resolved to the full path; required so WIQL "UNDER" matches sub-areas (e.g. <c>Agentic\test team\TEST</c>).
+    /// </summary>
+    private static async System.Threading.Tasks.Task<HashSet<string>> FetchClassificationAreaPathSetAsync(
+        HttpClient httpClient,
+        string organization,
+        string project,
+        CancellationToken cancellationToken)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var doc = await FetchClassificationTreeDocumentAsync(
+            httpClient, organization, project, ClassificationTreeAreas, cancellationToken);
+        if (doc is null)
+        {
+            return result;
+        }
+
+        CollectAreaPathsFromClassificationNode(doc.RootElement, result);
+        return result;
+    }
+
+    private static async System.Threading.Tasks.Task<HashSet<string>> FetchClassificationIterationPathSetAsync(
+        HttpClient httpClient,
+        string organization,
+        string project,
+        CancellationToken cancellationToken)
+    {
+        var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        using var doc = await FetchClassificationTreeDocumentAsync(
+            httpClient, organization, project, ClassificationTreeIterations, cancellationToken);
+        if (doc is null)
+        {
+            return result;
+        }
+
+        CollectAreaPathsFromClassificationNode(doc.RootElement, result);
+        return result;
+    }
+
+    /// <summary>Parses a project classification JSON tree (Areas or Iterations), or <c>null</c> on failure.</summary>
+    private static async System.Threading.Tasks.Task<JsonDocument?> FetchClassificationTreeDocumentAsync(
+        HttpClient httpClient,
+        string organization,
+        string project,
+        string areasOrIterations,
+        CancellationToken cancellationToken)
+    {
+        if (!string.Equals(areasOrIterations, ClassificationTreeAreas, StringComparison.Ordinal) &&
+            !string.Equals(areasOrIterations, ClassificationTreeIterations, StringComparison.Ordinal))
+        {
+            throw new ArgumentException("Only Areas or Iterations are supported.", nameof(areasOrIterations));
+        }
+
+        var url = $"https://dev.azure.com/{AzureDevOpsPathSegment(organization, nameof(organization))}/{AzureDevOpsPathSegment(project, nameof(project))}/_apis/wit/classificationnodes/{areasOrIterations}?api-version={AzureDevOpsApiVersion}&$depth=14";
+        var response = await httpClient.GetAsync(url, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken);
+        if (string.IsNullOrWhiteSpace(content) || content.TrimStart().StartsWith('<'))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonDocument.Parse(content);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void CollectAreaPathOptionsFromClassificationNode(
+        JsonElement node, List<AzureDevOpsAreaPathOptionDto> acc)
+    {
+        if (TryGetClassificationNodeId(node, out var id) && id > 0 && node.TryGetProperty("path", out var pathEl))
+        {
+            var p = pathEl.GetString();
+            if (!string.IsNullOrEmpty(p))
+            {
+                p = NormalizeAdoAreaPath(p).TrimStart('\\');
+                if (!string.IsNullOrEmpty(p))
+                {
+                    acc.Add(new AzureDevOpsAreaPathOptionDto { Id = id, Path = p });
+                }
+            }
+        }
+
+        if (node.TryGetProperty("children", out var ch) && ch.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in ch.EnumerateArray())
+            {
+                CollectAreaPathOptionsFromClassificationNode(c, acc);
+            }
+        }
+    }
+
+    private static bool TryGetClassificationNodeId(JsonElement node, out int id)
+    {
+        id = 0;
+        if (!node.TryGetProperty("id", out var idEl))
+        {
+            return false;
+        }
+
+        if (idEl.ValueKind == JsonValueKind.Number)
+        {
+            id = idEl.GetInt32();
+            return id > 0;
+        }
+
+        if (idEl.ValueKind == JsonValueKind.String)
+        {
+            return int.TryParse(idEl.GetString(), System.Globalization.NumberStyles.Integer, null, out id) && id > 0;
+        }
+
+        return false;
+    }
+
+    private static bool TryFindClassificationNodeById(
+        JsonElement node, int targetId, out JsonElement found)
+    {
+        if (TryGetClassificationNodeId(node, out var id) && id == targetId)
+        {
+            found = node;
+            return true;
+        }
+
+        if (node.TryGetProperty("children", out var ch) && ch.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in ch.EnumerateArray())
+            {
+                if (TryFindClassificationNodeById(c, targetId, out found))
+                {
+                    return true;
+                }
+            }
+        }
+
+        found = default;
+        return false;
+    }
+
+    private static void CollectClassificationNodeAndDescendantIds(JsonElement node, List<int> ids)
+    {
+        if (TryGetClassificationNodeId(node, out var id) && id > 0)
+        {
+            ids.Add(id);
+        }
+
+        if (node.TryGetProperty("children", out var ch) && ch.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in ch.EnumerateArray())
+            {
+                CollectClassificationNodeAndDescendantIds(c, ids);
+            }
+        }
+    }
+
+    private static void CollectAreaPathsFromClassificationNode(JsonElement node, HashSet<string> paths)
+    {
+        if (node.TryGetProperty("path", out var pathEl))
+        {
+            var p = pathEl.GetString();
+            if (!string.IsNullOrEmpty(p))
+            {
+                p = NormalizeAdoAreaPath(p).TrimStart('\\');
+                if (!string.IsNullOrEmpty(p))
+                {
+                    paths.Add(p);
+                }
+            }
+        }
+
+        if (node.TryGetProperty("children", out var ch) && ch.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var c in ch.EnumerateArray())
+            {
+                CollectAreaPathsFromClassificationNode(c, paths);
+            }
+        }
+    }
+
+    /// <summary>Maps team field value / default path to the canonical <c>System.AreaPath</c> from classification.</summary>
+    private string ResolveToCanonicalAreaPath(
+        string project,
+        string? raw,
+        IReadOnlyCollection<string> classificationPaths)
+    {
+        var n = NormalizeAdoAreaPath(raw);
+        if (string.IsNullOrEmpty(n))
+        {
+            return n;
+        }
+
+        var proj = project.Trim();
+        if (classificationPaths.Count == 0)
+        {
+            if (!n.StartsWith(proj + "\\", StringComparison.OrdinalIgnoreCase) && n.IndexOf('\\') < 0)
+            {
+                return proj + "\\" + n;
+            }
+            if (!n.StartsWith(proj + "\\", StringComparison.OrdinalIgnoreCase) && n.IndexOf('\\') >= 0)
+            {
+                return proj + "\\" + n;
+            }
+            return n;
+        }
+
+        var byExact = classificationPaths.FirstOrDefault(p => p.Equals(n, StringComparison.OrdinalIgnoreCase));
+        if (byExact is not null)
+        {
+            return byExact;
+        }
+
+        if (!n.StartsWith(proj + "\\", StringComparison.OrdinalIgnoreCase))
+        {
+            var guess = proj + "\\" + n;
+            var byPrefix = classificationPaths.FirstOrDefault(p => p.Equals(guess, StringComparison.OrdinalIgnoreCase));
+            if (byPrefix is not null)
+            {
+                _logger.LogDebug("Resolved area path {Raw} to {Full} (project prefix + classification)", raw, byPrefix);
+                return byPrefix;
+            }
+        }
+
+        var asSuffix = classificationPaths
+            .Where(f =>
+            {
+                if (f.Equals(n, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                if (f.EndsWith("\\" + n, StringComparison.OrdinalIgnoreCase))
+                {
+                    return true;
+                }
+                return false;
+            })
+            .OrderBy(f => f.Length)
+            .FirstOrDefault();
+
+        if (asSuffix is not null)
+        {
+            _logger.LogDebug("Resolved area path {Raw} to {Full} (suffix match in Areas tree)", raw, asSuffix);
+            return asSuffix;
+        }
+
+        if (!n.StartsWith(proj + "\\", StringComparison.OrdinalIgnoreCase) && n.IndexOf('\\') >= 0)
+        {
+            return proj + "\\" + n;
+        }
+        if (!n.StartsWith(proj + "\\", StringComparison.OrdinalIgnoreCase) && n.IndexOf('\\') < 0)
+        {
+            return proj + "\\" + n;
+        }
+        return n;
+    }
 
     private static void EnsureSafeGitPath(string? path, string parameterName)
     {

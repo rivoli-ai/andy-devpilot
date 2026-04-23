@@ -29,30 +29,28 @@
     <div class="header-actions">
       <div class="backlog-header-extras">
         <!-- Hidden on small screens — use desktop for import, rules, identity (sync lives in selection bar) -->
-        @if (repository()?.isOwner !== false) {
-          <button type="button" class="action-btn secondary rules-btn" (click)="openRulesEditor()" title="Edit AI agent rules for this repository">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
-              <polyline points="14 2 14 8 20 8"/>
-              <line x1="16" y1="13" x2="8" y2="13"/>
-              <line x1="16" y1="17" x2="8" y2="17"/>
-            </svg>
-            Rules
-          </button>
-          @if (repository()?.provider === 'AzureDevOps') {
-          <button
-            type="button"
-            class="action-btn azure-identity-btn"
-            [class.azure-identity-btn--active]="repository()?.hasAzureIdentity === true"
-            (click)="openAzureIdentityModal()"
-            [title]="repository()?.hasAzureIdentity ? 'Azure Identity configured' : 'Configure Azure Identity'">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="11" width="18" height="11" rx="2"/>
-              <circle cx="12" cy="16.5" r="1.5"/>
-              <path d="M7 11V7a5 5 0 0110 0v4"/>
-            </svg>
-          </button>
-          }
+        <button type="button" class="action-btn secondary rules-btn" (click)="openRulesEditor()" title="Edit AI agent rules for this repository">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          Rules
+        </button>
+        @if (repository()?.provider === 'AzureDevOps') {
+        <button
+          type="button"
+          class="action-btn azure-identity-btn"
+          [class.azure-identity-btn--active]="repository()?.hasAzureIdentity === true"
+          (click)="openAzureIdentityModal()"
+          [title]="repository()?.hasAzureIdentity ? 'Azure Identity configured' : 'Configure Azure Identity'">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="11" width="18" height="11" rx="2"/>
+            <circle cx="12" cy="16.5" r="1.5"/>
+            <path d="M7 11V7a5 5 0 0110 0v4"/>
+          </svg>
+        </button>
         }
       @if (totalEpics() === 0) {
         <button class="action-btn secondary" (click)="openAddEpic()" title="Add Epic">
@@ -179,15 +177,10 @@
           If you need the sandbox to access <strong>private resources</strong> (for example Azure Key Vault, private APIs, databases, or other secured services), configure an Azure service principal.
           DevPilot injects it into the sandbox as <code>AZURE_CLIENT_ID</code>, <code>AZURE_CLIENT_SECRET</code>, and <code>AZURE_TENANT_ID</code>.
         </p>
-        @if (repo.isOwner === false) {
-          <p class="backlog-identity-warning__sub">Only the repository owner can configure Azure Identity here.</p>
-        }
       </div>
-      @if (repo.isOwner !== false) {
-        <button type="button" class="action-btn secondary backlog-identity-warning__action" (click)="openAzureIdentityModal()">
-          Configure Azure Identity
-        </button>
-      }
+      <button type="button" class="action-btn secondary backlog-identity-warning__action" (click)="openAzureIdentityModal()">
+        Configure Azure Identity
+      </button>
     </div>
     }
   }
@@ -1972,6 +1965,9 @@
             <div class="ado-config-form">
               <p class="ado-form-description">
                 Import existing Epics, Features, and User Stories from your Azure project.
+                For a <strong>team</strong>, work items in <strong>child area paths</strong> are included by default (same as a WIQL
+                <code>AreaPath</code> “Under” each team area). Uncheck that option only if you want to mirror Azure’s per-path
+                “include children” setting, or use <strong>Entire project</strong> to list every work item the project returns.
               </p>
 
               @if (azureDevOpsOrg()) {
@@ -2014,7 +2010,6 @@
                 <span class="ado-form-hint">Select the Azure project containing your work items</span>
               </div>
 
-              <!-- Team Selection (shown after project is selected) -->
               @if (azureDevOpsProject()) {
                 <div class="ado-form-group">
                   <label for="ado-team">Team <span class="required">*</span></label>
@@ -2024,9 +2019,9 @@
                       <span>Loading teams...</span>
                     </div>
                   } @else if (azureDevOpsTeams().length > 0) {
-                    <select 
+                    <select
                       id="ado-team"
-                      [ngModel]="azureDevOpsTeam()" 
+                      [ngModel]="azureDevOpsTeam()"
                       (ngModelChange)="azureDevOpsTeam.set($event)"
                     >
                       <option value="">Select a team...</option>
@@ -2039,7 +2034,28 @@
                       <span>No teams found for this project</span>
                     </div>
                   }
-                  <span class="ado-form-hint">Select the team whose backlog you want to import</span>
+                  <span class="ado-form-hint">Choose a team, then fetch or narrow with an area path below.</span>
+                </div>
+                <div class="ado-form-group">
+                  <label for="ado-area-path">Area path (optional)</label>
+                  @if (azureDevOpsAreaPathsLoading()) {
+                    <div class="ado-loading-projects">
+                      <span class="spinner-small"></span>
+                      <span>Loading area paths...</span>
+                    </div>
+                  } @else {
+                    <select
+                      id="ado-area-path"
+                      [ngModel]="azureDevOpsSelectedAreaNodeId()"
+                      (ngModelChange)="azureDevOpsSelectedAreaNodeId.set($event)"
+                    >
+                      <option value="">Team default areas (and sub-areas under those)</option>
+                      @for (opt of azureDevOpsAreaPaths(); track opt.id) {
+                        <option [value]="opt.id + ''">{{ opt.path }}</option>
+                      }
+                    </select>
+                  }
+                  <span class="ado-form-hint">Select a specific area or sub-area to narrow the import, or keep the first option to use the areas mapped to the team in Azure.</span>
                 </div>
               }
 
@@ -2067,8 +2083,8 @@
 
               <div class="ado-form-actions">
                 <button class="ado-btn secondary" (click)="closeAzureDevOpsImport()">Cancel</button>
-                <button 
-                  class="ado-btn primary" 
+                <button
+                  class="ado-btn primary"
                   (click)="fetchAzureDevOpsWorkItems()"
                   [disabled]="azureDevOpsLoading() || !azureDevOpsOrg() || !azureDevOpsProject() || !azureDevOpsTeam()"
                 >
@@ -2079,7 +2095,7 @@
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                       <path d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                     </svg>
-                    Fetch Team Backlog
+                    Fetch work items
                   }
                 </button>
               </div>

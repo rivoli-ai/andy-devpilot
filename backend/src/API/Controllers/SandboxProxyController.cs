@@ -57,6 +57,7 @@ public class SandboxProxyController : ControllerBase
 
     private readonly SandboxService _sandboxService;
     private readonly IUserStoryRepository _userStoryRepository;
+    private readonly IRepositoryRepository _repositoryRepository;
     private readonly IStorySandboxConversationRepository _storySandboxConversationRepository;
     private readonly IConfiguration _configuration;
     private readonly ILogger<SandboxProxyController> _logger;
@@ -64,12 +65,14 @@ public class SandboxProxyController : ControllerBase
     public SandboxProxyController(
         SandboxService sandboxService,
         IUserStoryRepository userStoryRepository,
+        IRepositoryRepository repositoryRepository,
         IStorySandboxConversationRepository storySandboxConversationRepository,
         IConfiguration configuration,
         ILogger<SandboxProxyController> logger)
     {
         _sandboxService = sandboxService;
         _userStoryRepository = userStoryRepository;
+        _repositoryRepository = repositoryRepository;
         _storySandboxConversationRepository = storySandboxConversationRepository;
         _configuration = configuration;
         _logger = logger;
@@ -369,7 +372,9 @@ public class SandboxProxyController : ControllerBase
         var story = await _userStoryRepository.GetByIdAsync(userStoryId, HttpContext.RequestAborted);
         if (story?.Feature?.Epic?.Repository is null)
             return NotFound(new { error = "User story not found" });
-        if (story.Feature.Epic.Repository.UserId != userId)
+        var storyRepo = await _repositoryRepository.GetByIdIfAccessibleAsync(
+            story.Feature.Epic.Repository.Id, userId, HttpContext.RequestAborted);
+        if (storyRepo is null)
             return Forbid();
 
         using var client = CreateSandboxProxyHttpClient();

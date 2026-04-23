@@ -3,7 +3,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection, ApplyGitHubSyncRequest } from '../../core/services/backlog.service';
+import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, AzureDevOpsAreaPathOption, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection, ApplyGitHubSyncRequest } from '../../core/services/backlog.service';
 import { RepositoryService, DEFAULT_AGENT_RULES, ReplaceRepositoryAgentRuleItem } from '../../core/services/repository.service';
 import { Repository } from '../../shared/models/repository.model';
 import { SandboxService, CreateSandboxResponse } from '../../core/services/sandbox.service';
@@ -148,6 +148,11 @@ export class BacklogComponent implements OnInit, OnDestroy {
   azureDevOpsTeam = signal<string>('');
   azureDevOpsTeams = signal<AzureDevOpsTeam[]>([]);
   azureDevOpsTeamsLoading = signal<boolean>(false);
+  /** Project classification area nodes; optional id narrows the query to that subtree. */
+  azureDevOpsAreaPaths = signal<AzureDevOpsAreaPathOption[]>([]);
+  azureDevOpsAreaPathsLoading = signal<boolean>(false);
+  /** Empty string = team default only; otherwise classification node id as a string. */
+  azureDevOpsSelectedAreaNodeId = signal<string>('');
   selectedAzureDevOpsEpics = signal<Set<number>>(new Set());
   selectedAzureDevOpsFeatures = signal<Set<number>>(new Set());
   selectedAzureDevOpsStories = signal<Set<number>>(new Set());
@@ -2595,6 +2600,8 @@ ${jsonFormatRequirement}`;
     this.azureDevOpsProjects.set([]);
     this.azureDevOpsTeams.set([]);
     this.azureDevOpsTeam.set('');
+    this.azureDevOpsAreaPaths.set([]);
+    this.azureDevOpsSelectedAreaNodeId.set('');
     this.selectedAzureDevOpsEpics.set(new Set());
     this.selectedAzureDevOpsFeatures.set(new Set());
     this.selectedAzureDevOpsStories.set(new Set());
@@ -2633,6 +2640,7 @@ ${jsonFormatRequirement}`;
         const project = this.azureDevOpsProject();
         if (project) {
           this.loadAzureDevOpsTeams(project);
+          this.loadAzureDevOpsAreaPaths(project);
         }
       },
       error: (err) => {
@@ -2648,11 +2656,14 @@ ${jsonFormatRequirement}`;
     // Reset team and work items when project changes
     this.azureDevOpsTeam.set('');
     this.azureDevOpsTeams.set([]);
+    this.azureDevOpsSelectedAreaNodeId.set('');
+    this.azureDevOpsAreaPaths.set([]);
     this.azureDevOpsWorkItems.set(null);
     this.selectedAzureDevOpsEpics.set(new Set());
     
     if (project) {
       this.loadAzureDevOpsTeams(project);
+      this.loadAzureDevOpsAreaPaths(project);
     }
   }
 
@@ -2667,6 +2678,21 @@ ${jsonFormatRequirement}`;
         console.error('Failed to load Azure DevOps teams:', err);
         this.azureDevOpsTeamsLoading.set(false);
         // Don't show error - teams are optional
+      }
+    });
+  }
+
+  loadAzureDevOpsAreaPaths(projectName: string): void {
+    this.azureDevOpsAreaPathsLoading.set(true);
+    this.backlogService.getAzureDevOpsAreaPaths(projectName).subscribe({
+      next: (paths) => {
+        this.azureDevOpsAreaPaths.set(paths ?? []);
+        this.azureDevOpsAreaPathsLoading.set(false);
+      },
+      error: (err) => {
+        console.error('Failed to load Azure DevOps area paths:', err);
+        this.azureDevOpsAreaPaths.set([]);
+        this.azureDevOpsAreaPathsLoading.set(false);
       }
     });
   }
@@ -2690,7 +2716,7 @@ ${jsonFormatRequirement}`;
     }
 
     if (!team) {
-      this.azureDevOpsError.set('Please select a team');
+      this.azureDevOpsError.set('Select a team to load the backlog');
       return;
     }
 
@@ -2704,19 +2730,24 @@ ${jsonFormatRequirement}`;
     this.adoShowAllStatuses.set(false);
     this.adoNameFilter.set('');
 
-    // Organization and PAT are now retrieved from settings on the backend
+    const nodeIdStr = this.azureDevOpsSelectedAreaNodeId().trim();
+    const areaNodeId = nodeIdStr ? parseInt(nodeIdStr, 10) : undefined;
     this.backlogService.getAzureDevOpsWorkItems({
       organizationName: org,
       projectName: project,
-      teamId: team
+      teamId: team,
+      ...(areaNodeId !== undefined && !Number.isNaN(areaNodeId) && areaNodeId > 0
+        ? { areaNodeId }
+        : {}),
     }).subscribe({
       next: (workItems) => {
         this.azureDevOpsWorkItems.set(workItems);
         this.azureDevOpsLoading.set(false);
         
-        // Auto-expand all epics
+        // Auto-expand all epics and features so the full tree (all child levels) is visible
         const expandedSet = new Set<number>();
         workItems.epics.forEach(e => expandedSet.add(e.id));
+        workItems.features.forEach(f => expandedSet.add(f.id));
         this.expandedAzureDevOpsItems.set(expandedSet);
       },
       error: (err) => {
