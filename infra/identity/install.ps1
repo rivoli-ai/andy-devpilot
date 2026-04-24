@@ -1,20 +1,20 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# DevPilot Identity Server – install script (Windows PowerShell)
+# -----------------------------------------------------------------------------
+# DevPilot Identity Server - install script (Windows PowerShell)
 #
 # Usage:
 #   .\install.ps1                           # generate certs + start
 #   .\install.ps1 -NoCerts                  # skip cert generation
 #   .\install.ps1 -TrustCert                # also trust cert in Windows store
 #   .\install.ps1 -Username admin           # override admin username
-#   .\install.ps1 -Port 5001               # override IDS port
-# ──────────────────────────────────────────────────────────────────────────────
+#   .\install.ps1 -Port 5001                 # override IDS port
+# -----------------------------------------------------------------------------
 param(
     [switch]$NoCerts,
     [switch]$TrustCert,
     [int]$Port = 5001,
     [string]$Username = "ibenamara",
-    [string]$Email = "",
-    [string]$DisplayName = "",
+    [string]$Email = $null,
+    [string]$DisplayName = $null,
     [string]$CertPassword = "devpassword",
     [switch]$Help
 )
@@ -24,7 +24,7 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 Set-Location $ScriptDir
 
 if ($Help) {
-    Write-Host @"
+    Write-Host @'
 Usage: .\install.ps1 [OPTIONS]
 
 Options:
@@ -35,15 +35,15 @@ Options:
   -Email EMAIL    Admin email
   -DisplayName N  Admin display name
   -Help           Show this help
-"@
+'@
     exit 0
 }
 
-# ── Derived defaults ─────────────────────────────────────────────────────────
+# --- Derived defaults --------------------------------------------------------
 if (-not $Email)       { $Email = "$Username@devpilot.local" }
 if (-not $DisplayName) { $DisplayName = $Username }
 
-# ── Check dependencies ───────────────────────────────────────────────────────
+# --- Check dependencies ------------------------------------------------------
 Write-Host "==> Checking dependencies..."
 
 $dockerPath = Get-Command docker -ErrorAction SilentlyContinue
@@ -58,11 +58,11 @@ try {
     Write-Host "ERROR: Docker is not running. Please start Docker Desktop." -ForegroundColor Red
     exit 1
 }
-Write-Host "    docker  ✓" -ForegroundColor Green
+Write-Host "    docker  OK" -ForegroundColor Green
 
 $hasOpenSSL = $null -ne (Get-Command openssl -ErrorAction SilentlyContinue)
 
-# ── Generate admin password ──────────────────────────────────────────────────
+# --- Generate admin password ------------------------------------------------
 $bytes = New-Object byte[] 16
 # Fill() is .NET 6+; Create().GetBytes() works on Windows PowerShell 5.1 / .NET Framework
 [System.Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($bytes)
@@ -75,7 +75,7 @@ Write-Host "    Username : $Username"
 Write-Host "    Password : $AdminPassword"
 Write-Host "    Email    : $Email"
 
-# ── Generate certificates ────────────────────────────────────────────────────
+# --- Generate certificates ---------------------------------------------------
 $certsDir = Join-Path $ScriptDir "certs"
 
 if (-not $NoCerts) {
@@ -99,8 +99,8 @@ if (-not $NoCerts) {
             -passout "pass:$CertPassword" `
             -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1 2>$null
 
-        Write-Host "    certs\localhost.crt ✓" -ForegroundColor Green
-        Write-Host "    certs\localhost.pfx ✓" -ForegroundColor Green
+        Write-Host "    certs\localhost.crt OK" -ForegroundColor Green
+        Write-Host "    certs\localhost.pfx OK" -ForegroundColor Green
     } else {
         # Fallback: use PowerShell's built-in cert generation
         Write-Host "    openssl not found, using PowerShell certificate generation..."
@@ -123,8 +123,8 @@ if (-not $NoCerts) {
         # Clean up from personal store
         Remove-Item -Path "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
 
-        Write-Host "    certs\localhost.crt ✓" -ForegroundColor Green
-        Write-Host "    certs\localhost.pfx ✓" -ForegroundColor Green
+        Write-Host "    certs\localhost.crt OK" -ForegroundColor Green
+        Write-Host "    certs\localhost.pfx OK" -ForegroundColor Green
     }
 } else {
     $pfxPath = Join-Path $certsDir "localhost.pfx"
@@ -136,20 +136,20 @@ if (-not $NoCerts) {
     Write-Host "==> Using existing certificates in certs\"
 }
 
-# ── Trust certificate (Windows) ─────────────────────────────────────────────
+# --- Trust certificate (Windows) --------------------------------------------
 if ($TrustCert) {
     Write-Host ""
     Write-Host "==> Trusting certificate in Windows store (may require elevation)..."
     $crtPath = Join-Path $certsDir "localhost.crt"
     try {
         Import-Certificate -FilePath $crtPath -CertStoreLocation "Cert:\LocalMachine\Root" -ErrorAction Stop | Out-Null
-        Write-Host "    Certificate trusted ✓" -ForegroundColor Green
+        Write-Host "    Certificate trusted OK" -ForegroundColor Green
     } catch {
         Write-Host "    WARNING: Could not trust certificate. Run as Administrator to trust." -ForegroundColor Yellow
     }
 }
 
-# ── Write .env file ─────────────────────────────────────────────────────────
+# --- Write .env file ---------------------------------------------------------
 Write-Host ""
 Write-Host "==> Writing .env file..."
 $envContent = @"
@@ -163,9 +163,9 @@ ADMIN_DISPLAY_NAME=$DisplayName
 REDIS_PORT=6379
 "@
 Set-Content -Path ".env" -Value $envContent -Encoding UTF8
-Write-Host "    .env ✓" -ForegroundColor Green
+Write-Host "    .env OK" -ForegroundColor Green
 
-# ── Update blazor-appsettings.json with the correct port ────────────────────
+# --- Update blazor-appsettings.json with the correct port --------------------
 Write-Host ""
 Write-Host "==> Updating blazor-appsettings.json for port $Port..."
 $blazorPath = Join-Path $ScriptDir "blazor-appsettings.json"
@@ -179,15 +179,15 @@ if (Test-Path $blazorPath) {
     $blazor.settingsOptions.apiUrl = "$base/api/api/configuration"
     $blazor | ConvertTo-Json -Depth 10 | Set-Content $blazorPath -Encoding UTF8
 }
-Write-Host "    blazor-appsettings.json ✓" -ForegroundColor Green
+Write-Host "    blazor-appsettings.json OK" -ForegroundColor Green
 
-# ── Stop existing and start containers ───────────────────────────────────────
+# --- Stop existing and start containers --------------------------------------
 Write-Host ""
 Write-Host "==> Starting containers..."
 docker compose down --remove-orphans -v 2>$null
 docker compose up -d
 
-# ── Wait for health ──────────────────────────────────────────────────────────
+# --- Wait for health ---------------------------------------------------------
 Write-Host ""
 Write-Host "==> Waiting for Identity Server to be ready..."
 $maxWait = 60
@@ -214,12 +214,12 @@ if ($elapsed -ge $maxWait) {
     Write-Host "    WARNING: Server did not become ready within ${maxWait}s." -ForegroundColor Yellow
     Write-Host "    Check logs: docker logs devpilot-duende"
 } else {
-    Write-Host "    Identity Server is ready ✓" -ForegroundColor Green
+    Write-Host "    Identity Server is ready OK" -ForegroundColor Green
 }
 
-# ── Done ─────────────────────────────────────────────────────────────────────
+# --- Done --------------------------------------------------------------------
 Write-Host ""
-Write-Host "══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "======================================================================" -ForegroundColor Cyan
 Write-Host "  DevPilot Identity Server is running!" -ForegroundColor Cyan
 Write-Host ""
 Write-Host "  Admin UI       : https://localhost:$Port"
@@ -237,4 +237,4 @@ if (-not $TrustCert) {
     Write-Host "    .\install.ps1 -NoCerts -TrustCert" -ForegroundColor DarkYellow
     Write-Host ""
 }
-Write-Host "══════════════════════════════════════════════════════════════════" -ForegroundColor Cyan
+Write-Host "======================================================================" -ForegroundColor Cyan
