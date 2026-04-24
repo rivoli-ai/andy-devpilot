@@ -7815,3 +7815,14 @@ a.source-badge.gh:hover {
   color: var(--text-secondary, #94a3b8);
   font-size: 0.75rem;
 }
+
+.ado-form-group .ado-area-import-autocomplete {
+  width: 100%;
+  max-width: 100%;
+}
+
+.ado-area-option-hint {
+  font-weight: 400;
+  color: var(--text-muted, #7f849c);
+  font-size: 12px;
+}

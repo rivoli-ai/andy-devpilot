@@ -390,7 +390,7 @@ export class BacklogService {
     repositoryId: string,
     body: {
       projectName: string;
-      teamId: string;
+      areaNodeId: number;
       epicIds: string[];
       featureIds: string[];
       storyIds: string[];
@@ -399,7 +399,7 @@ export class BacklogService {
     return this.apiService
       .post<PushToAzureDevOpsResponse>(`/backlog/repository/${repositoryId}/push-to-azure-devops`, {
         projectName: body.projectName,
-        teamId: body.teamId,
+        areaNodeId: body.areaNodeId,
         epicIds: body.epicIds,
         featureIds: body.featureIds,
         storyIds: body.storyIds
@@ -960,7 +960,8 @@ export interface AzureSyncPlanResponse {
 
 export interface ApplyAzureSyncRequest {
   projectName: string;
-  teamId?: string;
+  /** Required when any row creates new work items in ADO. */
+  areaNodeId?: number;
   pullEpicIds: string[];
   pullFeatureIds: string[];
   pullStoryIds: string[];

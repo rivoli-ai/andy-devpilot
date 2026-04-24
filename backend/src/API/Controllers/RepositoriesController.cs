@@ -1538,10 +1538,7 @@ public class RepositoriesController : ControllerBase
                 return BadRequest(new { message = "Organization name is required. Please configure it in Settings." });
             }
 
-            if (string.IsNullOrEmpty(request.TeamId))
-            {
-                return BadRequest(new { message = "Select a team before fetching work items." });
-            }
+            var teamId = string.IsNullOrWhiteSpace(request.TeamId) ? null : request.TeamId.Trim();
 
             var includeSubAreas = request.IncludeDescendantAreaPaths is not false;
             var areaNodeId = request.AreaNodeId is > 0 ? request.AreaNodeId : null;
@@ -1552,7 +1549,7 @@ public class RepositoriesController : ControllerBase
                 accessToken,
                 organizationName,
                 request.ProjectName,
-                request.TeamId,
+                teamId,
                 areaOverride,
                 areaNodeId,
                 cancellationToken,

@@ -1,5 +1,6 @@
 namespace DevPilot.Infrastructure.AzureDevOps;
 
+using System.Linq;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
@@ -440,6 +441,79 @@ public class AzureDevOpsService : IAzureDevOpsService
         var list = new List<AzureDevOpsAreaPathOptionDto>();
         CollectAreaPathOptionsFromClassificationNode(doc.RootElement, list);
         return list.OrderBy(o => o.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
+    public async System.Threading.Tasks.Task<string?> ResolveWorkItemSystemAreaPathAsync(
+        string accessToken,
+        string organization,
+        string project,
+        int areaNodeId,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        if (areaNodeId <= 0)
+        {
+            return null;
+        }
+
+        var list = await GetProjectAreaPathsAsync(
+            accessToken, organization, project, cancellationToken, useBasicAuth);
+        var node = list.FirstOrDefault(n => n.Id == areaNodeId);
+        if (node is null)
+        {
+            return null;
+        }
+
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var set = await FetchClassificationAreaPathSetAsync(
+            httpClient, organization, project, cancellationToken);
+
+        // Must match a path the Areas tree actually returns. ResolveToCanonicalAreaPath() can
+        // prepend the project and produce a value that is *not* in the tree (e.g. wrong root
+        // segment) — WIT then rejects with TF401347. Prefer exact membership in the set.
+        static string? NormalizeNodePath(string? p) =>
+            string.IsNullOrEmpty(p) ? null : NormalizeAdoAreaPath(p).TrimStart('\\');
+
+        var normalized = NormalizeNodePath(node.Path);
+        if (string.IsNullOrEmpty(normalized))
+        {
+            return null;
+        }
+
+        if (set.Count > 0)
+        {
+            var fromSet = set.FirstOrDefault(s => s.Equals(normalized, StringComparison.OrdinalIgnoreCase));
+            if (fromSet is not null)
+            {
+                return fromSet;
+            }
+
+            // List may be from a different parse than the set; re-read from the same tree the set uses.
+            using var classDoc = await FetchClassificationTreeDocumentAsync(
+                httpClient, organization, project, ClassificationTreeAreas, cancellationToken);
+            if (classDoc is not null &&
+                TryFindClassificationNodeById(classDoc.RootElement, areaNodeId, out var matchEl) &&
+                matchEl.TryGetProperty("path", out var pathEl))
+            {
+                var fromTree = NormalizeNodePath(pathEl.GetString());
+                if (!string.IsNullOrEmpty(fromTree))
+                {
+                    fromSet = set.FirstOrDefault(s => s.Equals(fromTree, StringComparison.OrdinalIgnoreCase));
+                    if (fromSet is not null)
+                    {
+                        return fromSet;
+                    }
+                }
+            }
+
+            _logger.LogWarning(
+                "Could not map area node {AreaNodeId} to a System.AreaPath in the project Areas set (node path '{NodePath}'). WIT will reject non-tree paths (TF401347).",
+                areaNodeId, node.Path);
+            return null;
+        }
+
+        // No paths in set (e.g. empty tree or failed load): last resort using legacy resolution.
+        return ResolveToCanonicalAreaPath(project, node.Path, set)?.Trim();
     }
 
     public async System.Threading.Tasks.Task<AzureDevOpsWorkItemsHierarchyDto> GetWorkItemsAsync(

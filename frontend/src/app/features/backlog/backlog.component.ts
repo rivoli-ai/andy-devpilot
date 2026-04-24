@@ -3,7 +3,7 @@ import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
-import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, AzureDevOpsAreaPathOption, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection, ApplyGitHubSyncRequest } from '../../core/services/backlog.service';
+import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsAreaPathOption, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection, ApplyGitHubSyncRequest } from '../../core/services/backlog.service';
 import { RepositoryService, ReplaceRepositoryAgentRuleItem } from '../../core/services/repository.service';
 import { GlobalAgentRulesService, GlobalAgentRuleDto } from '../../core/services/global-agent-rules.service';
 import { Repository } from '../../shared/models/repository.model';
@@ -165,14 +165,25 @@ export class BacklogComponent implements OnInit, OnDestroy {
   azureDevOpsProject = signal<string>('');
   azureDevOpsProjects = signal<AzureDevOpsProject[]>([]);
   azureDevOpsProjectsLoading = signal<boolean>(false);
-  azureDevOpsTeam = signal<string>('');
-  azureDevOpsTeams = signal<AzureDevOpsTeam[]>([]);
-  azureDevOpsTeamsLoading = signal<boolean>(false);
   /** Project classification area nodes; optional id narrows the query to that subtree. */
   azureDevOpsAreaPaths = signal<AzureDevOpsAreaPathOption[]>([]);
   azureDevOpsAreaPathsLoading = signal<boolean>(false);
-  /** Empty string = team default only; otherwise classification node id as a string. */
+  /** Empty = entire project; otherwise classification node id as a string. */
   azureDevOpsSelectedAreaNodeId = signal<string>('');
+  /** Azure import scope (classification path) combobox: display text and panel. */
+  adoAreaAutocompleteQuery = signal('');
+  adoAreaAutocompleteOpen = signal(false);
+  /** “Full project” row label — not named “area” to avoid clashing with Azure’s Area field. */
+  private readonly adoEntireProjectLabel = 'Entire project';
+  /** Placeholder when scope is "entire project" (value is empty string). */
+  readonly adoImportScopePlaceholder =
+    'Entire project by default — type to filter paths, or pick a row';
+  /** Paths matching the scope search (full list when query empty or legacy placeholder in field). */
+  readonly filteredAdoAreaPaths = computed(() => {
+    const paths = this.azureDevOpsAreaPaths();
+    const tokens = this.getAreaPathSearchTokens(this.adoAreaAutocompleteQuery(), { forImport: true });
+    return paths.filter(p => this.pathMatchesAreaPathSearch(p.path, tokens));
+  });
   selectedAzureDevOpsEpics = signal<Set<number>>(new Set());
   selectedAzureDevOpsFeatures = signal<Set<number>>(new Set());
   selectedAzureDevOpsStories = signal<Set<number>>(new Set());
@@ -195,11 +206,22 @@ export class BacklogComponent implements OnInit, OnDestroy {
   azureSyncSkippedTarget = signal<boolean>(false);
   azureSyncOrg = signal<string>('');
   azureSyncProject = signal<string>('');
-  azureSyncTeamId = signal<string>('');
   azureSyncProjects = signal<AzureDevOpsProject[]>([]);
-  azureSyncTeams = signal<AzureDevOpsTeam[]>([]);
   azureSyncProjectsLoading = signal<boolean>(false);
-  azureSyncTeamsLoading = signal<boolean>(false);
+  /** Classification paths for “create in Azure” scope (same source as import). */
+  azureSyncAreaPaths = signal<AzureDevOpsAreaPathOption[]>([]);
+  azureSyncAreaPathsLoading = signal(false);
+  /** Empty = use team default; otherwise node id. */
+  azureSyncScopeNodeId = signal('');
+  azureSyncScopeQuery = signal('');
+  azureSyncScopeOpen = signal(false);
+  /** Placeholder for sync scope combobox (template + open reset). */
+  readonly azureSyncPathPlaceholder = 'Select a path…';
+  readonly filteredAzureSyncAreaPaths = computed(() => {
+    const paths = this.azureSyncAreaPaths();
+    const tokens = this.getAreaPathSearchTokens(this.azureSyncScopeQuery(), { forImport: false });
+    return paths.filter(p => this.pathMatchesAreaPathSearch(p.path, tokens));
+  });
   azureSyncModalError = signal<string | null>(null);
   azureSyncPlanLoading = signal<boolean>(false);
   azureSyncApplyLoading = signal<boolean>(false);
@@ -2205,9 +2227,11 @@ ${jsonFormatRequirement}`;
     this.azureSyncPlanRows.set([]);
     this.azureSyncPlanSuggestedSummary.set(null);
     this.azureSyncProject.set('');
-    this.azureSyncTeamId.set('');
-    this.azureSyncTeams.set([]);
     this.azureSyncProjects.set([]);
+    this.azureSyncAreaPaths.set([]);
+    this.azureSyncScopeNodeId.set('');
+    this.azureSyncScopeQuery.set('');
+    this.azureSyncScopeOpen.set(false);
     this.azureSyncOrg.set('');
     this.azureSyncSkippedTarget.set(false);
 
@@ -2298,7 +2322,7 @@ ${jsonFormatRequirement}`;
         this.azureSyncProjectsLoading.set(false);
         const project = this.azureSyncProject();
         if (project) {
-          this.loadAzureSyncTeams(project);
+          this.loadAzureSyncAreaPaths(project);
         }
       },
       error: () => {
@@ -2308,25 +2332,88 @@ ${jsonFormatRequirement}`;
   }
 
   onAzureSyncProjectChange(): void {
-    this.azureSyncTeamId.set('');
-    this.azureSyncTeams.set([]);
+    this.azureSyncScopeNodeId.set('');
+    this.azureSyncScopeQuery.set('');
+    this.azureSyncScopeOpen.set(false);
+    this.azureSyncAreaPaths.set([]);
     const project = this.azureSyncProject();
     if (project) {
-      this.loadAzureSyncTeams(project);
+      this.loadAzureSyncAreaPaths(project);
     }
   }
 
-  loadAzureSyncTeams(projectName: string): void {
-    this.azureSyncTeamsLoading.set(true);
-    this.backlogService.getAzureDevOpsTeams(projectName).subscribe({
-      next: (teams) => {
-        this.azureSyncTeams.set(teams);
-        this.azureSyncTeamsLoading.set(false);
+  loadAzureSyncAreaPaths(projectName: string): void {
+    this.azureSyncAreaPathsLoading.set(true);
+    this.backlogService.getAzureDevOpsAreaPaths(projectName).subscribe({
+      next: (paths) => {
+        this.azureSyncAreaPaths.set(paths ?? []);
+        this.azureSyncAreaPathsLoading.set(false);
+        this.syncAzureSyncScopeFromSelection();
       },
       error: () => {
-        this.azureSyncTeamsLoading.set(false);
+        this.azureSyncAreaPaths.set([]);
+        this.azureSyncAreaPathsLoading.set(false);
       }
     });
+  }
+
+  private syncAzureSyncScopeFromSelection(): void {
+    const idStr = this.azureSyncScopeNodeId().trim();
+    if (!idStr) {
+      this.azureSyncScopeQuery.set('');
+      return;
+    }
+    const id = parseInt(idStr, 10);
+    if (Number.isNaN(id) || id <= 0) {
+      this.azureSyncScopeNodeId.set('');
+      this.azureSyncScopeQuery.set('');
+      return;
+    }
+    const opt = this.azureSyncAreaPaths().find(p => p.id === id);
+    if (opt) {
+      this.azureSyncScopeQuery.set(this.formatAdoPathForUi(opt.path));
+    } else {
+      this.azureSyncScopeNodeId.set('');
+      this.azureSyncScopeQuery.set('');
+    }
+  }
+
+  onAzureSyncScopeAutocompleteFocus(): void {
+    this.azureSyncScopeQuery.set('');
+    this.azureSyncScopeOpen.set(true);
+  }
+
+  onAzureSyncScopeAutocompleteFocusOut(e: FocusEvent): void {
+    const host = (e.currentTarget as HTMLElement) ?? null;
+    const rel = e.relatedTarget as Node | null;
+    if (host && rel && host.contains(rel)) return;
+    setTimeout(() => {
+      this.azureSyncScopeOpen.set(false);
+      if (!this.azureSyncScopeQuery().trim() && this.azureSyncScopeNodeId().trim()) {
+        this.syncAzureSyncScopeFromSelection();
+      }
+    }, 150);
+  }
+
+  onAzureSyncScopeEscape(e: Event): void {
+    e.stopPropagation();
+    this.azureSyncScopeOpen.set(false);
+  }
+
+  onAzureSyncScopeSearchInput(value: string): void {
+    this.azureSyncScopeQuery.set(value);
+    const idStr = this.azureSyncScopeNodeId().trim();
+    if (!idStr) return;
+    const opt = this.azureSyncAreaPaths().find(p => p.id + '' === idStr);
+    if (opt && this.formatAdoPathForUi(opt.path) !== value.trim()) {
+      this.azureSyncScopeNodeId.set('');
+    }
+  }
+
+  selectAzureSyncScopePath(opt: AzureDevOpsAreaPathOption): void {
+    this.azureSyncScopeNodeId.set(opt.id + '');
+    this.azureSyncScopeQuery.set(this.formatAdoPathForUi(opt.path));
+    this.azureSyncScopeOpen.set(false);
   }
 
   continueAzureSyncToPlan(): void {
@@ -2375,7 +2462,7 @@ ${jsonFormatRequirement}`;
           this.azureSyncSkippedTarget.set(false);
           this.azureSyncStep.set('target');
           this.azureSyncModalError.set(
-            'Some selected items are not linked to Azure yet. Choose a project and team, then continue to plan.'
+            'Some selected items are not linked to Azure yet. Choose a project and a scope (classification) path, then continue to plan.'
           );
           return;
         }
@@ -2533,10 +2620,12 @@ ${jsonFormatRequirement}`;
       this.azureSyncModalError.set('Select an Azure project.');
       return;
     }
-    const teamId = this.azureSyncTeamId().trim();
+    const scopeIdStr = this.azureSyncScopeNodeId().trim();
+    const scopeNodeId = scopeIdStr ? parseInt(scopeIdStr, 10) : NaN;
+    const hasScopeNode = !Number.isNaN(scopeNodeId) && scopeNodeId > 0;
     const anyCreate = createEpicIds.length + createFeatureIds.length + createStoryIds.length > 0;
-    if (anyCreate && !teamId) {
-      this.azureSyncModalError.set('Select a team — it is required to create new work items.');
+    if (anyCreate && !hasScopeNode) {
+      this.azureSyncModalError.set('Select a classification path for new work items in Azure (Scope).');
       return;
     }
 
@@ -2546,7 +2635,7 @@ ${jsonFormatRequirement}`;
     this.backlogService
       .applyAzureSync(repoId, {
         projectName: project,
-        teamId: anyCreate ? teamId : undefined,
+        areaNodeId: anyCreate && hasScopeNode ? scopeNodeId : undefined,
         pullEpicIds,
         pullFeatureIds,
         pullStoryIds,
@@ -2619,10 +2708,10 @@ ${jsonFormatRequirement}`;
     this.azureDevOpsError.set(null);
     this.azureDevOpsWorkItems.set(null);
     this.azureDevOpsProjects.set([]);
-    this.azureDevOpsTeams.set([]);
-    this.azureDevOpsTeam.set('');
     this.azureDevOpsAreaPaths.set([]);
     this.azureDevOpsSelectedAreaNodeId.set('');
+    this.adoAreaAutocompleteQuery.set('');
+    this.adoAreaAutocompleteOpen.set(false);
     this.selectedAzureDevOpsEpics.set(new Set());
     this.selectedAzureDevOpsFeatures.set(new Set());
     this.selectedAzureDevOpsStories.set(new Set());
@@ -2657,10 +2746,8 @@ ${jsonFormatRequirement}`;
       next: (projects) => {
         this.azureDevOpsProjects.set(projects);
         this.azureDevOpsProjectsLoading.set(false);
-        // If a project is already selected (e.g. from repo or previous open), load its teams
         const project = this.azureDevOpsProject();
         if (project) {
-          this.loadAzureDevOpsTeams(project);
           this.loadAzureDevOpsAreaPaths(project);
         }
       },
@@ -2673,34 +2760,62 @@ ${jsonFormatRequirement}`;
   }
 
   onAzureDevOpsProjectChange(): void {
-    const project = this.azureDevOpsProject();
-    // Reset team and work items when project changes
-    this.azureDevOpsTeam.set('');
-    this.azureDevOpsTeams.set([]);
     this.azureDevOpsSelectedAreaNodeId.set('');
+    this.adoAreaAutocompleteQuery.set('');
+    this.adoAreaAutocompleteOpen.set(false);
     this.azureDevOpsAreaPaths.set([]);
     this.azureDevOpsWorkItems.set(null);
     this.selectedAzureDevOpsEpics.set(new Set());
-    
+    const project = this.azureDevOpsProject();
     if (project) {
-      this.loadAzureDevOpsTeams(project);
       this.loadAzureDevOpsAreaPaths(project);
     }
   }
 
-  loadAzureDevOpsTeams(projectName: string): void {
-    this.azureDevOpsTeamsLoading.set(true);
-    this.backlogService.getAzureDevOpsTeams(projectName).subscribe({
-      next: (teams) => {
-        this.azureDevOpsTeams.set(teams);
-        this.azureDevOpsTeamsLoading.set(false);
-      },
-      error: (err) => {
-        console.error('Failed to load Azure DevOps teams:', err);
-        this.azureDevOpsTeamsLoading.set(false);
-        // Don't show error - teams are optional
-      }
-    });
+  /**
+   * UI-only: many Azure projects have a top-level child node literally named "Area".
+   * Hiding that segment avoids echoing Azure’s field name in the path; API still uses node id.
+   */
+  formatAdoPathForUi(path: string): string {
+    if (!path) return path;
+    const parts = path.split(/\\|\//g).map(s => s.trim()).filter(s => s.length > 0);
+    if (parts.length >= 2 && parts[1].toLowerCase() === 'area') {
+      return [parts[0], ...parts.slice(2)].join('\\');
+    }
+    return path;
+  }
+
+  /**
+   * @returns `null` = no filter. Otherwise every whitespace-separated token must appear somewhere
+   * in the full path, UI path, or path with slashes turned into spaces (anywhere, not just prefix).
+   */
+  private getAreaPathSearchTokens(
+    qRaw: string,
+    options: { forImport: boolean }
+  ): string[] | null {
+    const t = (qRaw ?? '').trim();
+    if (!t) {
+      return null;
+    }
+    const low = t.toLowerCase();
+    if (low === this.azureSyncPathPlaceholder.toLowerCase()) {
+      return null;
+    }
+    if (options.forImport && low === this.adoEntireProjectLabel.toLowerCase()) {
+      return null;
+    }
+    const parts = t.toLowerCase().split(/\s+/).filter(s => s.length);
+    return parts.length > 0 ? parts : null;
+  }
+
+  private pathMatchesAreaPathSearch(path: string, tokens: string[] | null): boolean {
+    if (tokens == null) {
+      return true;
+    }
+    const raw = path.toLowerCase();
+    const ui = this.formatAdoPathForUi(path).toLowerCase();
+    const spaced = path.replace(/\\|\//g, ' ').toLowerCase();
+    return tokens.every(tok => raw.includes(tok) || ui.includes(tok) || spaced.includes(tok));
   }
 
   loadAzureDevOpsAreaPaths(projectName: string): void {
@@ -2709,6 +2824,7 @@ ${jsonFormatRequirement}`;
       next: (paths) => {
         this.azureDevOpsAreaPaths.set(paths ?? []);
         this.azureDevOpsAreaPathsLoading.set(false);
+        this.syncAdoAreaAutocompleteFromSelection();
       },
       error: (err) => {
         console.error('Failed to load Azure DevOps area paths:', err);
@@ -2718,26 +2834,87 @@ ${jsonFormatRequirement}`;
     });
   }
 
+  /** Keep combobox text aligned with selected node id after paths load. */
+  private syncAdoAreaAutocompleteFromSelection(): void {
+    const idStr = this.azureDevOpsSelectedAreaNodeId().trim();
+    if (!idStr) {
+      this.adoAreaAutocompleteQuery.set('');
+      return;
+    }
+    const id = parseInt(idStr, 10);
+    if (Number.isNaN(id) || id <= 0) {
+      this.azureDevOpsSelectedAreaNodeId.set('');
+      this.adoAreaAutocompleteQuery.set('');
+      return;
+    }
+    const opt = this.azureDevOpsAreaPaths().find(p => p.id === id);
+    if (opt) {
+      this.adoAreaAutocompleteQuery.set(this.formatAdoPathForUi(opt.path));
+    } else {
+      this.azureDevOpsSelectedAreaNodeId.set('');
+      this.adoAreaAutocompleteQuery.set('');
+    }
+  }
+
+  onAdoAreaAutocompleteFocus(): void {
+    this.adoAreaAutocompleteQuery.set('');
+    this.adoAreaAutocompleteOpen.set(true);
+  }
+
+  onAdoAreaAutocompleteFocusOut(e: FocusEvent): void {
+    const host = (e.currentTarget as HTMLElement) ?? null;
+    const rel = e.relatedTarget as Node | null;
+    if (host && rel && host.contains(rel)) return;
+    setTimeout(() => {
+      this.adoAreaAutocompleteOpen.set(false);
+      if (!this.adoAreaAutocompleteQuery().trim() && this.azureDevOpsSelectedAreaNodeId().trim()) {
+        this.syncAdoAreaAutocompleteFromSelection();
+      }
+    }, 150);
+  }
+
+  onAdoAreaEscape(e: Event): void {
+    e.stopPropagation();
+    this.adoAreaAutocompleteOpen.set(false);
+  }
+
+  onAdoAreaSearchInput(value: string): void {
+    this.adoAreaAutocompleteQuery.set(value);
+    const idStr = this.azureDevOpsSelectedAreaNodeId().trim();
+    if (!idStr) return;
+    const opt = this.azureDevOpsAreaPaths().find(p => p.id + '' === idStr);
+    if (opt && this.formatAdoPathForUi(opt.path) !== value.trim()) {
+      this.azureDevOpsSelectedAreaNodeId.set('');
+    }
+  }
+
+  selectAdoAllAreasProject(): void {
+    this.azureDevOpsSelectedAreaNodeId.set('');
+    this.adoAreaAutocompleteQuery.set('');
+    this.adoAreaAutocompleteOpen.set(false);
+  }
+
+  selectAdoAreaPath(opt: AzureDevOpsAreaPathOption): void {
+    this.azureDevOpsSelectedAreaNodeId.set(opt.id + '');
+    this.adoAreaAutocompleteQuery.set(this.formatAdoPathForUi(opt.path));
+    this.adoAreaAutocompleteOpen.set(false);
+  }
+
   closeAzureDevOpsImport(): void {
     this.showAzureDevOpsImport.set(false);
     this.azureDevOpsWorkItems.set(null);
     this.azureDevOpsError.set(null);
     this.adoShowAllStatuses.set(false);
     this.adoNameFilter.set('');
+    this.adoAreaAutocompleteOpen.set(false);
   }
 
   fetchAzureDevOpsWorkItems(): void {
     const org = this.azureDevOpsOrg();
     const project = this.azureDevOpsProject();
-    const team = this.azureDevOpsTeam();
-    
+
     if (!project) {
       this.azureDevOpsError.set('Project name is required');
-      return;
-    }
-
-    if (!team) {
-      this.azureDevOpsError.set('Select a team to load the backlog');
       return;
     }
 
@@ -2756,7 +2933,6 @@ ${jsonFormatRequirement}`;
     this.backlogService.getAzureDevOpsWorkItems({
       organizationName: org,
       projectName: project,
-      teamId: team,
       ...(areaNodeId !== undefined && !Number.isNaN(areaNodeId) && areaNodeId > 0
         ? { areaNodeId }
         : {}),

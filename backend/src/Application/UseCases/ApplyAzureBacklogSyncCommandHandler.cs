@@ -7,7 +7,7 @@ public record ApplyAzureBacklogSyncCommand(
     Guid RepositoryId,
     Guid UserId,
     string ProjectName,
-    string? TeamId,
+    int? AreaNodeId,
     IReadOnlyList<Guid> PullEpicIds,
     IReadOnlyList<Guid> PullFeatureIds,
     IReadOnlyList<Guid> PullStoryIds,
@@ -57,11 +57,14 @@ public class ApplyAzureBacklogSyncCommandHandler : IRequestHandler<ApplyAzureBac
         }
 
         var anyCreate = command.CreateEpicIds.Count + command.CreateFeatureIds.Count + command.CreateStoryIds.Count > 0;
-        if (anyCreate && string.IsNullOrWhiteSpace(command.TeamId))
+        if (anyCreate)
         {
-            outResult.Errors.Add("teamId is required when creating work items in Azure DevOps.");
-            outResult.FailedCount++;
-            return outResult;
+            if (command.AreaNodeId is not int aid || aid <= 0)
+            {
+                outResult.Errors.Add("An area (classification path) is required to create new work items in Azure.");
+                outResult.FailedCount++;
+                return outResult;
+            }
         }
 
         if (anyCreate)
@@ -72,7 +75,7 @@ public class ApplyAzureBacklogSyncCommandHandler : IRequestHandler<ApplyAzureBac
                     command.UserId,
                     org,
                     project,
-                    command.TeamId!.Trim(),
+                    command.AreaNodeId!.Value,
                     command.CreateEpicIds,
                     command.CreateFeatureIds,
                     command.CreateStoryIds),

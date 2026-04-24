@@ -1964,10 +1964,10 @@
             <!-- Configuration Form -->
             <div class="ado-config-form">
               <p class="ado-form-description">
-                Import existing Epics, Features, and User Stories from your Azure project.
-                For a <strong>team</strong>, work items in <strong>child area paths</strong> are included by default (same as a WIQL
-                <code>AreaPath</code> “Under” each team area). Uncheck that option only if you want to mirror Azure’s per-path
-                “include children” setting, or use <strong>Entire project</strong> to list every work item the project returns.
+                Import existing Epics, Features, and User Stories from an Azure project.
+                Choose <strong>Entire project</strong> to load the full backlog, or type to find a
+                <strong>classification path</strong> to narrow the import (work items under that node, same
+                as WIQL <code>System.AreaPath</code> under that subtree).
               </p>
 
               @if (azureDevOpsOrg()) {
@@ -2012,50 +2012,81 @@
 
               @if (azureDevOpsProject()) {
                 <div class="ado-form-group">
-                  <label for="ado-team">Team <span class="required">*</span></label>
-                  @if (azureDevOpsTeamsLoading()) {
-                    <div class="ado-loading-projects">
-                      <span class="spinner-small"></span>
-                      <span>Loading teams...</span>
-                    </div>
-                  } @else if (azureDevOpsTeams().length > 0) {
-                    <select
-                      id="ado-team"
-                      [ngModel]="azureDevOpsTeam()"
-                      (ngModelChange)="azureDevOpsTeam.set($event)"
-                    >
-                      <option value="">Select a team...</option>
-                      @for (team of azureDevOpsTeams(); track team.id) {
-                        <option [value]="team.id">{{ team.name }}</option>
-                      }
-                    </select>
-                  } @else {
-                    <div class="ado-no-teams">
-                      <span>No teams found for this project</span>
-                    </div>
-                  }
-                  <span class="ado-form-hint">Choose a team, then fetch or narrow with an area path below.</span>
-                </div>
-                <div class="ado-form-group">
-                  <label for="ado-area-path">Area path (optional)</label>
+                  <label for="ado-scope-combobox" id="ado-scope-combobox-lbl"
+                    >Scope
+                    <span class="ado-form-hint-inline">(optional — entire project, or a classification path)</span></label
+                  >
                   @if (azureDevOpsAreaPathsLoading()) {
                     <div class="ado-loading-projects">
                       <span class="spinner-small"></span>
-                      <span>Loading area paths...</span>
+                      <span>Loading paths…</span>
                     </div>
                   } @else {
-                    <select
-                      id="ado-area-path"
-                      [ngModel]="azureDevOpsSelectedAreaNodeId()"
-                      (ngModelChange)="azureDevOpsSelectedAreaNodeId.set($event)"
+                    <div
+                      class="rules-modal__autocomplete ado-area-import-autocomplete"
+                      (focusout)="onAdoAreaAutocompleteFocusOut($event)"
                     >
-                      <option value="">Team default areas (and sub-areas under those)</option>
-                      @for (opt of azureDevOpsAreaPaths(); track opt.id) {
-                        <option [value]="opt.id + ''">{{ opt.path }}</option>
+                      <input
+                        id="ado-scope-combobox"
+                        type="text"
+                        class="rules-modal__autocomplete-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-labelledby="ado-scope-combobox-lbl"
+                        [attr.aria-controls]="'ado-scope-suggestions'"
+                        [attr.aria-expanded]="adoAreaAutocompleteOpen()"
+                        [ngModel]="adoAreaAutocompleteQuery()"
+                        (ngModelChange)="onAdoAreaSearchInput($event)"
+                        (focus)="onAdoAreaAutocompleteFocus()"
+                        (keydown.escape)="onAdoAreaEscape($event)"
+                        [disabled]="azureDevOpsAreaPathsLoading() || !azureDevOpsProject()"
+                        [placeholder]="adoImportScopePlaceholder"
+                        autocomplete="off"
+                        spellcheck="false"
+                        title="Entire project, or a narrow classification path" />
+                      @if (adoAreaAutocompleteOpen()) {
+                        <div
+                          id="ado-scope-suggestions"
+                          class="rules-modal__autocomplete-panel"
+                          role="region"
+                          aria-label="Path suggestions"
+                        >
+                          <ul class="rules-modal__autocomplete-list" role="listbox" aria-label="Classification paths">
+                            <li
+                              role="option"
+                              [attr.aria-selected]="!azureDevOpsSelectedAreaNodeId() ? 'true' : 'false'"
+                              class="rules-modal__autocomplete-option"
+                              (mousedown)="$event.preventDefault()"
+                              (click)="selectAdoAllAreasProject()">
+                              <strong>Entire project</strong>
+                              <span class="ado-area-option-hint"> — no path filter; load full project backlog</span>
+                            </li>
+                            @for (opt of filteredAdoAreaPaths(); track opt.id) {
+                              <li
+                                role="option"
+                                [attr.aria-selected]="
+                                  azureDevOpsSelectedAreaNodeId() === opt.id + '' ? 'true' : 'false'
+                                "
+                                class="rules-modal__autocomplete-option"
+                                (mousedown)="$event.preventDefault()"
+                                (click)="selectAdoAreaPath(opt)">
+                                {{ formatAdoPathForUi(opt.path) }}
+                              </li>
+                            }
+                          </ul>
+                          @if (
+                            filteredAdoAreaPaths().length === 0 && adoAreaAutocompleteQuery().trim().length > 0
+                          ) {
+                            <p class="rules-modal__autocomplete-empty" role="status">No paths match.</p>
+                          }
+                        </div>
                       }
-                    </select>
+                    </div>
                   }
-                  <span class="ado-form-hint">Select a specific area or sub-area to narrow the import, or keep the first option to use the areas mapped to the team in Azure.</span>
+                  <span class="ado-form-hint"
+                    >Defaults to the whole project. Click the field to search (any part of the path), or pick a row to
+                    narrow the import to that subtree.</span
+                  >
                 </div>
               }
 
@@ -2086,7 +2117,7 @@
                 <button
                   class="ado-btn primary"
                   (click)="fetchAzureDevOpsWorkItems()"
-                  [disabled]="azureDevOpsLoading() || !azureDevOpsOrg() || !azureDevOpsProject() || !azureDevOpsTeam()"
+                  [disabled]="azureDevOpsLoading() || !azureDevOpsOrg() || !azureDevOpsProject()"
                 >
                   @if (azureDevOpsLoading()) {
                     <span class="spinner-small"></span>
@@ -2477,8 +2508,9 @@
           } @else if (azureSyncStep() === 'target' && backlogSyncProvider() === 'azure') {
             <div class="ado-config-form">
               <p class="ado-form-description">
-                Choose the Azure project (and team if you will create new work items). On the next step you pick, for each selected backlog row, whether to create it in Azure, pull Azure into DevPilot, or push DevPilot to Azure.
-                Organization and PAT: <a routerLink="/settings">Settings</a>.
+                Choose the Azure project, then a <strong>Scope</strong> (classification path) for any new work items you create. On
+                the next step you pick, for each row, create in Azure, pull, or push. Organization and PAT:
+                <a routerLink="/settings">Settings</a>.
               </p>
               @if (azureSyncOrg()) {
                 <div class="ado-org-info">
@@ -2519,33 +2551,73 @@
                 <span class="ado-form-hint">Work items are created and updated in this project.</span>
               </div>
               <div class="ado-form-group">
-                <label for="azure-sync-team">Team <span class="required">*</span> <span class="ado-form-hint-inline">(required only when creating new work items)</span></label>
+                <label for="azure-sync-scope-combobox" id="azure-sync-scope-lbl"
+                  >Scope
+                  <span class="ado-form-hint-inline">(required for creating new work items in Azure)</span></label
+                >
                 @if (azureSyncProject()) {
-                  @if (azureSyncTeamsLoading()) {
+                  @if (azureSyncAreaPathsLoading()) {
                     <div class="ado-loading-projects">
                       <span class="spinner-small"></span>
-                      <span>Loading teams...</span>
+                      <span>Loading paths…</span>
                     </div>
-                  } @else if (azureSyncTeams().length > 0) {
-                    <select
-                      id="azure-sync-team"
-                      [ngModel]="azureSyncTeamId()"
-                      (ngModelChange)="azureSyncTeamId.set($event)"
-                    >
-                      <option value="">Select a team...</option>
-                      @for (team of azureSyncTeams(); track team.id) {
-                        <option [value]="team.id">{{ team.name }}</option>
-                      }
-                    </select>
                   } @else {
-                    <div class="ado-no-teams">
-                      <span>No teams found for this project.</span>
+                    <div
+                      class="rules-modal__autocomplete ado-area-import-autocomplete"
+                      (focusout)="onAzureSyncScopeAutocompleteFocusOut($event)"
+                    >
+                      <input
+                        id="azure-sync-scope-combobox"
+                        type="text"
+                        class="rules-modal__autocomplete-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-labelledby="azure-sync-scope-lbl"
+                        [attr.aria-controls]="'azure-sync-scope-suggestions'"
+                        [attr.aria-expanded]="azureSyncScopeOpen()"
+                        [ngModel]="azureSyncScopeQuery()"
+                        (ngModelChange)="onAzureSyncScopeSearchInput($event)"
+                        (focus)="onAzureSyncScopeAutocompleteFocus()"
+                        (keydown.escape)="onAzureSyncScopeEscape($event)"
+                        [disabled]="azureSyncAreaPathsLoading() || !azureSyncProject().trim()"
+                        [placeholder]="azureSyncPathPlaceholder"
+                        autocomplete="off"
+                        spellcheck="false"
+                        title="Classification path for new work items (System.AreaPath)" />
+                      @if (azureSyncScopeOpen()) {
+                        <div
+                          id="azure-sync-scope-suggestions"
+                          class="rules-modal__autocomplete-panel"
+                          role="region"
+                          aria-label="Path suggestions"
+                        >
+                          <ul class="rules-modal__autocomplete-list" role="listbox" aria-label="Paths">
+                            @for (opt of filteredAzureSyncAreaPaths(); track opt.id) {
+                              <li
+                                role="option"
+                                [attr.aria-selected]="azureSyncScopeNodeId() === opt.id + '' ? 'true' : 'false'"
+                                class="rules-modal__autocomplete-option"
+                                (mousedown)="$event.preventDefault()"
+                                (click)="selectAzureSyncScopePath(opt)">
+                                {{ formatAdoPathForUi(opt.path) }}
+                              </li>
+                            }
+                          </ul>
+                          @if (
+                            filteredAzureSyncAreaPaths().length === 0 && azureSyncScopeQuery().trim().length > 0
+                          ) {
+                            <p class="rules-modal__autocomplete-empty" role="status">No paths match.</p>
+                          }
+                        </div>
+                      }
                     </div>
                   }
                 } @else {
                   <span class="ado-form-hint">Select a project first.</span>
                 }
-                <span class="ado-form-hint">Area and iteration paths use this team’s backlog when creating items.</span>
+                <span class="ado-form-hint"
+                  >Click the field to search (any part of the path), then select a path. New work items use that area.</span
+                >
               </div>
               @if (azureSyncModalError()) {
                 <div class="ado-error">
@@ -2822,7 +2894,7 @@
                     azureSyncApplyLoading()
                     || (backlogSyncProvider() === 'azure'
                       && (!azureSyncProject().trim()
-                        || (azureSyncPlanCounts().create > 0 && !azureSyncTeamId().trim())))
+                        || (azureSyncPlanCounts().create > 0 && !azureSyncScopeNodeId().trim())))
                   "
                 >
                   @if (azureSyncApplyLoading()) {

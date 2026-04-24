@@ -1,5 +1,6 @@
 namespace DevPilot.Application.UseCases;
 
+using System.Linq;
 using DevPilot.Application.Services;
 using DevPilot.Domain.Entities;
 using DevPilot.Domain.Interfaces;
@@ -11,7 +12,8 @@ public record PushManualBacklogToAzureDevOpsCommand(
     Guid UserId,
     string Organization,
     string ProjectName,
-    string TeamId,
+    /// <summary>Areas classification node id; sent as <see cref="System.AreaId"/> on create (avoids WIT path validation / TF401347).</summary>
+    int AreaNodeId,
     IReadOnlyList<Guid> EpicIds,
     IReadOnlyList<Guid> FeatureIds,
     IReadOnlyList<Guid> StoryIds) : IRequest<PushManualBacklogToAzureDevOpsResult>;
@@ -87,13 +89,9 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
 
         var organization = command.Organization.Trim();
         var project = command.ProjectName.Trim();
-        var teamId = command.TeamId.Trim();
-
-        var teamSettings = await _azureDevOpsService.GetTeamSettingsAsync(
-            accessToken, organization, project, teamId, cancellationToken, useBasicAuth);
-        if (teamSettings == null || string.IsNullOrWhiteSpace(teamSettings.DefaultAreaPath))
+        if (command.AreaNodeId <= 0)
         {
-            result.Errors.Add("Could not read team backlog settings (area path). Check project and team.");
+            result.Errors.Add("A valid area (classification path) is required to create work items in Azure.");
             return result;
         }
 
@@ -143,7 +141,8 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
             {
                 try
                 {
-                    var patches = BuildBasePatches(epic.Title, epic.Description, teamSettings, await InitialStateAsync(types.EpicTypeName!));
+                    var patches = BuildBasePatches(
+                        epic.Title, epic.Description, command.AreaNodeId, await InitialStateAsync(types.EpicTypeName!));
                     var id = await _azureDevOpsService.CreateWorkItemAsync(
                         accessToken, organization, project, types.EpicTypeName!, patches, null, cancellationToken, useBasicAuth);
                     epic.SetAzureDevOpsWorkItemId(id);
@@ -174,7 +173,8 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
                 {
                     try
                     {
-                        var patches = BuildBasePatches(feature.Title, feature.Description, teamSettings, await InitialStateAsync(types.FeatureTypeName!));
+                        var patches = BuildBasePatches(
+                            feature.Title, feature.Description, command.AreaNodeId, await InitialStateAsync(types.FeatureTypeName!));
                         var id = await _azureDevOpsService.CreateWorkItemAsync(
                             accessToken, organization, project, types.FeatureTypeName!, patches, epic.AzureDevOpsWorkItemId, cancellationToken, useBasicAuth);
                         feature.SetAzureDevOpsWorkItemId(id);
@@ -205,7 +205,8 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
                     {
                         try
                         {
-                            var patches = BuildBasePatches(story.Title, story.Description, teamSettings, await InitialStateAsync(types.StoryTypeName!));
+                            var patches = BuildBasePatches(
+                                story.Title, story.Description, command.AreaNodeId, await InitialStateAsync(types.StoryTypeName!));
                             if (story.StoryPoints.HasValue)
                             {
                                 patches.Add(new AzureDevOpsWorkItemPatchOperation
@@ -254,13 +255,15 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
     private static List<AzureDevOpsWorkItemPatchOperation> BuildBasePatches(
         string title,
         string? description,
-        AzureDevOpsTeamSettingsDto ts,
+        int areaNodeId,
         string? state)
     {
         var list = new List<AzureDevOpsWorkItemPatchOperation>
         {
             new() { Op = "add", Path = "/fields/System.Title", Value = title ?? "" },
-            new() { Op = "add", Path = "/fields/System.AreaPath", Value = ts.DefaultAreaPath ?? "" }
+            // System.AreaId: classification id from the Areas tree. WIT can reject the same value as
+            // System.AreaPath with TF401347 even when the path string matches classification.
+            new() { Op = "add", Path = "/fields/System.AreaId", Value = areaNodeId }
         };
         // Do not set System.IterationPath on create. Even paths from team settings / Iterations
         // classification can be rejected as TF401347 "Invalid tree name" for the WIT store; Azure

@@ -316,8 +316,11 @@ public class BacklogController : ControllerBase
         var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
         if (repo == null) return Forbid();
 
-        if (request == null || string.IsNullOrWhiteSpace(request.ProjectName) || string.IsNullOrWhiteSpace(request.TeamId))
-            return BadRequest(new { message = "projectName and teamId are required." });
+        if (request == null || string.IsNullOrWhiteSpace(request.ProjectName))
+            return BadRequest(new { message = "projectName is required." });
+
+        if (request.AreaNodeId <= 0)
+            return BadRequest(new { message = "areaNodeId (classification path) is required." });
 
         var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
         var org = user?.AzureDevOpsOrganization?.Trim();
@@ -329,7 +332,7 @@ public class BacklogController : ControllerBase
             userId,
             org,
             request.ProjectName.Trim(),
-            request.TeamId.Trim(),
+            request.AreaNodeId,
             request.EpicIds ?? Array.Empty<Guid>(),
             request.FeatureIds ?? Array.Empty<Guid>(),
             request.StoryIds ?? Array.Empty<Guid>());
@@ -395,14 +398,14 @@ public class BacklogController : ControllerBase
         if (createN + pullN + pushN == 0)
             return BadRequest(new { message = "Nothing to sync: assign at least one item to create, pull, or push." });
 
-        if (createN > 0 && string.IsNullOrWhiteSpace(request.TeamId))
-            return BadRequest(new { message = "teamId is required when creating work items in Azure DevOps." });
+        if (createN > 0 && (request.AreaNodeId is not int aid || aid <= 0))
+            return BadRequest(new { message = "areaNodeId (classification path) is required when creating new work items in Azure." });
 
         var command = new ApplyAzureBacklogSyncCommand(
             repositoryId,
             userId,
             request.ProjectName.Trim(),
-            request.TeamId?.Trim(),
+            request.AreaNodeId is > 0 ? request.AreaNodeId : null,
             request.PullEpicIds ?? Array.Empty<Guid>(),
             request.PullFeatureIds ?? Array.Empty<Guid>(),
             request.PullStoryIds ?? Array.Empty<Guid>(),
@@ -1276,7 +1279,8 @@ public class AzureSyncPlanRequest
 public class ApplyAzureSyncRequest
 {
     public required string ProjectName { get; set; }
-    public string? TeamId { get; set; }
+    /// <summary>Areas classification node id; required for create.</summary>
+    public int? AreaNodeId { get; set; }
     public Guid[] PullEpicIds { get; set; } = Array.Empty<Guid>();
     public Guid[] PullFeatureIds { get; set; } = Array.Empty<Guid>();
     public Guid[] PullStoryIds { get; set; } = Array.Empty<Guid>();
@@ -1304,7 +1308,7 @@ public class ApplyGitHubSyncRequest
 public class PushManualToAzureDevOpsRequest
 {
     public required string ProjectName { get; set; }
-    public required string TeamId { get; set; }
+    public int AreaNodeId { get; set; }
     public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
     public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
     public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();

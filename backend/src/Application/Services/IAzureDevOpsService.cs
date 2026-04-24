@@ -153,6 +153,18 @@ public interface IAzureDevOpsService
         bool useBasicAuth = false);
 
     /// <summary>
+    /// Resolves a <c>System.AreaPath</c> string accepted by WIT create/update for the given Areas node id
+    /// (aligns with classification and avoids TF401347 invalid tree name).
+    /// </summary>
+    System.Threading.Tasks.Task<string?> ResolveWorkItemSystemAreaPathAsync(
+        string accessToken,
+        string organization,
+        string project,
+        int areaNodeId,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
+    /// <summary>
     /// Gets work items (Epics, Features, User Stories, Tasks) from an Azure DevOps project, optionally by team
     /// area and/or a single explicit <c>System.AreaPath</c> (override).
     /// </summary>
