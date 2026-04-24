@@ -1,5 +1,7 @@
 # -----------------------------------------------------------------------------
 # DevPilot Identity Server - install script (Windows PowerShell)
+# Generates: certs, certs\ca-bundle.crt, .env, blazor-appsettings.json,
+#            docker-compose.yml (no macOS/Linux copy required)
 #
 # Usage:
 #   .\install.ps1                           # generate certs + start
@@ -203,6 +205,59 @@ if (-not $NoCerts) {
     Write-Host "==> Using existing certificates in certs\"
 }
 
+# --- Build CA bundle for container (replaces the image trust store; same idea as install.sh) ----
+Write-Host ""
+Write-Host "==> Building CA bundle for container..."
+$caBundlePath = Join-Path $certsDir "ca-bundle.crt"
+$bundleText = $null
+if (Get-Command curl.exe -ErrorAction SilentlyContinue) {
+    $eap0 = $ErrorActionPreference
+    $ErrorActionPreference = 'SilentlyContinue'
+    $caTemp = [System.IO.Path]::GetTempFileName()
+    $null = & curl.exe -fsSL "https://curl.se/ca/cacert.pem" -o $caTemp 2>&1
+    if ($LASTEXITCODE -eq 0 -and (Test-Path -LiteralPath $caTemp) -and ((Get-Item -LiteralPath $caTemp).Length -gt 1000)) {
+        $bundleText = [System.IO.File]::ReadAllText($caTemp)
+    }
+    if (Test-Path -LiteralPath $caTemp) { Remove-Item -LiteralPath $caTemp -Force -ErrorAction SilentlyContinue }
+    $ErrorActionPreference = $eap0
+}
+if ($null -eq $bundleText) {
+    foreach ($cand in @(
+        (Join-Path $env:ProgramFiles "Git\mingw64\etc\ssl\certs\ca-bundle.crt"),
+        (Join-Path $env:ProgramFiles "Git\usr\ssl\cert.pem")
+    )) {
+        if (Test-Path -LiteralPath $cand) {
+            $bundleText = [System.IO.File]::ReadAllText($cand)
+            break
+        }
+    }
+}
+if ($null -eq $bundleText) { $bundleText = "" }
+$localhostCrtForBundle = Join-Path $certsDir "localhost.crt"
+$bundleText += [Environment]::NewLine + [Environment]::NewLine + "# DevPilot localhost self-signed" + [Environment]::NewLine
+$bundleText += [System.IO.File]::ReadAllText($localhostCrtForBundle)
+$entDirs = @(
+    (Join-Path $ScriptDir "enterprise-certs"),
+    (Join-Path (Split-Path $ScriptDir) "sandbox\certs")
+)
+foreach ($ed in $entDirs) {
+    if (-not (Test-Path -LiteralPath $ed)) { continue }
+    Get-ChildItem -LiteralPath $ed -File -ErrorAction SilentlyContinue | ForEach-Object {
+        $fn = $_.Name
+        if ($fn -notmatch '\.(crt|pem)$') { return }
+        if ($fn -like "localhost*") { return }
+        $bundleText += [Environment]::NewLine + [Environment]::NewLine + "# Enterprise: $fn" + [Environment]::NewLine
+        $bundleText += [System.IO.File]::ReadAllText($_.FullName)
+    }
+}
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($caBundlePath, $bundleText, $utf8NoBom)
+$certCount = [regex]::Matches($bundleText, "BEGIN CERTIFICATE").Count
+Write-Host "    certs\ca-bundle.crt OK ($certCount certificates)" -ForegroundColor Green
+if ($certCount -lt 2) {
+    Write-Host "    NOTE: For a full public CA set, use Git for Windows ca-bundle, or run install with network (curl) available." -ForegroundColor DarkGray
+}
+
 # --- Trust certificate (Windows) --------------------------------------------
 if ($TrustCert) {
     Write-Host ""
@@ -232,31 +287,187 @@ REDIS_PORT=6379
 Set-Content -Path ".env" -Value $envContent -Encoding UTF8
 Write-Host "    .env OK" -ForegroundColor Green
 
-# --- Update blazor-appsettings.json with the correct port --------------------
-Write-Host ""
-Write-Host "==> Updating blazor-appsettings.json for port $Port..."
-$blazorPath = Join-Path $ScriptDir "blazor-appsettings.json"
-if (Test-Path $blazorPath) {
-    $blazor = Get-Content $blazorPath -Raw | ConvertFrom-Json
-    $base = "https://localhost:$Port"
-    $blazor.apiBaseUrl = "$base/api"
-    $blazor.providerOptions.authority = "$base/"
-    $blazor.providerOptions.redirectUri = "$base/authentication/login-callback"
-    $blazor.providerOptions.postLogoutRedirectUri = "$base/authentication/logout-callback"
-    $blazor.settingsOptions.apiUrl = "$base/api/api/configuration"
-    $blazor | ConvertTo-Json -Depth 10 | Set-Content $blazorPath -Encoding UTF8
+# --- Remove Docker-created empty dirs (when a mount target was missing) ------
+foreach ($stale in @("blazor-appsettings.json", "docker-compose.yml", "init.sh")) {
+    $sp = Join-Path $ScriptDir $stale
+    if ((Test-Path -LiteralPath $sp) -and (Get-Item -LiteralPath $sp -ErrorAction SilentlyContinue) -is [System.IO.DirectoryInfo]) {
+        Write-Host "    Removed stale directory: $stale" -ForegroundColor DarkGray
+        Remove-Item -LiteralPath $sp -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
+
+# --- Generate blazor-appsettings.json (same content as install.sh) ----------
+Write-Host ""
+$base = "https://localhost:$Port"
+$blazorPath = Join-Path $ScriptDir "blazor-appsettings.json"
+Write-Host "==> Generating blazor-appsettings.json for port $Port..."
+$blazorContent = @"
+{
+  "prerendered": true,
+  "administratorEmail": "$Email",
+  "apiBaseUrl": "$base/api",
+  "loggingOptions": {
+    "minimum": "Warning"
+  },
+  "authenticationPaths": {
+    "remoteRegisterPath": "/identity/account/register",
+    "remoteProfilePath": "/identity/account/manage"
+  },
+  "userOptions": {
+    "roleClaim": "role"
+  },
+  "providerOptions": {
+    "authority": "$base/",
+    "clientId": "theidserveradmin",
+    "defaultScopes": [
+      "openid",
+      "profile",
+      "theidserveradminapi"
+    ],
+    "postLogoutRedirectUri": "$base/authentication/logout-callback",
+    "redirectUri": "$base/authentication/login-callback",
+    "responseType": "code"
+  },
+  "welcomeContenUrl": "/api/welcomefragment",
+  "settingsOptions": {
+    "typeName": "Aguacongas.TheIdServer.BlazorApp.Models.ServerConfig, Aguacongas.TheIdServer.BlazorApp.Infrastructure",
+    "apiUrl": "$base/api/api/configuration"
+  },
+  "menuOptions": {
+    "showSettings": true
+  }
+}
+"@
+$utf8NoBom2 = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($blazorPath, $blazorContent, $utf8NoBom2)
 Write-Host "    blazor-appsettings.json OK" -ForegroundColor Green
 
-# --- Stop existing and start containers --------------------------------------
+# --- Generate docker-compose.yml (same as install.sh; .env provides variables)-
+Write-Host ""
+Write-Host "==> Generating docker-compose.yml..."
+$composeYml = @'
+services:
+  redis:
+    image: redis:7
+    container_name: devpilot-redis
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  duende:
+    image: aguacongas/theidserver.duende:6.0.0
+    container_name: devpilot-duende
+    platform: linux/amd64
+    ports:
+      - "${IDS_PORT:-5001}:${IDS_PORT:-5001}"
+    environment:
+      # -- Kestrel / HTTPS
+      ASPNETCORE_URLS: "https://+:${IDS_PORT:-5001}"
+      ASPNETCORE_Kestrel__Certificates__Default__Path: "/certs/localhost.pfx"
+      ASPNETCORE_Kestrel__Certificates__Default__Password: "${CERT_PASSWORD:-devpassword}"
+
+      # -- Storage
+      RedisConfigurationOptions__ConnectionString: "redis:6379,abortConnect=False"
+      DbType: "Sqlite"
+      ConnectionStrings__DefaultConnection: "Data Source=/data/theidserver.db"
+      Seed: "true"
+
+      # -- IdentityServer issuer and internal API auth
+      IdentityServer__IssuerUri: "https://localhost:${IDS_PORT:-5001}"
+      ApiAuthentication__Authority: "https://localhost:${IDS_PORT:-5001}"
+      ApiAuthentication__RequireHttpsMetadata: "false"
+      PrivateServerAuthentication__Authority: "https://localhost:${IDS_PORT:-5001}"
+      PrivateServerAuthentication__ApiUrl: "https://localhost:${IDS_PORT:-5001}/api"
+      PrivateServerAuthentication__HeathUrl: "https://localhost:${IDS_PORT:-5001}/healthz"
+      PrivateServerAuthentication__RequireHttpsMetadata: "false"
+
+      SSL_CERT_FILE: "/etc/ssl/certs/ca-certificates.crt"
+
+      # -- Admin Blazor SPA
+      InitialData__Clients__0__ClientId: "theidserveradmin"
+      InitialData__Clients__0__ClientName: "DevPilot Admin UI"
+      InitialData__Clients__0__ClientClaimsPrefix: ""
+      InitialData__Clients__0__AllowedGrantTypes__0: "authorization_code"
+      InitialData__Clients__0__RequirePkce: "true"
+      InitialData__Clients__0__RequireClientSecret: "false"
+      InitialData__Clients__0__BackChannelLogoutSessionRequired: "false"
+      InitialData__Clients__0__FrontChannelLogoutSessionRequired: "false"
+      InitialData__Clients__0__AccessTokenType: "Reference"
+      InitialData__Clients__0__RedirectUris__0: "https://localhost:${IDS_PORT:-5001}/authentication/login-callback"
+      InitialData__Clients__0__PostLogoutRedirectUris__0: "https://localhost:${IDS_PORT:-5001}/authentication/logout-callback"
+      InitialData__Clients__0__AllowedCorsOrigins__0: "https://localhost:${IDS_PORT:-5001}"
+      InitialData__Clients__0__AllowedScopes__0: "openid"
+      InitialData__Clients__0__AllowedScopes__1: "profile"
+      InitialData__Clients__0__AllowedScopes__2: "theidserveradminapi"
+
+      # -- DevPilot SPA
+      InitialData__Clients__2__ClientId: "devpilot-spa"
+      InitialData__Clients__2__ClientName: "DevPilot SPA"
+      InitialData__Clients__2__ClientClaimsPrefix: ""
+      InitialData__Clients__2__AllowedGrantTypes__0: "authorization_code"
+      InitialData__Clients__2__RequirePkce: "true"
+      InitialData__Clients__2__RequireClientSecret: "false"
+      InitialData__Clients__2__AllowAccessTokensViaBrowser: "true"
+      InitialData__Clients__2__AccessTokenType: "Jwt"
+      InitialData__Clients__2__FrontChannelLogoutSessionRequired: "false"
+      InitialData__Clients__2__BackChannelLogoutSessionRequired: "false"
+      InitialData__Clients__2__RedirectUris__0: "http://localhost:4200/auth/callback/Duende"
+      InitialData__Clients__2__PostLogoutRedirectUris__0: "http://localhost:4200"
+      InitialData__Clients__2__AllowedCorsOrigins__0: "http://localhost:4200"
+      InitialData__Clients__2__AllowedScopes__0: "openid"
+      InitialData__Clients__2__AllowedScopes__1: "profile"
+      InitialData__Clients__2__AllowedScopes__2: "email"
+
+      # -- Admin user
+      InitialData__Users__0__UserName: "${ADMIN_USERNAME:-admin}"
+      InitialData__Users__0__Email: "${ADMIN_EMAIL:-admin@devpilot.local}"
+      InitialData__Users__0__EmailConfirmed: "true"
+      InitialData__Users__0__Password: "${ADMIN_PASSWORD:-DevPilot123!}"
+      InitialData__Users__0__Roles__0: "Is4-Writer"
+      InitialData__Users__0__Roles__1: "Is4-Reader"
+      InitialData__Users__0__Claims__0__ClaimType: "name"
+      InitialData__Users__0__Claims__0__ClaimValue: "${ADMIN_DISPLAY_NAME:-DevPilot Admin}"
+      InitialData__Users__0__Claims__1__ClaimType: "given_name"
+      InitialData__Users__0__Claims__1__ClaimValue: "${ADMIN_USERNAME:-admin}"
+      InitialData__Users__0__Claims__2__ClaimType: "email"
+      InitialData__Users__0__Claims__2__ClaimValue: "${ADMIN_EMAIL:-admin@devpilot.local}"
+
+    volumes:
+      - duende-data:/data
+      - ./certs:/certs:ro
+      - ./blazor-appsettings.json:/app/wwwroot/appsettings.json:ro
+      - ./certs/ca-bundle.crt:/etc/ssl/certs/ca-certificates.crt:ro
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: always
+
+volumes:
+  duende-data:
+'@
 $composeFile = Join-Path $ScriptDir "docker-compose.yml"
-if (-not (Test-Path -LiteralPath $composeFile)) {
-    Write-Host ""
-    Write-Host "ERROR: docker-compose.yml not found in: $ScriptDir" -ForegroundColor Red
-    Write-Host "  Generate it on macOS/Linux with ./install.sh (see infra/identity), or add docker-compose.yml here." -ForegroundColor Yellow
-    exit 1
+[System.IO.File]::WriteAllText($composeFile, $composeYml + [Environment]::NewLine, (New-Object System.Text.UTF8Encoding $false))
+Write-Host "    docker-compose.yml OK" -ForegroundColor Green
+
+# --- Verify files before start -----------------------------------------------
+Write-Host ""
+Write-Host "==> Verifying certificate files..."
+foreach ($req in @("localhost.crt", "localhost.pfx", "ca-bundle.crt")) {
+    $rp = Join-Path $certsDir $req
+    if (-not (Test-Path -LiteralPath $rp)) {
+        Write-Host "ERROR: $req not found in certs\. Re-run this script to generate or repair files." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "    certs\$req OK" -ForegroundColor Green
 }
 
+# --- Stop existing and start containers --------------------------------------
 Write-Host ""
 Write-Host "==> Starting containers..."
 Write-Host "    (Image pulls on first run can take several minutes - progress appears below.)" -ForegroundColor DarkGray
