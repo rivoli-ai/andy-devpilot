@@ -2619,6 +2619,75 @@
                   >Click the field to search (any part of the path), then select a path. New work items use that area.</span
                 >
               </div>
+              <div class="ado-form-group">
+                <label for="azure-sync-iteration-combobox" id="azure-sync-iteration-lbl"
+                  >Iteration
+                  <span class="ado-form-hint-inline">(optional for new work items — team default if empty)</span></label
+                >
+                @if (azureSyncProject()) {
+                  @if (azureSyncIterationPathsLoading()) {
+                    <div class="ado-loading-projects">
+                      <span class="spinner-small"></span>
+                      <span>Loading iterations…</span>
+                    </div>
+                  } @else {
+                    <div
+                      class="rules-modal__autocomplete ado-area-import-autocomplete"
+                      (focusout)="onAzureSyncIterationAutocompleteFocusOut($event)"
+                    >
+                      <input
+                        id="azure-sync-iteration-combobox"
+                        type="text"
+                        class="rules-modal__autocomplete-input"
+                        role="combobox"
+                        aria-autocomplete="list"
+                        aria-labelledby="azure-sync-iteration-lbl"
+                        [attr.aria-controls]="'azure-sync-iteration-suggestions'"
+                        [attr.aria-expanded]="azureSyncIterationOpen()"
+                        [ngModel]="azureSyncIterationQuery()"
+                        (ngModelChange)="onAzureSyncIterationSearchInput($event)"
+                        (focus)="onAzureSyncIterationAutocompleteFocus()"
+                        (keydown.escape)="onAzureSyncIterationEscape($event)"
+                        [disabled]="azureSyncIterationPathsLoading() || !azureSyncProject().trim()"
+                        [placeholder]="azureSyncIterationPlaceholder"
+                        autocomplete="off"
+                        spellcheck="false"
+                        title="Sprint/iteration (System.IterationId)" />
+                      @if (azureSyncIterationOpen()) {
+                        <div
+                          id="azure-sync-iteration-suggestions"
+                          class="rules-modal__autocomplete-panel"
+                          role="region"
+                          aria-label="Iteration suggestions"
+                        >
+                          <ul class="rules-modal__autocomplete-list" role="listbox" aria-label="Iterations">
+                            @for (opt of filteredAzureSyncIterationPaths(); track opt.id) {
+                              <li
+                                role="option"
+                                [attr.aria-selected]="azureSyncIterationNodeId() === opt.id + '' ? 'true' : 'false'"
+                                class="rules-modal__autocomplete-option"
+                                (mousedown)="$event.preventDefault()"
+                                (click)="selectAzureSyncIterationPath(opt)">
+                                {{ formatAdoPathForUi(opt.path) }}
+                              </li>
+                            }
+                          </ul>
+                          @if (
+                            filteredAzureSyncIterationPaths().length === 0 && azureSyncIterationQuery().trim().length > 0
+                          ) {
+                            <p class="rules-modal__autocomplete-empty" role="status">No iterations match.</p>
+                          }
+                        </div>
+                      }
+                    </div>
+                  }
+                } @else {
+                  <span class="ado-form-hint">Select a project first.</span>
+                }
+                <span class="ado-form-hint"
+                  >Optional. If unset, Azure uses the team or process default iteration for new work items.</span
+                >
+              </div>
               @if (azureSyncModalError()) {
                 <div class="ado-error">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

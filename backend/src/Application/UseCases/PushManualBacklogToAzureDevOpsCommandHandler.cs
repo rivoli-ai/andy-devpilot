@@ -14,6 +14,8 @@ public record PushManualBacklogToAzureDevOpsCommand(
     string ProjectName,
     /// <summary>Areas classification node id; sent as <see cref="System.AreaId"/> on create (avoids WIT path validation / TF401347).</summary>
     int AreaNodeId,
+    /// <summary>Iterations node id; sent as <see cref="System.IterationId"/> on create. Omit to use the team or process default.</summary>
+    int? IterationNodeId,
     IReadOnlyList<Guid> EpicIds,
     IReadOnlyList<Guid> FeatureIds,
     IReadOnlyList<Guid> StoryIds) : IRequest<PushManualBacklogToAzureDevOpsResult>;
@@ -142,7 +144,7 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
                 try
                 {
                     var patches = BuildBasePatches(
-                        epic.Title, epic.Description, command.AreaNodeId, await InitialStateAsync(types.EpicTypeName!));
+                        epic.Title, epic.Description, command.AreaNodeId, command.IterationNodeId, await InitialStateAsync(types.EpicTypeName!));
                     var id = await _azureDevOpsService.CreateWorkItemAsync(
                         accessToken, organization, project, types.EpicTypeName!, patches, null, cancellationToken, useBasicAuth);
                     epic.SetAzureDevOpsWorkItemId(id);
@@ -174,7 +176,7 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
                     try
                     {
                         var patches = BuildBasePatches(
-                            feature.Title, feature.Description, command.AreaNodeId, await InitialStateAsync(types.FeatureTypeName!));
+                            feature.Title, feature.Description, command.AreaNodeId, command.IterationNodeId, await InitialStateAsync(types.FeatureTypeName!));
                         var id = await _azureDevOpsService.CreateWorkItemAsync(
                             accessToken, organization, project, types.FeatureTypeName!, patches, epic.AzureDevOpsWorkItemId, cancellationToken, useBasicAuth);
                         feature.SetAzureDevOpsWorkItemId(id);
@@ -206,7 +208,7 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
                         try
                         {
                             var patches = BuildBasePatches(
-                                story.Title, story.Description, command.AreaNodeId, await InitialStateAsync(types.StoryTypeName!));
+                                story.Title, story.Description, command.AreaNodeId, command.IterationNodeId, await InitialStateAsync(types.StoryTypeName!));
                             if (story.StoryPoints.HasValue)
                             {
                                 patches.Add(new AzureDevOpsWorkItemPatchOperation
@@ -256,6 +258,7 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
         string title,
         string? description,
         int areaNodeId,
+        int? iterationNodeId,
         string? state)
     {
         var list = new List<AzureDevOpsWorkItemPatchOperation>
@@ -265,9 +268,14 @@ public class PushManualBacklogToAzureDevOpsCommandHandler : IRequestHandler<Push
             // System.AreaPath with TF401347 even when the path string matches classification.
             new() { Op = "add", Path = "/fields/System.AreaId", Value = areaNodeId }
         };
-        // Do not set System.IterationPath on create. Even paths from team settings / Iterations
-        // classification can be rejected as TF401347 "Invalid tree name" for the WIT store; Azure
-        // applies the team default iteration when this field is omitted.
+        // System.IterationId: use classification node id to avoid IterationPath tree validation (TF401347).
+        if (iterationNodeId is > 0)
+        {
+            list.Add(new AzureDevOpsWorkItemPatchOperation
+            {
+                Op = "add", Path = "/fields/System.IterationId", Value = iterationNodeId.Value
+            });
+        }
         if (!string.IsNullOrWhiteSpace(description))
             list.Add(new AzureDevOpsWorkItemPatchOperation { Op = "add", Path = "/fields/System.Description", Value = ConvertToHtml(description) });
         if (!string.IsNullOrWhiteSpace(state))

@@ -443,6 +443,26 @@ public class AzureDevOpsService : IAzureDevOpsService
         return list.OrderBy(o => o.Path, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    public async System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsAreaPathOptionDto>> GetProjectIterationPathsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        using var doc = await FetchClassificationTreeDocumentAsync(
+            httpClient, organization, project, ClassificationTreeIterations, cancellationToken);
+        if (doc is null)
+        {
+            return Array.Empty<AzureDevOpsAreaPathOptionDto>();
+        }
+
+        var list = new List<AzureDevOpsAreaPathOptionDto>();
+        CollectAreaPathOptionsFromClassificationNode(doc.RootElement, list);
+        return list.OrderBy(o => o.Path, StringComparer.OrdinalIgnoreCase).ToList();
+    }
+
     public async System.Threading.Tasks.Task<string?> ResolveWorkItemSystemAreaPathAsync(
         string accessToken,
         string organization,

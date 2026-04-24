@@ -1468,6 +1468,77 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
+    /// All iteration nodes from the project Iterations tree (id for <c>System.IterationId</c>, path for the UI).
+    /// </summary>
+    [HttpGet("azure-devops/projects/{projectName}/iteration-paths")]
+    [Authorize]
+    public async Task<IActionResult> GetAzureDevOpsIterationPaths(string projectName, CancellationToken cancellationToken)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        try
+        {
+            var user = await _userRepository.GetByIdAsync(userId, cancellationToken);
+
+            if (user == null || string.IsNullOrEmpty(user.AzureDevOpsOrganization))
+            {
+                return BadRequest(new { message = "Azure DevOps organization is not configured. Please set it in Settings." });
+            }
+
+            string accessToken;
+            bool useBasicAuth = false;
+
+            if (!string.IsNullOrEmpty(user.AzureDevOpsAccessToken))
+            {
+                var credentials = Convert.ToBase64String(
+                    System.Text.Encoding.ASCII.GetBytes($":{user.AzureDevOpsAccessToken}"));
+                accessToken = credentials;
+                useBasicAuth = true;
+                _logger.LogInformation("Using stored PAT for Azure DevOps iteration paths");
+            }
+            else
+            {
+                var linkedProvider = await _linkedProviderRepository.GetByUserAndProviderAsync(
+                    userId, ProviderTypes.AzureDevOps, cancellationToken);
+
+                if (linkedProvider == null)
+                {
+                    return BadRequest(new
+                    {
+                        message = "Azure DevOps is not configured. Please add your PAT in Settings.",
+                        requiresPat = true
+                    });
+                }
+
+                accessToken = linkedProvider.AccessToken;
+            }
+
+            var paths = await _azureDevOpsService.GetProjectIterationPathsAsync(
+                accessToken,
+                user.AzureDevOpsOrganization,
+                projectName,
+                cancellationToken,
+                useBasicAuth);
+
+            return Ok(paths);
+        }
+        catch (InvalidOperationException ex)
+        {
+            _logger.LogWarning(ex, "Azure DevOps authentication failed for iteration paths");
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error fetching Azure DevOps iteration paths for project {Project}", projectName);
+            return StatusCode(500, new { message = "Failed to fetch iteration paths" });
+        }
+    }
+
+    /// <summary>
     /// Get work items (Epics, Features, User Stories) from Azure DevOps project
     /// </summary>
     [HttpPost("azure-devops/work-items")]

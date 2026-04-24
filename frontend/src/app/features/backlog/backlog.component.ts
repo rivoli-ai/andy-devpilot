@@ -222,6 +222,21 @@ export class BacklogComponent implements OnInit, OnDestroy {
     const tokens = this.getAreaPathSearchTokens(this.azureSyncScopeQuery(), { forImport: false });
     return paths.filter(p => this.pathMatchesAreaPathSearch(p.path, tokens));
   });
+  /** Iterations tree for create (optional). */
+  azureSyncIterationPaths = signal<AzureDevOpsAreaPathOption[]>([]);
+  azureSyncIterationPathsLoading = signal(false);
+  azureSyncIterationNodeId = signal('');
+  azureSyncIterationQuery = signal('');
+  azureSyncIterationOpen = signal(false);
+  readonly azureSyncIterationPlaceholder = 'Select iteration (optional)…';
+  readonly filteredAzureSyncIterationPaths = computed(() => {
+    const paths = this.azureSyncIterationPaths();
+    const tokens = this.getAreaPathSearchTokens(this.azureSyncIterationQuery(), {
+      forImport: false,
+      ignoreOptionalPlaceholder: this.azureSyncIterationPlaceholder
+    });
+    return paths.filter(p => this.pathMatchesAreaPathSearch(p.path, tokens));
+  });
   azureSyncModalError = signal<string | null>(null);
   azureSyncPlanLoading = signal<boolean>(false);
   azureSyncApplyLoading = signal<boolean>(false);
@@ -2229,9 +2244,13 @@ ${jsonFormatRequirement}`;
     this.azureSyncProject.set('');
     this.azureSyncProjects.set([]);
     this.azureSyncAreaPaths.set([]);
+    this.azureSyncIterationPaths.set([]);
     this.azureSyncScopeNodeId.set('');
     this.azureSyncScopeQuery.set('');
+    this.azureSyncIterationNodeId.set('');
+    this.azureSyncIterationQuery.set('');
     this.azureSyncScopeOpen.set(false);
+    this.azureSyncIterationOpen.set(false);
     this.azureSyncOrg.set('');
     this.azureSyncSkippedTarget.set(false);
 
@@ -2323,6 +2342,7 @@ ${jsonFormatRequirement}`;
         const project = this.azureSyncProject();
         if (project) {
           this.loadAzureSyncAreaPaths(project);
+          this.loadAzureSyncIterationPaths(project);
         }
       },
       error: () => {
@@ -2335,10 +2355,15 @@ ${jsonFormatRequirement}`;
     this.azureSyncScopeNodeId.set('');
     this.azureSyncScopeQuery.set('');
     this.azureSyncScopeOpen.set(false);
+    this.azureSyncIterationNodeId.set('');
+    this.azureSyncIterationQuery.set('');
+    this.azureSyncIterationOpen.set(false);
     this.azureSyncAreaPaths.set([]);
+    this.azureSyncIterationPaths.set([]);
     const project = this.azureSyncProject();
     if (project) {
       this.loadAzureSyncAreaPaths(project);
+      this.loadAzureSyncIterationPaths(project);
     }
   }
 
@@ -2355,6 +2380,80 @@ ${jsonFormatRequirement}`;
         this.azureSyncAreaPathsLoading.set(false);
       }
     });
+  }
+
+  loadAzureSyncIterationPaths(projectName: string): void {
+    this.azureSyncIterationPathsLoading.set(true);
+    this.backlogService.getAzureDevOpsIterationPaths(projectName).subscribe({
+      next: (paths) => {
+        this.azureSyncIterationPaths.set(paths ?? []);
+        this.azureSyncIterationPathsLoading.set(false);
+        this.syncAzureSyncIterationFromSelection();
+      },
+      error: () => {
+        this.azureSyncIterationPaths.set([]);
+        this.azureSyncIterationPathsLoading.set(false);
+      }
+    });
+  }
+
+  private syncAzureSyncIterationFromSelection(): void {
+    const idStr = this.azureSyncIterationNodeId().trim();
+    if (!idStr) {
+      this.azureSyncIterationQuery.set('');
+      return;
+    }
+    const id = parseInt(idStr, 10);
+    if (Number.isNaN(id) || id <= 0) {
+      this.azureSyncIterationNodeId.set('');
+      this.azureSyncIterationQuery.set('');
+      return;
+    }
+    const opt = this.azureSyncIterationPaths().find(p => p.id === id);
+    if (opt) {
+      this.azureSyncIterationQuery.set(this.formatAdoPathForUi(opt.path));
+    } else {
+      this.azureSyncIterationNodeId.set('');
+      this.azureSyncIterationQuery.set('');
+    }
+  }
+
+  onAzureSyncIterationAutocompleteFocus(): void {
+    this.azureSyncIterationQuery.set('');
+    this.azureSyncIterationOpen.set(true);
+  }
+
+  onAzureSyncIterationAutocompleteFocusOut(e: FocusEvent): void {
+    const host = (e.currentTarget as HTMLElement) ?? null;
+    const rel = e.relatedTarget as Node | null;
+    if (host && rel && host.contains(rel)) return;
+    setTimeout(() => {
+      this.azureSyncIterationOpen.set(false);
+      if (!this.azureSyncIterationQuery().trim() && this.azureSyncIterationNodeId().trim()) {
+        this.syncAzureSyncIterationFromSelection();
+      }
+    }, 150);
+  }
+
+  onAzureSyncIterationEscape(e: Event): void {
+    e.stopPropagation();
+    this.azureSyncIterationOpen.set(false);
+  }
+
+  onAzureSyncIterationSearchInput(value: string): void {
+    this.azureSyncIterationQuery.set(value);
+    const idStr = this.azureSyncIterationNodeId().trim();
+    if (!idStr) return;
+    const opt = this.azureSyncIterationPaths().find(p => p.id + '' === idStr);
+    if (opt && this.formatAdoPathForUi(opt.path) !== value.trim()) {
+      this.azureSyncIterationNodeId.set('');
+    }
+  }
+
+  selectAzureSyncIterationPath(opt: AzureDevOpsAreaPathOption): void {
+    this.azureSyncIterationNodeId.set(opt.id + '');
+    this.azureSyncIterationQuery.set(this.formatAdoPathForUi(opt.path));
+    this.azureSyncIterationOpen.set(false);
   }
 
   private syncAzureSyncScopeFromSelection(): void {
@@ -2632,10 +2731,15 @@ ${jsonFormatRequirement}`;
     this.azureSyncModalError.set(null);
     this.azureSyncApplyLoading.set(true);
 
+    const iterIdStr = this.azureSyncIterationNodeId().trim();
+    const iterId = iterIdStr ? parseInt(iterIdStr, 10) : NaN;
+    const hasIteration = !Number.isNaN(iterId) && iterId > 0;
+
     this.backlogService
       .applyAzureSync(repoId, {
         projectName: project,
         areaNodeId: anyCreate && hasScopeNode ? scopeNodeId : undefined,
+        iterationNodeId: anyCreate && hasIteration ? iterId : undefined,
         pullEpicIds,
         pullFeatureIds,
         pullStoryIds,
@@ -2791,7 +2895,7 @@ ${jsonFormatRequirement}`;
    */
   private getAreaPathSearchTokens(
     qRaw: string,
-    options: { forImport: boolean }
+    options: { forImport: boolean; ignoreOptionalPlaceholder?: string }
   ): string[] | null {
     const t = (qRaw ?? '').trim();
     if (!t) {
@@ -2799,6 +2903,9 @@ ${jsonFormatRequirement}`;
     }
     const low = t.toLowerCase();
     if (low === this.azureSyncPathPlaceholder.toLowerCase()) {
+      return null;
+    }
+    if (options.ignoreOptionalPlaceholder && low === options.ignoreOptionalPlaceholder.trim().toLowerCase()) {
       return null;
     }
     if (options.forImport && low === this.adoEntireProjectLabel.toLowerCase()) {

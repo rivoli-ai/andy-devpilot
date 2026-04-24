@@ -152,6 +152,14 @@ public interface IAzureDevOpsService
         CancellationToken cancellationToken = default,
         bool useBasicAuth = false);
 
+    /// <summary>All iteration classification nodes: <c>id</c> for <see cref="System.IterationId"/> and <c>path</c> for display.</summary>
+    System.Threading.Tasks.Task<IReadOnlyList<AzureDevOpsAreaPathOptionDto>> GetProjectIterationPathsAsync(
+        string accessToken,
+        string organization,
+        string project,
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
+
     /// <summary>
     /// Resolves a <c>System.AreaPath</c> string accepted by WIT create/update for the given Areas node id
     /// (aligns with classification and avoids TF401347 invalid tree name).

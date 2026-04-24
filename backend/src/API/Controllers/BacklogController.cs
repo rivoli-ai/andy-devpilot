@@ -333,6 +333,7 @@ public class BacklogController : ControllerBase
             org,
             request.ProjectName.Trim(),
             request.AreaNodeId,
+            request.IterationNodeId is > 0 ? request.IterationNodeId : null,
             request.EpicIds ?? Array.Empty<Guid>(),
             request.FeatureIds ?? Array.Empty<Guid>(),
             request.StoryIds ?? Array.Empty<Guid>());
@@ -406,6 +407,7 @@ public class BacklogController : ControllerBase
             userId,
             request.ProjectName.Trim(),
             request.AreaNodeId is > 0 ? request.AreaNodeId : null,
+            request.IterationNodeId is > 0 ? request.IterationNodeId : null,
             request.PullEpicIds ?? Array.Empty<Guid>(),
             request.PullFeatureIds ?? Array.Empty<Guid>(),
             request.PullStoryIds ?? Array.Empty<Guid>(),
@@ -1281,6 +1283,8 @@ public class ApplyAzureSyncRequest
     public required string ProjectName { get; set; }
     /// <summary>Areas classification node id; required for create.</summary>
     public int? AreaNodeId { get; set; }
+    /// <summary>Iterations node id; optional on create. Sent as <c>System.IterationId</c>.</summary>
+    public int? IterationNodeId { get; set; }
     public Guid[] PullEpicIds { get; set; } = Array.Empty<Guid>();
     public Guid[] PullFeatureIds { get; set; } = Array.Empty<Guid>();
     public Guid[] PullStoryIds { get; set; } = Array.Empty<Guid>();
@@ -1309,6 +1313,8 @@ public class PushManualToAzureDevOpsRequest
 {
     public required string ProjectName { get; set; }
     public int AreaNodeId { get; set; }
+    /// <summary>Iterations classification node id; optional.</summary>
+    public int? IterationNodeId { get; set; }
     public Guid[] EpicIds { get; set; } = Array.Empty<Guid>();
     public Guid[] FeatureIds { get; set; } = Array.Empty<Guid>();
     public Guid[] StoryIds { get; set; } = Array.Empty<Guid>();

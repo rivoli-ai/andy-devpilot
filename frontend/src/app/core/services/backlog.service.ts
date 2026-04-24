@@ -391,6 +391,7 @@ export class BacklogService {
     body: {
       projectName: string;
       areaNodeId: number;
+      iterationNodeId?: number;
       epicIds: string[];
       featureIds: string[];
       storyIds: string[];
@@ -400,6 +401,9 @@ export class BacklogService {
       .post<PushToAzureDevOpsResponse>(`/backlog/repository/${repositoryId}/push-to-azure-devops`, {
         projectName: body.projectName,
         areaNodeId: body.areaNodeId,
+        ...(body.iterationNodeId != null && body.iterationNodeId > 0
+          ? { iterationNodeId: body.iterationNodeId }
+          : {}),
         epicIds: body.epicIds,
         featureIds: body.featureIds,
         storyIds: body.storyIds
@@ -516,6 +520,13 @@ export class BacklogService {
   /** Area classification nodes (id for WIT, path for display), sorted by path. */
   getAzureDevOpsAreaPaths(projectName: string): Observable<AzureDevOpsAreaPathOption[]> {
     return this.apiService.get<AzureDevOpsAreaPathOption[]>(`/repositories/azure-devops/projects/${encodeURIComponent(projectName)}/area-paths`);
+  }
+
+  /** Iteration classification nodes (id for System.IterationId, path for display). */
+  getAzureDevOpsIterationPaths(projectName: string): Observable<AzureDevOpsAreaPathOption[]> {
+    return this.apiService.get<AzureDevOpsAreaPathOption[]>(
+      `/repositories/azure-devops/projects/${encodeURIComponent(projectName)}/iteration-paths`
+    );
   }
 
   /**
@@ -962,6 +973,8 @@ export interface ApplyAzureSyncRequest {
   projectName: string;
   /** Required when any row creates new work items in ADO. */
   areaNodeId?: number;
+  /** Optional; sets System.IterationId on new work items. */
+  iterationNodeId?: number;
   pullEpicIds: string[];
   pullFeatureIds: string[];
   pullStoryIds: string[];
