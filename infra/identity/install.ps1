@@ -236,7 +236,7 @@ if (-not (Test-Path -LiteralPath $composeFile)) {
 
 Write-Host ""
 Write-Host "==> Starting containers..."
-Write-Host "    (Image pulls on first run can take several minutes — progress appears below.)" -ForegroundColor DarkGray
+Write-Host "    (Image pulls on first run can take several minutes - progress appears below.)" -ForegroundColor DarkGray
 # Docker writes to stderr; PS 7 + ErrorAction Stop surfaces NativeCommandError. Relax for docker only.
 # Do not pipe docker output to Out-Null: large pulls would look stuck and pipes can add delay.
 $saveEap = $ErrorActionPreference
