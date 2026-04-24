@@ -62,6 +62,15 @@
       Artifact feeds
     </button>
     @if (isAdmin()) {
+      <button type="button" class="settings-tabs__tab" role="tab" id="settings-tab-agent-rules"
+        [class.settings-tabs__tab--active]="settingsTab() === 'agentRules'"
+        [attr.aria-selected]="settingsTab() === 'agentRules'"
+        (click)="setSettingsTab('agentRules')">
+        <svg class="settings-tabs__icon" viewBox="0 0 24 24" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
+          <path [attr.d]="settingsTabIconAgentRulesPath" fill="currentColor" />
+        </svg>
+        Agent rules
+      </button>
       <button type="button" class="settings-tabs__tab" role="tab" id="settings-tab-users"
         [class.settings-tabs__tab--active]="settingsTab() === 'users'"
         [attr.aria-selected]="settingsTab() === 'users'"
@@ -810,6 +819,140 @@
       </footer>
     }
   </section>
+        </div>
+      }
+      @case ('agentRules') {
+        <div class="settings-panel" role="tabpanel" id="settings-panel-agent-rules" aria-labelledby="settings-tab-agent-rules">
+          <section class="card card--panel">
+            <header class="card__header">
+              <h2>Global agent rules</h2>
+              <p>Named templates every user can import into a repository’s AI agent rules. Each rule is identified by its name (case-insensitive unique).</p>
+            </header>
+            @if (globalRuleFormOpen()) {
+              <div class="card__subhead llm-form-block__head">
+                {{ globalRuleFormId() ? 'Edit' : 'New' }} global rule
+              </div>
+            }
+            <div class="card__scroll">
+              @if (globalAgentRulesLoading()) {
+                <div class="loading">
+                  <span class="spinner"></span> Loading…
+                </div>
+              } @else if (globalAgentRules().length === 0 && !globalRuleFormOpen()) {
+                <div class="llm-empty">
+                  <p class="llm-empty__p">No global rules yet. Add one to give teams a shared starting point.</p>
+                </div>
+              } @else if (!globalRuleFormOpen()) {
+                <ul class="llm-rows">
+                  @for (r of globalAgentRules(); track r.id) {
+                    <li class="llm-row">
+                      <div class="llm-row__main">
+                        <span class="llm-row__name">{{ r.name }}</span>
+                        <span class="llm-row__detail global-rule-preview">{{ (r.body || '').trim().slice(0, 120) }}{{ (r.body || '').trim().length > 120 ? '…' : '' }}</span>
+                      </div>
+                      <div class="llm-row__actions">
+                        <button type="button" class="btn btn--ghost btn--sm" (click)="openEditGlobalRuleForm(r)" [disabled]="actionLoading() !== null">Edit</button>
+                        <button type="button" class="btn btn--ghost btn--sm" (click)="deleteGlobalRule(r)" [disabled]="actionLoading() !== null">Delete</button>
+                      </div>
+                    </li>
+                  }
+                </ul>
+              }
+              @if (globalRuleFormOpen()) {
+                <div class="llm-form-block llm-form-block--admin llm-form-block--in-card-scroll llm-form-block--global-rule">
+                  <div class="llm-form-block__body global-rule-editor">
+                    <div class="rules-modal__active-fields">
+                      <div class="global-rule-editor__name-sort">
+                        <div class="rules-modal__field-row">
+                          <label class="rules-modal__label" for="global-rule-name">Name</label>
+                          <input
+                            id="global-rule-name"
+                            class="rules-modal__input"
+                            type="text"
+                            maxlength="128"
+                            [ngModel]="globalRuleFormName()"
+                            (ngModelChange)="globalRuleFormName.set($event)"
+                            [disabled]="actionLoading() === 'global-agent-rule'"
+                            placeholder="e.g. Security review" />
+                        </div>
+                        <div class="rules-modal__field-row global-rule-form__sort">
+                          <label class="rules-modal__label" for="global-rule-sort">Sort</label>
+                          <input
+                            id="global-rule-sort"
+                            class="rules-modal__input"
+                            type="number"
+                            [ngModel]="globalRuleFormSortOrder()"
+                            (ngModelChange)="globalRuleFormSortOrder.set(+$event)"
+                            [disabled]="actionLoading() === 'global-agent-rule'" />
+                        </div>
+                      </div>
+                    </div>
+                    <p class="global-rule-editor__body-hint">Body (Markdown)</p>
+                    <div class="rules-modal__view-tabs" role="tablist" aria-label="Global rule content">
+                      <button
+                        type="button"
+                        class="rules-modal__tab"
+                        role="tab"
+                        [attr.aria-selected]="globalRuleFormViewMode() === 'preview'"
+                        [class.rules-modal__tab--active]="globalRuleFormViewMode() === 'preview'"
+                        (click)="globalRuleFormViewMode.set('preview')">
+                        Preview
+                      </button>
+                      <button
+                        type="button"
+                        class="rules-modal__tab"
+                        role="tab"
+                        [attr.aria-selected]="globalRuleFormViewMode() === 'edit'"
+                        [class.rules-modal__tab--active]="globalRuleFormViewMode() === 'edit'"
+                        (click)="globalRuleFormViewMode.set('edit')">
+                        Edit
+                      </button>
+                    </div>
+                    <div class="global-rule-editor__view-slot" aria-label="Rule body — preview or source">
+                      @if (globalRuleFormViewMode() === 'preview') {
+                        @if (globalRuleFormBody().trim()) {
+                          <div
+                            class="rules-modal__preview detail-text markdown-content global-rule-editor__view-fill"
+                            [innerHTML]="(globalRuleFormBody() || '') | markdown"></div>
+                        } @else {
+                          <div class="rules-modal__preview rules-modal__preview--empty global-rule-editor__view-fill">
+                            Nothing to preview — switch to <strong>Edit</strong> to add Markdown instructions.
+                          </div>
+                        }
+                      } @else {
+                        <textarea
+                          id="global-rule-body"
+                          class="rules-modal__editor global-rule-editor__view-fill"
+                          [ngModel]="globalRuleFormBody()"
+                          (ngModelChange)="globalRuleFormBody.set($event)"
+                          [disabled]="actionLoading() === 'global-agent-rule'"
+                          spellcheck="false"
+                          placeholder="Enter AI agent instructions (Markdown supported)…"></textarea>
+                      }
+                    </div>
+                  </div>
+                </div>
+              }
+            </div>
+            <footer class="card__footer">
+              @if (globalRuleFormOpen()) {
+                <div class="btn-bar">
+                  <button type="button" class="btn btn--primary btn--sm" (click)="saveGlobalRuleForm()" [disabled]="actionLoading() === 'global-agent-rule'">
+                    @if (actionLoading() === 'global-agent-rule') { <span class="btn-spin"></span> }
+                    {{ globalRuleFormId() ? 'Save' : 'Create' }}
+                  </button>
+                  <button type="button" class="btn btn--ghost btn--sm" (click)="cancelGlobalRuleForm()">Cancel</button>
+                </div>
+              } @else {
+                <div class="llm-add-wrap">
+                  <button type="button" class="btn btn--primary btn--sm" (click)="openAddGlobalRuleForm()">
+                    <svg class="btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                    Add global rule
+                  </button>
+                </div>
+              }
+            </footer>
+          </section>
         </div>
       }
       @case ('users') {

@@ -1,6 +1,5 @@
 namespace DevPilot.Application.Services;
 
-using DevPilot.Application.Constants;
 using DevPilot.Domain.Entities;
 using DevPilot.Domain.Interfaces;
 
@@ -46,6 +45,7 @@ public static class AgentRulesResolver
         if (!string.IsNullOrWhiteSpace(repository.AgentRules))
             return repository.AgentRules!;
 
-        return DefaultAgentRules.Markdown;
+        // No product default: repository must define named rules, legacy text, or request payload.
+        return string.Empty;
     }
 }

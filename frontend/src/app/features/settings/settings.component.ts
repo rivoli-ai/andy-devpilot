@@ -1,6 +1,7 @@
 import { Component, OnInit, signal, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
+import { MarkdownPipe } from '../../shared/pipes/markdown.pipe';
 import { Router, ActivatedRoute } from '@angular/router';
 import { OidcSecurityService } from 'angular-auth-oidc-client';
 import { AuthService, AdminUserListItem, LinkedProvider, ProviderSettings, LlmSettingDto } from '../../core/services/auth.service';
@@ -8,6 +9,10 @@ import { AuthProviderConfig } from '../../core/auth/oidc-config.loader';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { McpConfigService, McpServerDto, McpToolInfo } from '../../core/services/mcp-config.service';
 import { ArtifactFeedService, ArtifactFeedDto, AzureDevOpsFeedDto } from '../../core/services/artifact-feed.service';
+import {
+  GlobalAgentRulesService,
+  GlobalAgentRuleDto
+} from '../../core/services/global-agent-rules.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -19,7 +24,13 @@ import {
   siPypi
 } from 'simple-icons';
 
-export type SettingsSectionTab = 'sourceControl' | 'ai' | 'mcp' | 'artifacts' | 'users';
+export type SettingsSectionTab =
+  | 'sourceControl'
+  | 'ai'
+  | 'mcp'
+  | 'artifacts'
+  | 'agentRules'
+  | 'users';
 
 /**
  * Settings page for managing source-control links, AI, MCP, and artifact feeds.
@@ -27,7 +38,7 @@ export type SettingsSectionTab = 'sourceControl' | 'ai' | 'mcp' | 'artifacts' | 
 @Component({
   selector: 'app-settings',
   standalone: true,
-  imports: [CommonModule, FormsModule],
+  imports: [CommonModule, FormsModule, MarkdownPipe],
   templateUrl: './settings.component.html',
   styleUrl: './settings.component.css'
 })
@@ -40,6 +51,9 @@ export class SettingsComponent implements OnInit {
   readonly settingsTabIconAi = siAnthropic;
   readonly settingsTabIconMcp = siModelcontextprotocol;
   readonly settingsTabIconArtifacts = siNuget;
+  /** Library / document icon (24×24), aligned with backlog “Agent rules” modal. */
+  readonly settingsTabIconAgentRulesPath =
+    'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6z M14 2v6h6 M8 13h8 M8 17h5';
   /** Tab icon path (Material-style “people”, 24×24). */
   readonly settingsTabIconUsersPath =
     'M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z';
@@ -119,6 +133,17 @@ export class SettingsComponent implements OnInit {
   /** Filter users list (email and name). */
   adminUserSearchQuery = signal('');
 
+  /** Admin-only global agent rule templates (visible to all users for import into repositories). */
+  globalAgentRules = signal<GlobalAgentRuleDto[]>([]);
+  globalAgentRulesLoading = signal(false);
+  globalRuleFormOpen = signal(false);
+  globalRuleFormId = signal<string | null>(null);
+  globalRuleFormName = signal('');
+  globalRuleFormBody = signal('');
+  globalRuleFormSortOrder = signal(0);
+  /** Matches backlog rules modal: rendered Markdown vs raw editor. */
+  globalRuleFormViewMode = signal<'preview' | 'edit'>('preview');
+
   filteredAdminUsers = computed(() => {
     const q = this.adminUserSearchQuery().trim().toLowerCase();
     const list = this.adminUsers();
@@ -147,6 +172,9 @@ export class SettingsComponent implements OnInit {
     if (tab === 'users' && this.authService.isAdmin()) {
       void this.loadAdminUsers();
     }
+    if (tab === 'agentRules' && this.authService.isAdmin()) {
+      void this.loadGlobalAgentRules();
+    }
   }
 
   constructor(
@@ -154,6 +182,7 @@ export class SettingsComponent implements OnInit {
     public aiConfigService: AIConfigService,
     private mcpConfigService: McpConfigService,
     public artifactFeedService: ArtifactFeedService,
+    private globalAgentRulesService: GlobalAgentRulesService,
     private oidcSecurityService: OidcSecurityService,
     private confirmDialog: ConfirmDialogService,
     private router: Router,
@@ -473,6 +502,107 @@ export class SettingsComponent implements OnInit {
 
   adminUserActionKey(id: string): string {
     return 'admin-user-' + id;
+  }
+
+  // ---- Global agent rules (admin library) ----
+
+  async loadGlobalAgentRules(): Promise<void> {
+    this.globalAgentRulesLoading.set(true);
+    this.error.set(null);
+    try {
+      const rows = await this.globalAgentRulesService.listAsync();
+      this.globalAgentRules.set(rows);
+    } catch (err: any) {
+      console.error(err);
+      this.error.set(err.error?.message || 'Failed to load global agent rules');
+      this.globalAgentRules.set([]);
+    } finally {
+      this.globalAgentRulesLoading.set(false);
+    }
+  }
+
+  openAddGlobalRuleForm(): void {
+    if (!this.authService.isAdmin()) return;
+    this.globalRuleFormId.set(null);
+    this.globalRuleFormName.set('');
+    this.globalRuleFormBody.set('');
+    this.globalRuleFormSortOrder.set(this.globalAgentRules().length);
+    this.globalRuleFormViewMode.set('edit');
+    this.globalRuleFormOpen.set(true);
+  }
+
+  openEditGlobalRuleForm(rule: GlobalAgentRuleDto): void {
+    if (!this.authService.isAdmin()) return;
+    this.globalRuleFormId.set(rule.id);
+    this.globalRuleFormName.set(rule.name);
+    this.globalRuleFormBody.set(rule.body ?? '');
+    this.globalRuleFormSortOrder.set(rule.sortOrder ?? 0);
+    this.globalRuleFormViewMode.set('preview');
+    this.globalRuleFormOpen.set(true);
+  }
+
+  cancelGlobalRuleForm(): void {
+    this.globalRuleFormOpen.set(false);
+    this.globalRuleFormId.set(null);
+    this.globalRuleFormViewMode.set('preview');
+  }
+
+  async saveGlobalRuleForm(): Promise<void> {
+    if (!this.authService.isAdmin()) return;
+    const name = this.globalRuleFormName().trim();
+    const body = this.globalRuleFormBody();
+    const sortOrder = this.globalRuleFormSortOrder() | 0;
+    if (!name) {
+      this.error.set('Rule name is required.');
+      return;
+    }
+    if (!body || !body.trim()) {
+      this.error.set('Rule body is required.');
+      return;
+    }
+    this.actionLoading.set('global-agent-rule');
+    this.error.set(null);
+    const id = this.globalRuleFormId();
+    const payload = { name, body, sortOrder };
+    try {
+      if (id) {
+        await firstValueFrom(this.globalAgentRulesService.update(id, payload));
+        this.successMessage.set('Global rule updated');
+      } else {
+        await firstValueFrom(this.globalAgentRulesService.create(payload));
+        this.successMessage.set('Global rule created');
+      }
+      this.cancelGlobalRuleForm();
+      setTimeout(() => this.successMessage.set(null), 3000);
+      await this.loadGlobalAgentRules();
+    } catch (err: any) {
+      this.error.set(err.error?.message || (id ? 'Failed to update rule' : 'Failed to create rule'));
+    } finally {
+      this.actionLoading.set(null);
+    }
+  }
+
+  async deleteGlobalRule(rule: GlobalAgentRuleDto): Promise<void> {
+    if (!this.authService.isAdmin()) return;
+    const ok = await this.confirmDialog.confirm({
+      title: 'Delete global rule',
+      message: `Delete “${rule.name}”? This does not change rules already copied into repositories.`,
+      confirmText: 'Delete',
+      variant: 'danger'
+    });
+    if (!ok) return;
+    this.actionLoading.set('global-agent-rule-' + rule.id);
+    this.error.set(null);
+    try {
+      await firstValueFrom(this.globalAgentRulesService.remove(rule.id));
+      this.successMessage.set('Global rule deleted');
+      setTimeout(() => this.successMessage.set(null), 3000);
+      await this.loadGlobalAgentRules();
+    } catch (err: any) {
+      this.error.set(err.error?.message || 'Failed to delete rule');
+    } finally {
+      this.actionLoading.set(null);
+    }
   }
 
   llmSettings(): LlmSettingDto[] {

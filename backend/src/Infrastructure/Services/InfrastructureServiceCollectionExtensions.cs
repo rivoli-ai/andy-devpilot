@@ -42,6 +42,7 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IRepositoryShareRepository, PostgresRepositoryShareRepository>();
         services.AddScoped<IRepositoryRepository, PostgresRepositoryRepository>();
         services.AddScoped<IRepositoryAgentRuleRepository, PostgresRepositoryAgentRuleRepository>();
+        services.AddScoped<IGlobalAgentRuleRepository, PostgresGlobalAgentRuleRepository>();
         services.AddScoped<IEpicRepository, PostgresEpicRepository>();
         services.AddScoped<IFeatureRepository, PostgresFeatureRepository>();
         services.AddScoped<IUserRepository, PostgresUserRepository>();

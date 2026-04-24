@@ -4,7 +4,8 @@ import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { BacklogService, AzureDevOpsWorkItem, AzureDevOpsWorkItemsHierarchy, AzureDevOpsProject, AzureDevOpsTeam, AzureDevOpsAreaPathOption, GitHubIssue, GitHubMilestone, GitHubIssuesHierarchy, STANDALONE_EPIC_TITLE, AzureSyncPlanItemResponse, AzureSyncDirection, ApplyGitHubSyncRequest } from '../../core/services/backlog.service';
-import { RepositoryService, DEFAULT_AGENT_RULES, ReplaceRepositoryAgentRuleItem } from '../../core/services/repository.service';
+import { RepositoryService, ReplaceRepositoryAgentRuleItem } from '../../core/services/repository.service';
+import { GlobalAgentRulesService, GlobalAgentRuleDto } from '../../core/services/global-agent-rules.service';
 import { Repository } from '../../shared/models/repository.model';
 import { SandboxService, CreateSandboxResponse } from '../../core/services/sandbox.service';
 import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
@@ -70,16 +71,35 @@ export class BacklogComponent implements OnInit, OnDestroy {
 
   // Agent rules editor
   showRulesModal = signal<boolean>(false);
-  /** Named rule rows shown in the rules modal (loaded from API or legacy + default). */
+  /** Named rule rows for the rules modal (API, legacy text, global import, or user-created). */
   rulesProfiles = signal<RulesProfileRow[]>([]);
   rulesActiveProfileIndex = signal<number>(0);
   /** Options for the per-story rule dropdown (from GET agent-rules). */
   repositoryStoryRuleOptions = signal<StoryAgentRuleOption[]>([]);
-  rulesIsDefault = signal<boolean>(true);
   rulesSaving = signal<boolean>(false);
   rulesLoading = signal<boolean>(false);
   /** Markdown preview vs raw edit */
   rulesViewMode = signal<'preview' | 'edit'>('preview');
+  /** Admin-defined global templates (import into this repo; loaded with agent-rules). */
+  globalRuleLibrary = signal<GlobalAgentRuleDto[]>([]);
+  /** Selected row in “Global library” import (rule id). */
+  selectedGlobalRuleId = signal<string | null>(null);
+  /** Filter for searchable global template list (name and body). */
+  globalTemplateSearchQuery = signal('');
+
+  /** Suggestions panel open (combobox, not a static list). */
+  templateAutocompleteOpen = signal(false);
+
+  /** Global library rows matching {@link globalTemplateSearchQuery} (and full list when query empty). */
+  readonly filteredGlobalRuleTemplates = computed(() => {
+    const all = this.globalRuleLibrary();
+    const q = this.globalTemplateSearchQuery().trim().toLowerCase();
+    if (!q) return all;
+    return all.filter(
+      g =>
+        (g.name || '').toLowerCase().includes(q) || (g.body || '').toLowerCase().includes(q)
+    );
+  });
 
   // Azure Identity (sandbox Service Principal)
   showAzureIdentityModal = signal<boolean>(false);
@@ -501,7 +521,8 @@ export class BacklogComponent implements OnInit, OnDestroy {
     private sanitizer: DomSanitizer,
     private markdownPipe: MarkdownPipe,
     private lastVisitedRepository: LastVisitedRepositoryService,
-    private confirmDialog: ConfirmDialogService
+    private confirmDialog: ConfirmDialogService,
+    private globalAgentRulesService: GlobalAgentRulesService
   ) {
     // Sync with backlog service signal for real-time updates (e.g., when PR is created)
     effect(() => {
@@ -3475,14 +3496,19 @@ ${jsonFormatRequirement}`;
 
   removeRulesProfileRow(idx: number): void {
     this.rulesProfiles.update(rows => {
-      if (rows.length <= 1) return rows;
+      if (idx < 0 || idx >= rows.length) return rows;
       const next = rows.filter((_, j) => j !== idx).map((r, j) => ({ ...r, sortOrder: j }));
+      if (next.length === 0) return next;
       if (!next.some(r => r.isDefault)) {
         next[0] = { ...next[0], isDefault: true };
       }
       return next;
     });
-    this.rulesActiveProfileIndex.update(cur => Math.min(cur, Math.max(0, this.rulesProfiles().length - 1)));
+    this.rulesActiveProfileIndex.update(cur => {
+      const len = this.rulesProfiles().length;
+      if (len === 0) return 0;
+      return Math.min(cur, Math.max(0, len - 1));
+    });
   }
 
   setRulesProfileDefault(idx: number): void {
@@ -3533,8 +3559,17 @@ ${jsonFormatRequirement}`;
     this.rulesLoading.set(true);
     this.rulesViewMode.set('preview');
     this.showRulesModal.set(true);
-    this.repositoryService.getRepositoryAgentRules(repo.id).subscribe({
-      next: result => {
+    this.selectedGlobalRuleId.set(null);
+    this.globalTemplateSearchQuery.set('');
+    this.templateAutocompleteOpen.set(false);
+    forkJoin({
+      result: this.repositoryService.getRepositoryAgentRules(repo.id),
+      globals: this.globalAgentRulesService.list().pipe(
+        catchError(() => of([] as GlobalAgentRuleDto[]))
+      )
+    }).subscribe({
+      next: ({ result, globals }) => {
+        this.globalRuleLibrary.set(globals ?? []);
         let rows: RulesProfileRow[];
         if (result.rules?.length) {
           rows = result.rules.map(r => ({
@@ -3545,21 +3580,23 @@ ${jsonFormatRequirement}`;
             sortOrder: r.sortOrder
           }));
         } else {
-          const body =
-            result.legacyAgentRules?.trim() ? result.legacyAgentRules : repo.agentRules?.trim() ? repo.agentRules! : DEFAULT_AGENT_RULES;
-          rows = [{ id: null, name: 'Default', body, isDefault: true, sortOrder: 0 }];
+          const legacy = (result.legacyAgentRules ?? '').trim() || (repo.agentRules ?? '').trim();
+          rows = legacy
+            ? [{ id: null, name: 'Migrated', body: legacy, isDefault: true, sortOrder: 0 }]
+            : [];
         }
         this.rulesProfiles.set(rows);
         const defIdx = rows.findIndex(r => r.isDefault);
-        this.rulesActiveProfileIndex.set(defIdx >= 0 ? defIdx : 0);
-        this.rulesIsDefault.set(!!result.isDefault);
+        this.rulesActiveProfileIndex.set(rows.length ? (defIdx >= 0 ? defIdx : 0) : 0);
         this.rulesLoading.set(false);
       },
       error: () => {
-        const body = repo.agentRules?.trim() ? repo.agentRules : DEFAULT_AGENT_RULES;
-        this.rulesProfiles.set([{ id: null, name: 'Default', body, isDefault: true, sortOrder: 0 }]);
+        this.globalRuleLibrary.set([]);
+        const legacy = (repo.agentRules ?? '').trim();
+        this.rulesProfiles.set(
+          legacy ? [{ id: null, name: 'Migrated', body: legacy, isDefault: true, sortOrder: 0 }] : []
+        );
         this.rulesActiveProfileIndex.set(0);
-        this.rulesIsDefault.set(!repo.agentRules);
         this.rulesLoading.set(false);
       }
     });
@@ -3568,10 +3605,73 @@ ${jsonFormatRequirement}`;
   closeRulesEditor(): void {
     this.showRulesModal.set(false);
     this.rulesProfiles.set([]);
+    this.globalRuleLibrary.set([]);
+    this.selectedGlobalRuleId.set(null);
+    this.globalTemplateSearchQuery.set('');
+    this.templateAutocompleteOpen.set(false);
     this.rulesActiveProfileIndex.set(0);
     this.rulesViewMode.set('preview');
     this.rulesSaving.set(false);
     this.rulesLoading.set(false);
+  }
+
+  onGlobalTemplateAutocompleteFocus(): void {
+    if (this.globalRuleLibrary().length === 0) return;
+    this.templateAutocompleteOpen.set(true);
+  }
+
+  onGlobalTemplateAutocompleteFocusOut(e: FocusEvent): void {
+    const host = e.currentTarget as HTMLElement | null;
+    const rel = e.relatedTarget as Node | null;
+    if (host && rel && host.contains(rel)) return;
+    setTimeout(() => this.templateAutocompleteOpen.set(false), 150);
+  }
+
+  onGlobalTemplateEscape(e: Event): void {
+    e.stopPropagation();
+    this.templateAutocompleteOpen.set(false);
+  }
+
+  onGlobalTemplateSearchInput(value: string): void {
+    this.globalTemplateSearchQuery.set(value);
+    const sel = this.selectedGlobalRuleId();
+    if (sel) {
+      const g = this.globalRuleLibrary().find(x => x.id === sel);
+      if (!g || (g.name || '') !== value) {
+        this.selectedGlobalRuleId.set(null);
+      }
+    }
+  }
+
+  selectGlobalTemplate(g: GlobalAgentRuleDto): void {
+    this.selectedGlobalRuleId.set(g.id);
+    this.globalTemplateSearchQuery.set(g.name);
+    this.templateAutocompleteOpen.set(false);
+  }
+
+  /** Append a copy of a global template as a new local profile; names de-duplicate (case-insensitive). */
+  importGlobalRuleFromLibrary(id: string | null): void {
+    if (!id || this.rulesSaving()) return;
+    const g = this.globalRuleLibrary().find(x => x.id === id);
+    if (!g) return;
+    const base = (g.name || 'Rule').trim() || 'Rule';
+    const used = new Set(this.rulesProfiles().map(r => (r.name || '').trim().toLowerCase()));
+    let name = base;
+    let n = 1;
+    while (used.has(name.toLowerCase())) {
+      n++;
+      name = `${base} (${n})`;
+    }
+    const rows = this.rulesProfiles();
+    const sortOrder = rows.length;
+    this.rulesProfiles.update(rs => [
+      ...rs,
+      { id: null, name, body: g.body ?? '', isDefault: rs.length === 0, sortOrder }
+    ]);
+    this.rulesActiveProfileIndex.set(this.rulesProfiles().length - 1);
+    this.selectedGlobalRuleId.set(null);
+    this.globalTemplateSearchQuery.set('');
+    this.templateAutocompleteOpen.set(false);
   }
 
   saveRules(): void {
@@ -3588,7 +3688,6 @@ ${jsonFormatRequirement}`;
       )
       .subscribe({
         next: res => {
-          this.rulesIsDefault.set(false);
           this.rulesSaving.set(false);
           if (res?.rules?.length) {
             this.rulesProfiles.set(
@@ -3602,6 +3701,9 @@ ${jsonFormatRequirement}`;
             );
             const defIdx = this.rulesProfiles().findIndex(r => r.isDefault);
             this.rulesActiveProfileIndex.set(defIdx >= 0 ? defIdx : 0);
+          } else {
+            this.rulesProfiles.set([]);
+            this.rulesActiveProfileIndex.set(0);
           }
           this.repository.update(r => (r ? { ...r, agentRules: null } : r));
           this.refreshStoryRuleOptions(repo.id);
@@ -3846,46 +3948,4 @@ ${jsonFormatRequirement}`;
     });
   }
 
-  resetRulesToDefault(): void {
-    const repo = this.repository();
-    if (!repo) return;
-    this.rulesSaving.set(true);
-    const single: ReplaceRepositoryAgentRuleItem[] = [
-      { name: 'Default', body: DEFAULT_AGENT_RULES, isDefault: true, sortOrder: 0 }
-    ];
-    this.repositoryService
-      .replaceRepositoryAgentRules(repo.id, single)
-      .pipe(
-        switchMap(replaceRes =>
-          this.repositoryService.updateRepositoryAgentRules(repo.id, null).pipe(map(() => replaceRes))
-        )
-      )
-      .subscribe({
-        next: res => {
-          this.rulesIsDefault.set(true);
-          this.rulesSaving.set(false);
-          if (res?.rules?.length) {
-            this.rulesProfiles.set(
-              res.rules.map(r => ({
-                id: r.id,
-                name: r.name,
-                body: r.body ?? '',
-                isDefault: r.isDefault,
-                sortOrder: r.sortOrder
-              }))
-            );
-          } else {
-            this.rulesProfiles.set([
-              { id: null, name: 'Default', body: DEFAULT_AGENT_RULES, isDefault: true, sortOrder: 0 }
-            ]);
-          }
-          this.rulesActiveProfileIndex.set(0);
-          this.repository.update(r => (r ? { ...r, agentRules: null } : r));
-          this.refreshStoryRuleOptions(repo.id);
-        },
-        error: () => {
-          this.rulesSaving.set(false);
-        }
-      });
-  }
 }

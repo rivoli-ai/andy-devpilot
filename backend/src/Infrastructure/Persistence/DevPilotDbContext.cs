@@ -19,6 +19,7 @@ public class DevPilotDbContext : DbContext
     public DbSet<Feature> Features => Set<Feature>();
     public DbSet<UserStory> UserStories => Set<UserStory>();
     public DbSet<RepositoryAgentRule> RepositoryAgentRules => Set<RepositoryAgentRule>();
+    public DbSet<GlobalAgentRule> GlobalAgentRules => Set<GlobalAgentRule>();
     public DbSet<Task> Tasks => Set<Task>();
     public DbSet<LinkedProvider> LinkedProviders => Set<LinkedProvider>();
     public DbSet<CodeAnalysis> CodeAnalyses => Set<CodeAnalysis>();
@@ -122,6 +123,18 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.IsDefault).HasColumnName("is_default").HasDefaultValue(false);
             entity.Property(e => e.SortOrder).HasColumnName("sort_order").HasDefaultValue(0);
             entity.HasIndex(e => e.RepositoryId);
+        });
+
+        modelBuilder.Entity<GlobalAgentRule>(entity =>
+        {
+            entity.ToTable("global_agent_rules");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasColumnName("id");
+            entity.Property(e => e.CreatedAt).HasColumnName("created_at");
+            entity.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+            entity.Property(e => e.Name).HasColumnName("name").HasMaxLength(128);
+            entity.Property(e => e.Body).HasColumnName("body");
+            entity.Property(e => e.SortOrder).HasColumnName("sort_order").HasDefaultValue(0);
         });
 
         modelBuilder.Entity<LlmSetting>(entity =>

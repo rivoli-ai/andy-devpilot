@@ -3215,13 +3215,74 @@
           <div class="rules-modal__loading">Loading rules...</div>
         } @else {
           <p class="rules-modal__hint">
-            Define one or more named Markdown profiles. The default profile applies to sandboxes unless a user story picks another profile.
-            @if (rulesIsDefault()) {
-              <span class="rules-modal__badge default">Built-in template</span>
-            } @else {
-              <span class="rules-modal__badge custom">Custom profiles</span>
-            }
+            Add profiles from the global library or create your own; there is no product default. The default profile applies to sandboxes unless a user story picks another.
+            <span class="rules-modal__badge custom">Repository profiles</span>
           </p>
+          @if (globalRuleLibrary().length > 0) {
+            <div class="rules-modal__import">
+              <span class="rules-modal__import-label" id="import-global-lbl">Global library</span>
+              <div class="rules-modal__import-row rules-modal__import-row--searchable" role="group" aria-labelledby="import-global-lbl">
+                <div
+                  class="rules-modal__autocomplete"
+                  (focusout)="onGlobalTemplateAutocompleteFocusOut($event)">
+                  <input
+                    id="global-template-search"
+                    type="text"
+                    class="rules-modal__autocomplete-input"
+                    role="combobox"
+                    aria-autocomplete="list"
+                    [attr.aria-controls]="'global-template-suggestions'"
+                    [attr.aria-expanded]="
+                      templateAutocompleteOpen() &&
+                      (filteredGlobalRuleTemplates().length > 0 || globalTemplateSearchQuery().trim().length > 0)
+                    "
+                    [ngModel]="globalTemplateSearchQuery()"
+                    (ngModelChange)="onGlobalTemplateSearchInput($event)"
+                    (focus)="onGlobalTemplateAutocompleteFocus()"
+                    (keydown.escape)="onGlobalTemplateEscape($event)"
+                    [disabled]="rulesSaving()"
+                    placeholder="Type to find a global template…"
+                    autocomplete="off"
+                    spellcheck="false"
+                    title="Type to filter by name or body; pick a suggestion or use Add as profile" />
+                  @if (
+                    templateAutocompleteOpen() &&
+                    (filteredGlobalRuleTemplates().length > 0 || globalTemplateSearchQuery().trim().length > 0)
+                  ) {
+                    <div
+                      id="global-template-suggestions"
+                      class="rules-modal__autocomplete-panel"
+                      role="region"
+                      aria-label="Template suggestions">
+                      @if (filteredGlobalRuleTemplates().length > 0) {
+                        <ul class="rules-modal__autocomplete-list" role="listbox" aria-label="Matches">
+                          @for (g of filteredGlobalRuleTemplates(); track g.id) {
+                            <li
+                              role="option"
+                              [attr.aria-selected]="selectedGlobalRuleId() === g.id ? 'true' : 'false'"
+                              class="rules-modal__autocomplete-option"
+                              (mousedown)="$event.preventDefault()"
+                              (click)="selectGlobalTemplate(g)">
+                              {{ g.name }}
+                            </li>
+                          }
+                        </ul>
+                      } @else {
+                        <p class="rules-modal__autocomplete-empty" role="status">No templates match.</p>
+                      }
+                    </div>
+                  }
+                </div>
+                <button
+                  type="button"
+                  class="rules-modal__import-btn"
+                  (click)="importGlobalRuleFromLibrary(selectedGlobalRuleId())"
+                  [disabled]="!selectedGlobalRuleId() || rulesSaving()">
+                  Add as profile
+                </button>
+              </div>
+            </div>
+          }
           <div class="rules-modal__profiles-toolbar">
             <div class="rules-modal__profiles-list" role="list">
               @for (row of rulesProfiles(); track $index) {
@@ -3233,16 +3294,14 @@
                     (click)="selectRulesProfileIndex($index)">
                     {{ row.name || ('Rule ' + ($index + 1)) }}
                   </button>
-                  @if (rulesProfiles().length > 1) {
-                    <button
-                      type="button"
-                      class="rules-modal__profile-remove"
-                      (click)="removeRulesProfileRow($index); $event.stopPropagation()"
-                      title="Remove profile"
-                      [disabled]="rulesSaving()">
-                      ×
-                    </button>
-                  }
+                  <button
+                    type="button"
+                    class="rules-modal__profile-remove"
+                    (click)="removeRulesProfileRow($index); $event.stopPropagation()"
+                    title="Remove profile"
+                    [disabled]="rulesSaving()">
+                    ×
+                  </button>
                 </div>
               }
             </div>
@@ -3274,6 +3333,7 @@
               </div>
             </div>
           }
+          @if (rulesProfiles().length > 0) {
           <div class="rules-modal__view-tabs" role="tablist" aria-label="Rules view">
             <button
               type="button"
@@ -3312,14 +3372,14 @@
               rows="16"
               placeholder="Enter AI agent instructions (Markdown supported)..."></textarea>
           }
+          } @else {
+            <div class="rules-modal__empty-repo-rules">
+              <p>No agent rules for this repository yet. Import from the <strong>global library</strong> above or add a profile, then write your own Markdown.</p>
+            </div>
+          }
         }
       </div>
       <div class="rules-modal__footer">
-        @if (!rulesIsDefault()) {
-          <button type="button" class="rules-modal__reset" (click)="resetRulesToDefault()" [disabled]="rulesSaving()">
-            Reset to default
-          </button>
-        }
         <div class="rules-modal__footer-right">
           <button type="button" class="rules-modal__cancel" (click)="closeRulesEditor()">Cancel</button>
           <button type="button" class="rules-modal__save" (click)="saveRules()" [disabled]="rulesSaving() || rulesLoading()">

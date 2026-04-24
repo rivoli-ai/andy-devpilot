@@ -254,7 +254,7 @@ public class RepositoriesController : ControllerBase
     }
 
     /// <summary>
-    /// Update repository's AI agent rules (owner or user with access). Set to null to use the default template.
+    /// Update repository's legacy single-field agent rules (owner or user with access). Prefer named rules via PUT agent-rules.
     /// </summary>
     [HttpPatch("{id}/agent-rules")]
     [Authorize]
@@ -301,7 +301,8 @@ public class RepositoriesController : ControllerBase
                 sortOrder = r.SortOrder
             }),
             legacyAgentRules = repo.AgentRules,
-            isDefault = repo.AgentRules == null && rules.Count == 0
+            // No implicit product template: empty rules means "not configured", not "built-in default".
+            isDefault = false
         });
     }
 
