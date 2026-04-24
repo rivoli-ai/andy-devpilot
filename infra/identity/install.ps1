@@ -63,6 +63,29 @@ try {
 }
 Write-Host "    docker  OK" -ForegroundColor Green
 
+# Compose V2: "docker compose". Older setups: "docker-compose" (v1) on PATH only.
+$eapForCompose = $ErrorActionPreference
+$ErrorActionPreference = 'SilentlyContinue'
+$Error.Clear()
+$null = & docker compose version 2>&1
+$useDockerComposePlugin = ($LASTEXITCODE -eq 0)
+$Error.Clear()
+$ErrorActionPreference = $eapForCompose
+$dockerComposeV1 = $null
+if ($useDockerComposePlugin) {
+    Write-Host "    docker compose (Compose v2) OK" -ForegroundColor Green
+} else {
+    $dockerComposeV1 = Get-Command docker-compose -ErrorAction SilentlyContinue
+    if ($dockerComposeV1) {
+        $dockerComposeV1 = $dockerComposeV1.Path
+        Write-Host "    docker-compose (Compose v1) OK" -ForegroundColor Green
+    } else {
+        Write-Host "ERROR: Compose not found. This script needs either 'docker compose' (Docker Compose v2 plugin) or the 'docker-compose' (v1) program on PATH." -ForegroundColor Red
+        Write-Host "  Install/update Docker Desktop, or enable the Compose v2 plugin, or install legacy docker-compose and add it to PATH." -ForegroundColor Yellow
+        exit 1
+    }
+}
+
 $hasOpenSSL = $null -ne (Get-Command openssl -ErrorAction SilentlyContinue)
 
 # Self-signed cert via PowerShell (no openssl). Used when openssl is missing or fails.
@@ -248,24 +271,40 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 $ErrorActionPreference = 'SilentlyContinue'
 $Error.Clear()
 
-$downArgs = @('compose', 'down', '--remove-orphans', '-t', '10')
+if ($useDockerComposePlugin) {
+    $downArgs = @('compose', 'down', '--remove-orphans', '-t', '10')
+} else {
+    $downArgs = @('down', '--remove-orphans', '-t', '10')
+}
 if (-not $KeepVolumes) { $downArgs += '-v' }
 Write-Host "    Stopping previous stack (if any)..."
-$null = & docker @downArgs
+if ($useDockerComposePlugin) {
+    $null = & docker @downArgs
+} else {
+    $null = & $dockerComposeV1 @downArgs
+}
 # Ignore down exit: nothing to stop is not an error
 
 Write-Host "    Pulling images..."
-$null = & docker compose pull
+if ($useDockerComposePlugin) {
+    $null = & docker compose pull
+} else {
+    $null = & $dockerComposeV1 @('pull')
+}
 $composePullExit = $LASTEXITCODE
 if ($composePullExit -ne 0) {
     $ErrorActionPreference = $saveEap
     if ($null -ne $saveNativeErr) { $PSNativeCommandUseErrorActionPreference = $saveNativeErr }
-    Write-Host "ERROR: docker compose pull failed (exit $composePullExit). Check network and Docker Hub access." -ForegroundColor Red
+    Write-Host "ERROR: docker compose / docker-compose pull failed (exit $composePullExit). Check network and Docker Hub access." -ForegroundColor Red
     exit 1
 }
 
 Write-Host "    Starting services..."
-$null = & docker compose up -d
+if ($useDockerComposePlugin) {
+    $null = & docker compose up -d
+} else {
+    $null = & $dockerComposeV1 @('up', '-d')
+}
 $composeUpExit = $LASTEXITCODE
 
 $ErrorActionPreference = $saveEap
@@ -274,7 +313,7 @@ if ($null -ne $saveNativeErr) {
 }
 $Error.Clear()
 if ($composeUpExit -ne 0) {
-    Write-Host "ERROR: docker compose up -d failed (exit $composeUpExit). Is Docker running and the port free?" -ForegroundColor Red
+    Write-Host "ERROR: docker compose / docker-compose up -d failed (exit $composeUpExit). Is Docker running and the port free?" -ForegroundColor Red
     exit 1
 }
 
