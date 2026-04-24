@@ -62,6 +62,28 @@ Write-Host "    docker  OK" -ForegroundColor Green
 
 $hasOpenSSL = $null -ne (Get-Command openssl -ErrorAction SilentlyContinue)
 
+# Self-signed cert via PowerShell (no openssl). Used when openssl is missing or fails.
+function New-DevPilotLocalhostCertsPowerShell {
+    param(
+        [Parameter(Mandatory)][string]$CertsDir,
+        [Parameter(Mandatory)][string]$PfxPasswordPlain
+    )
+    $cert = New-SelfSignedCertificate `
+        -DnsName "localhost" `
+        -CertStoreLocation "Cert:\CurrentUser\My" `
+        -NotAfter (Get-Date).AddYears(1) `
+        -FriendlyName "DevPilot Identity Server"
+    if ($PSVersionTable.PSVersion.Major -ge 7) {
+        $pfxPass = ConvertTo-SecureString -String $PfxPasswordPlain -AsPlainText -Force
+    } else {
+        $pfxPass = New-Object System.Security.SecureString
+        foreach ($ch in $PfxPasswordPlain.ToCharArray()) { $pfxPass.AppendChar($ch) }
+    }
+    Export-PfxCertificate -Cert $cert -FilePath "$CertsDir\localhost.pfx" -Password $pfxPass | Out-Null
+    Export-Certificate -Cert $cert -FilePath "$CertsDir\localhost.crt" -Type CERT | Out-Null
+    Remove-Item -Path "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
+}
+
 # --- Generate admin password ------------------------------------------------
 $bytes = New-Object byte[] 16
 # Fill() is .NET 6+; Create().GetBytes() works on Windows PowerShell 5.1 / .NET Framework
@@ -83,46 +105,65 @@ if (-not $NoCerts) {
     Write-Host "==> Generating self-signed certificates..."
     New-Item -ItemType Directory -Force -Path $certsDir | Out-Null
 
+    $opensslProducedCerts = $false
     if ($hasOpenSSL) {
-        # Use openssl if available
-        & openssl req -x509 -newkey rsa:2048 `
-            -keyout "$certsDir\localhost.key" `
-            -out "$certsDir\localhost.crt" `
-            -days 365 -nodes `
-            -subj "/CN=localhost" `
-            -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" 2>$null
+        # Native exe stderr / non-zero would surface as NativeCommandError (esp. with $ErrorActionPreference Stop).
+        $savedEap = $ErrorActionPreference
+        $savedNativeErr = $null
+        if (Get-Variable -Name 'PSNativeCommandUseErrorActionPreference' -ErrorAction SilentlyContinue) {
+            $savedNativeErr = $PSNativeCommandUseErrorActionPreference
+            $PSNativeCommandUseErrorActionPreference = $false
+        }
+        $ErrorActionPreference = 'SilentlyContinue'
+        $Error.Clear()
 
-        & openssl pkcs12 -export `
-            -out "$certsDir\localhost.pfx" `
-            -inkey "$certsDir\localhost.key" `
-            -in "$certsDir\localhost.crt" `
-            -passout "pass:$CertPassword" `
-            -certpbe PBE-SHA1-3DES -keypbe PBE-SHA1-3DES -macalg sha1 2>$null
+        # Try OpenSSL 1.1+ with SAN (-addext). Older OpenSSL: retry without it.
+        $keyPath = "$certsDir\localhost.key"
+        $crtPath = "$certsDir\localhost.crt"
+        $pfxPath = "$certsDir\localhost.pfx"
+        $reqArgs1 = @(
+            'req', '-x509', '-newkey', 'rsa:2048', '-keyout', $keyPath, '-out', $crtPath,
+            '-days', '365', '-nodes', '-subj', '/CN=localhost',
+            '-addext', 'subjectAltName=DNS:localhost,IP:127.0.0.1'
+        )
+        $null = & openssl @reqArgs1 2>&1 | Out-Null
+        if (($LASTEXITCODE -ne 0) -or -not (Test-Path -LiteralPath $crtPath)) {
+            if (Test-Path -LiteralPath $keyPath) { Remove-Item -LiteralPath $keyPath -Force -ErrorAction SilentlyContinue }
+            if (Test-Path -LiteralPath $crtPath) { Remove-Item -LiteralPath $crtPath -Force -ErrorAction SilentlyContinue }
+            $reqArgs2 = @(
+                'req', '-x509', '-newkey', 'rsa:2048', '-keyout', $keyPath, '-out', $crtPath,
+                '-days', '365', '-nodes', '-subj', '/CN=localhost'
+            )
+            $null = & openssl @reqArgs2 2>&1 | Out-Null
+        }
+        if (($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath $crtPath)) {
+            $p12Args = @(
+                'pkcs12', '-export', '-out', $pfxPath, '-inkey', $keyPath, '-in', $crtPath,
+                "-passout", "pass:$CertPassword", '-certpbe', 'PBE-SHA1-3DES', '-keypbe', 'PBE-SHA1-3DES', '-macalg', 'sha1'
+            )
+            $null = & openssl @p12Args 2>&1 | Out-Null
+            if (($LASTEXITCODE -eq 0) -and (Test-Path -LiteralPath $pfxPath)) {
+                $opensslProducedCerts = $true
+            }
+        }
 
+        $ErrorActionPreference = $savedEap
+        if ($null -ne $savedNativeErr) {
+            $PSNativeCommandUseErrorActionPreference = $savedNativeErr
+        }
+        $Error.Clear()
+    }
+
+    if ($opensslProducedCerts) {
         Write-Host "    certs\localhost.crt OK" -ForegroundColor Green
         Write-Host "    certs\localhost.pfx OK" -ForegroundColor Green
     } else {
-        # Fallback: use PowerShell's built-in cert generation
-        Write-Host "    openssl not found, using PowerShell certificate generation..."
-        $cert = New-SelfSignedCertificate `
-            -DnsName "localhost" `
-            -CertStoreLocation "Cert:\CurrentUser\My" `
-            -NotAfter (Get-Date).AddYears(1) `
-            -FriendlyName "DevPilot Identity Server"
-
-        # -AsPlainText requires PowerShell 7+; build SecureString manually for Windows PowerShell 5.1
-        if ($PSVersionTable.PSVersion.Major -ge 7) {
-            $pfxPass = ConvertTo-SecureString -String $CertPassword -AsPlainText -Force
+        if ($hasOpenSSL) {
+            Write-Host "    openssl did not complete successfully (or options unsupported); using PowerShell to generate certificates..." -ForegroundColor Yellow
         } else {
-            $pfxPass = New-Object System.Security.SecureString
-            foreach ($ch in $CertPassword.ToCharArray()) { $pfxPass.AppendChar($ch) }
+            Write-Host "    openssl not found, using PowerShell certificate generation..."
         }
-        Export-PfxCertificate -Cert $cert -FilePath "$certsDir\localhost.pfx" -Password $pfxPass | Out-Null
-        Export-Certificate -Cert $cert -FilePath "$certsDir\localhost.crt" -Type CERT | Out-Null
-
-        # Clean up from personal store
-        Remove-Item -Path "Cert:\CurrentUser\My\$($cert.Thumbprint)" -ErrorAction SilentlyContinue
-
+        New-DevPilotLocalhostCertsPowerShell -CertsDir $certsDir -PfxPasswordPlain $CertPassword
         Write-Host "    certs\localhost.crt OK" -ForegroundColor Green
         Write-Host "    certs\localhost.pfx OK" -ForegroundColor Green
     }
