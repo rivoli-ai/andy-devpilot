@@ -7,6 +7,7 @@
 #   .\install.ps1 -TrustCert                # also trust cert in Windows store
 #   .\install.ps1 -Username admin           # override admin username
 #   .\install.ps1 -Port 5001                 # override IDS port
+#   .\install.ps1 -KeepVolumes               # "down" without -v (if volume removal hangs on Windows)
 # -----------------------------------------------------------------------------
 param(
     [switch]$NoCerts,
@@ -16,6 +17,7 @@ param(
     [string]$Email = $null,
     [string]$DisplayName = $null,
     [string]$CertPassword = "devpassword",
+    [switch]$KeepVolumes,
     [switch]$Help
 )
 
@@ -34,6 +36,7 @@ Options:
   -Username NAME  Admin username (default: ibenamara)
   -Email EMAIL    Admin email
   -DisplayName N  Admin display name
+  -KeepVolumes   docker compose down without removing volumes (use if "down" hangs on Windows)
   -Help           Show this help
 '@
     exit 0
@@ -223,10 +226,19 @@ if (Test-Path $blazorPath) {
 Write-Host "    blazor-appsettings.json OK" -ForegroundColor Green
 
 # --- Stop existing and start containers --------------------------------------
+$composeFile = Join-Path $ScriptDir "docker-compose.yml"
+if (-not (Test-Path -LiteralPath $composeFile)) {
+    Write-Host ""
+    Write-Host "ERROR: docker-compose.yml not found in: $ScriptDir" -ForegroundColor Red
+    Write-Host "  Generate it on macOS/Linux with ./install.sh (see infra/identity), or add docker-compose.yml here." -ForegroundColor Yellow
+    exit 1
+}
+
 Write-Host ""
 Write-Host "==> Starting containers..."
-# Docker writes volume/network messages to stderr; PS 7 + $ErrorActionPreference Stop
-# surfaces those as NativeCommandError. Suppress for native docker only.
+Write-Host "    (Image pulls on first run can take several minutes — progress appears below.)" -ForegroundColor DarkGray
+# Docker writes to stderr; PS 7 + ErrorAction Stop surfaces NativeCommandError. Relax for docker only.
+# Do not pipe docker output to Out-Null: large pulls would look stuck and pipes can add delay.
 $saveEap = $ErrorActionPreference
 $saveNativeErr = $null
 if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
@@ -235,9 +247,27 @@ if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction Sile
 }
 $ErrorActionPreference = 'SilentlyContinue'
 $Error.Clear()
-$null = & docker compose down --remove-orphans -v 2>&1 | Out-Null
-$null = & docker compose up -d 2>&1 | Out-Null
+
+$downArgs = @('compose', 'down', '--remove-orphans', '-t', '10')
+if (-not $KeepVolumes) { $downArgs += '-v' }
+Write-Host "    Stopping previous stack (if any)..."
+$null = & docker @downArgs
+# Ignore down exit: nothing to stop is not an error
+
+Write-Host "    Pulling images..."
+$null = & docker compose pull
+$composePullExit = $LASTEXITCODE
+if ($composePullExit -ne 0) {
+    $ErrorActionPreference = $saveEap
+    if ($null -ne $saveNativeErr) { $PSNativeCommandUseErrorActionPreference = $saveNativeErr }
+    Write-Host "ERROR: docker compose pull failed (exit $composePullExit). Check network and Docker Hub access." -ForegroundColor Red
+    exit 1
+}
+
+Write-Host "    Starting services..."
+$null = & docker compose up -d
 $composeUpExit = $LASTEXITCODE
+
 $ErrorActionPreference = $saveEap
 if ($null -ne $saveNativeErr) {
     $PSNativeCommandUseErrorActionPreference = $saveNativeErr
