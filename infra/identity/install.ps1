@@ -225,8 +225,28 @@ Write-Host "    blazor-appsettings.json OK" -ForegroundColor Green
 # --- Stop existing and start containers --------------------------------------
 Write-Host ""
 Write-Host "==> Starting containers..."
-docker compose down --remove-orphans -v 2>$null
-docker compose up -d
+# Docker writes volume/network messages to stderr; PS 7 + $ErrorActionPreference Stop
+# surfaces those as NativeCommandError. Suppress for native docker only.
+$saveEap = $ErrorActionPreference
+$saveNativeErr = $null
+if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+    $saveNativeErr = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+$ErrorActionPreference = 'SilentlyContinue'
+$Error.Clear()
+$null = & docker compose down --remove-orphans -v 2>&1 | Out-Null
+$null = & docker compose up -d 2>&1 | Out-Null
+$composeUpExit = $LASTEXITCODE
+$ErrorActionPreference = $saveEap
+if ($null -ne $saveNativeErr) {
+    $PSNativeCommandUseErrorActionPreference = $saveNativeErr
+}
+$Error.Clear()
+if ($composeUpExit -ne 0) {
+    Write-Host "ERROR: docker compose up -d failed (exit $composeUpExit). Is Docker running and the port free?" -ForegroundColor Red
+    exit 1
+}
 
 # --- Wait for health ---------------------------------------------------------
 Write-Host ""
