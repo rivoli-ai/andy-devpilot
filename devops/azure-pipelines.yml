@@ -111,6 +111,24 @@ stages:
           vmImage: ubuntu-latest
         timeoutInMinutes: 60
         steps:
+          # Zed's Cursor Dark theme is copied from this file when setup.sh runs. If it is
+          # missing from the repo, the image builds without ~/.config/zed/themes/cursor.json
+          # and the editor falls back to a light (white) UI. Commit infra/sandbox/cursor.json.
+          - script: |
+              set -euo pipefail
+              f="$(Build.SourcesDirectory)/infra/sandbox/cursor.json"
+              if [ ! -f "$f" ] || [ ! -s "$f" ]; then
+                echo "##[error]Missing or empty: infra/sandbox/cursor.json"
+                echo "Add and commit infra/sandbox/cursor.json. See infra/sandbox/README.md (Zed IDE)."
+                exit 1
+              fi
+              if ! grep -q 'Cursor Dark' "$f"; then
+                echo "##[error]infra/sandbox/cursor.json does not look like the Cursor theme (expected 'Cursor Dark')."
+                exit 1
+              fi
+              echo "OK: $(wc -c < "$f") bytes, theme name present"
+            displayName: "Assert infra/sandbox/cursor.json (Zed Cursor theme)"
+
           - script: |
               cd $(Build.SourcesDirectory)
               BUILD_ONLY=1 bash infra/sandbox/setup.sh
