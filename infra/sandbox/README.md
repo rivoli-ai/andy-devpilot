@@ -85,7 +85,9 @@ This is the image that runs **once per developer / per story**. Every time a use
 | .NET SDK 8 / 9 / 10 | For building .NET projects inside the sandbox |
 | Node.js + npm | For building frontend projects |
 | Git | To clone the repository at startup |
-| Zed IDE | AI-powered IDE — receives prompts from the frontend and executes code |
+| Firefox + Chromium | Browsers in the XFCE menu (Docker-safe flags; no extra install) |
+| Playwright Test (Node) | **[@playwright/test](https://playwright.dev/docs/intro)** (npm): `npx playwright test`, `npx playwright codegen`, `playwright install`; browsers under `PLAYWRIGHT_BROWSERS_PATH` (`/opt/ms-playwright`) |
+| Zed IDE | AI-powered IDE; [Cursor theme](https://zed.dev/extensions/cursor) is baked in as `~/.config/zed/themes/cursor.json` (offline, no gallery). [HTML](https://zed.dev/extensions/html), [C#](https://zed.dev/extensions/csharp), [Angular](https://zed.dev/extensions/angular), and [Python (pylsp)](https://zed.dev/extensions/pylsp) are installed at **image build** into `~/.local/share/zed/extensions/installed` (WASM, via `https://api.zed.dev/.../download` — the build must reach that API). `auto_install_extensions` defaults to `false` for those IDs so the runtime gallery is not used; set a key to `true` in Zed settings if you want Zed to upgrade from the registry. `ZED_OFFLINE_EXTENSIONS=1` still forces those flags off. |
 | `devpilot-bridge.py` | Flask API (port 7100) — exposes Zed conversations and accepts prompt requests |
 
 **Lifecycle:**

@@ -179,6 +179,20 @@ else
     touch "$CERTS_BUILD/.keep"
 fi
 
+# Cursor theme for Zed: bundled in the repo (no network at build time).
+# Source: https://github.com/davccavalcante/cursor-theme-for-zed -- file copied
+# verbatim into infra/sandbox/cursor.json so enterprise proxies that block
+# raw.githubusercontent.com do not affect this build.
+CURSOR_BUNDLED="desktop/cursor.json"
+if [ -f "${SCRIPT_SOURCE_DIR}/cursor.json" ]; then
+    cp "${SCRIPT_SOURCE_DIR}/cursor.json" "$CURSOR_BUNDLED"
+    log_info "Cursor theme: using bundled cursor.json (offline build)"
+else
+    log_warn "Cursor theme: cursor.json not found at ${SCRIPT_SOURCE_DIR}/cursor.json"
+    log_warn "  Restore it from the repo (infra/sandbox/cursor.json) before re-running setup.sh."
+    : > "$CURSOR_BUNDLED"
+fi
+
 # Create Zed installation script - download directly like Firefox (no install script)
 cat > desktop/install-zed.sh << 'INSTALL_ZED_SCRIPT'
 #!/bin/bash
@@ -300,6 +314,46 @@ echo "#     ZED SETUP COMPLETE                  #"
 echo "############################################"
 echo ""
 INSTALL_ZED_SCRIPT
+
+# Pre-fetch Zed extensions at image build time (same download URL shape as
+# zed: extension_host's /extensions/{id}/{version}/download). Runtime then
+# does not need the gallery for html / csharp / angular / pylsp.
+cat > desktop/install-zed-extensions.sh << 'INSTALL_ZED_EXTENSIONS'
+#!/bin/bash
+set -euo pipefail
+
+API="https://api.zed.dev"
+INST="/home/sandbox/.local/share/zed/extensions/installed"
+
+echo ""
+echo "############################################"
+echo "#     ZED EXTENSIONS (build-time)         #"
+echo "############################################"
+echo ""
+
+mkdir -p "$INST"
+
+for id in html csharp angular pylsp; do
+  echo "[ZED-EXT] Resolving latest version of $id..."
+  json=$(curl -fsSL --retry 3 --retry-delay 5 "$API/extensions/$id")
+  ver=$(printf '%s' "$json" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['data'][-1]['version'])")
+  url="$API/extensions/$id/$ver/download"
+  tgz="/tmp/zed-ext-${id}-${ver}.tar.gz"
+  echo "[ZED-EXT] Downloading $id @ $ver ..."
+  curl -fsSL --retry 3 --retry-delay 5 "$url" -o "$tgz"
+  rm -rf "$INST/$id"
+  mkdir -p "$INST/$id"
+  tar -xzf "$tgz" -C "$INST/$id"
+  rm -f "$tgz"
+  echo "[ZED-EXT] Installed $id -> $INST/$id"
+done
+
+echo ""
+echo "############################################"
+echo "#     ZED EXTENSIONS DONE                 #"
+echo "############################################"
+echo ""
+INSTALL_ZED_EXTENSIONS
 
 cat > desktop/Dockerfile << 'DESKTOP_DOCKERFILE'
 FROM ubuntu:24.04
@@ -490,6 +544,22 @@ Categories=Network;WebBrowser;\n\
 MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;\n\
 StartupWMClass=firefox' > /usr/share/applications/firefox.desktop
 
+# Chromium (Debian) for the XFCE app menu; same container constraints as Firefox (no SUID sandbox)
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    chromium \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN echo '[Desktop Entry]\n\
+Name=Chromium\n\
+Comment=Chromium (DevPilot)\n\
+Exec=/usr/bin/chromium --no-sandbox --disable-dev-shm-usage %u\n\
+Terminal=false\n\
+Type=Application\n\
+Icon=chromium\n\
+Categories=Network;WebBrowser;\n\
+MimeType=text/html;text/xml;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;\n\
+StartupWMClass=Chromium' > /usr/share/applications/chromium-devpilot.desktop
+
 # Install Python packages for ACP agent and bridge API in a virtual environment
 # Use trusted-host to bypass SSL certificate issues
 RUN python3 -m venv /opt/devpilot-venv && \
@@ -507,6 +577,14 @@ RUN python3 -m venv /opt/devpilot-venv && \
 
 # Add venv to PATH
 ENV PATH="/opt/devpilot-venv/bin:$PATH"
+
+# Playwright Test: Node.js E2E runner (@playwright/test), NOT the separate Python "playwright" package.
+# See https://playwright.dev/docs/intro  --  npx playwright test, playwright install, codegen, etc.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright
+RUN mkdir -p /opt/ms-playwright && \
+    npm install -g @playwright/test && \
+    playwright install --with-deps chromium && \
+    chmod -R a+rx /opt/ms-playwright
 
 # Install Azure CLI
 # Corporate proxies (Zscaler, etc.) re-sign TLS traffic; apt doesn't trust the
@@ -547,6 +625,7 @@ RUN useradd -m -s /bin/bash sandbox && \
 RUN echo '# SSL bypass for sandbox (dev environment)' >> /home/sandbox/.bashrc && \
     echo 'export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt' >> /home/sandbox/.bashrc && \
     echo 'export SSL_CERT_DIR=/etc/ssl/certs' >> /home/sandbox/.bashrc && \
+    echo 'export PLAYWRIGHT_BROWSERS_PATH=/opt/ms-playwright' >> /home/sandbox/.bashrc && \
     echo 'export DOTNET_SYSTEM_NET_HTTP_USESOCKETSHTTPHANDLER=0' >> /home/sandbox/.bashrc && \
     echo 'export NUGET_CERT_REVOCATION_MODE=off' >> /home/sandbox/.bashrc && \
     echo 'export DOTNET_NUGET_SIGNATURE_VERIFICATION=false' >> /home/sandbox/.bashrc && \
@@ -610,14 +689,17 @@ RUN echo 'server {' > /etc/nginx/sites-available/novnc && \
     rm -f /etc/nginx/sites-enabled/default
 
 # Copy Zed install script before switching user (for non-BuildKit compatibility)
-COPY install-zed.sh /home/sandbox/install-zed.sh
-RUN chmod 755 /home/sandbox/install-zed.sh && chown sandbox:sandbox /home/sandbox/install-zed.sh
+COPY install-zed.sh install-zed-extensions.sh /home/sandbox/
+RUN chmod 755 /home/sandbox/install-zed.sh /home/sandbox/install-zed-extensions.sh && \
+    chown sandbox:sandbox /home/sandbox/install-zed.sh /home/sandbox/install-zed-extensions.sh
 
 USER sandbox
 WORKDIR /home/sandbox
 
-# Install Zed IDE with architecture check and proper error handling
-RUN /home/sandbox/install-zed.sh; rm -f /home/sandbox/install-zed.sh
+# Install Zed IDE with architecture check and proper error handling, then
+# pre-install language extensions (WASM) from api.zed.dev (requires network at build)
+RUN /home/sandbox/install-zed.sh; rm -f /home/sandbox/install-zed.sh; \
+    /home/sandbox/install-zed-extensions.sh; rm -f /home/sandbox/install-zed-extensions.sh
 ENV PATH="/home/sandbox/.local/bin:${PATH}"
 
 # Desktop shortcut
@@ -628,6 +710,44 @@ RUN mkdir -p Desktop && \
     echo 'Exec=/home/sandbox/.local/bin/zed' >> Desktop/zed.desktop && \
     echo 'Terminal=false' >> Desktop/zed.desktop && \
     chmod +x Desktop/zed.desktop
+
+# Cursor theme for Zed -- fully OFFLINE install (enterprise: runtime network may be blocked).
+# - https://zed.dev/extensions/cursor and https://github.com/davccavalcante/cursor-theme-for-zed
+# - The theme JSON is fetched/copied OUTSIDE Docker (see setup.sh) and baked
+#   into the build context as desktop/cursor.json. We just place it.
+# - Zed loads themes from ~/.config/zed/themes at startup with NO network call.
+# - We do NOT use auto_install_extensions to avoid any gallery contact.
+COPY cursor.json /home/sandbox/cursor.json
+RUN set -e; \
+    mkdir -p /home/sandbox/.config/zed/themes; \
+    DEST=/home/sandbox/.config/zed/themes/cursor.json; \
+    if [ -s /home/sandbox/cursor.json ]; then \
+        cp /home/sandbox/cursor.json "$DEST"; \
+        echo "[CURSOR-THEME] Installed offline (no runtime network needed)"; \
+    else \
+        echo "[CURSOR-THEME] WARNING: cursor.json was not provided. Place a copy at infra/sandbox/cursor.json or run setup.sh online once."; \
+    fi; \
+    rm -f /home/sandbox/cursor.json
+# Default settings.json: language extensions (html, csharp, angular, pylsp) are
+# baked under ~/.local/share/zed/extensions/installed (see install-zed-extensions.sh).
+# auto_install_* left false so first run does not hit the gallery.
+# Enterprise: ZED_OFFLINE_EXTENSIONS=1 still supported (see start.sh merge).
+RUN mkdir -p /home/sandbox/.config/zed && \
+    printf '%s\n' \
+      '{' \
+      '  "theme": "Cursor Dark",' \
+      '  "telemetry": {' \
+      '    "metrics": false,' \
+      '    "diagnostics": false' \
+      '  },' \
+      '  "auto_update": false,' \
+      '  "auto_install_extensions": {' \
+      '    "html": false,' \
+      '    "csharp": false,' \
+      '    "angular": false,' \
+      '    "pylsp": false' \
+      '  }' \
+      '}' > /home/sandbox/.config/zed/settings.json
 
 USER root
 
@@ -3197,7 +3317,7 @@ else
     # The proxy at localhost:8091 forwards to the actual LLM provider
     cat > /home/sandbox/.config/zed/settings.json << 'ZEDSETTINGS'
 {
-  "theme": "One Dark",
+  "theme": "Cursor Dark",
   "ui_font_size": 14,
   "buffer_font_size": 14,
   "agent": {
@@ -3243,10 +3363,52 @@ else
       "show_onboarding_banner": false
     }
   },
-  "show_call_status_icon": false
+  "show_call_status_icon": false,
+  "auto_install_extensions": {
+    "html": false,
+    "csharp": false,
+    "angular": false,
+    "pylsp": false
+  }
 }
 ZEDSETTINGS
 fi
+
+# The Dockerfile bakes Cursor theme + ~/.config/zed/themes/cursor.json, but this
+# block overwrites settings.json at runtime. Re-apply the default theme (and
+# optional ZED_THEME override) so the gallery install is not required in enterprise
+# (blocked network). See https://github.com/davccavalcante/cursor-theme-for-zed
+python3 << 'ZEDTHEMEMERGE' || true
+import json
+import os
+
+path = "/home/sandbox/.config/zed/settings.json"
+with open(path, "r", encoding="utf-8") as f:
+    s = json.load(f)
+# Optional: manager can set e.g. ZED_THEME=One Dark for a different look
+s["theme"] = "Cursor Dark"
+z = (os.environ.get("ZED_THEME") or "").strip()
+if z:
+    s["theme"] = z
+s.setdefault("telemetry", {})
+s["telemetry"].setdefault("diagnostics", False)
+s["telemetry"].setdefault("metrics", False)
+# Avoid update checks on first run when outbound traffic is blocked
+s["auto_update"] = False
+# Language / markup extensions (WASM) are baked in the desktop image; defaults
+# keep auto_install off so the gallery is not used at runtime. Set any key to
+# true in settings if you want Zed to pull updates from the registry.
+# Air-gapped: set ZED_OFFLINE_EXTENSIONS=1 to force all false (overrides trues).
+aie = s.setdefault("auto_install_extensions", {})
+if (os.environ.get("ZED_OFFLINE_EXTENSIONS", "").lower() in ("1", "true", "yes")):
+    for k in ("html", "csharp", "angular", "pylsp"):
+        aie[k] = False
+else:
+    for k, v in (("html", False), ("csharp", False), ("angular", False), ("pylsp", False)):
+        aie.setdefault(k, v)
+with open(path, "w", encoding="utf-8") as f:
+    json.dump(s, f, indent=2)
+ZEDTHEMEMERGE
 
 chmod 644 /home/sandbox/.config/zed/settings.json
 

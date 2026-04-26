@@ -1,6 +1,9 @@
 services:
 
   # ── PostgreSQL ────────────────────────────────────────────────────────────────
+  # Credentials align with appsettings.Development.json → ConnectionStrings:DefaultConnection
+  # (analyser / analyser_password / analyzer). Exposes 5432 to host so "dotnet run" can use
+  # Host=localhost; backend container uses Host=postgres via devpilot-backend environment.
   postgres:
     image: postgres:16-alpine
     environment:

@@ -397,7 +397,7 @@ def _build_environment(data: dict, sandbox_id: str, sandbox_token: str, vnc_pass
         else:
             zed_provider = "openai" if provider == "custom" else provider
             settings = {
-                "theme": "One Dark",
+                "theme": "Cursor Dark",
                 "ui_font_size": 14,
                 "buffer_font_size": 14,
                 "agent": {
@@ -417,6 +417,12 @@ def _build_environment(data: dict, sandbox_id: str, sandbox_token: str, vnc_pass
                 "telemetry": {"diagnostics": False, "metrics": False},
                 "workspace": {"title_bar": {"show_onboarding_banner": False}},
                 "show_call_status_icon": False,
+                "auto_install_extensions": {
+                    "html": False,
+                    "csharp": False,
+                    "angular": False,
+                    "pylsp": False,
+                },
                 "language_models": {
                     "openai": {
                         "api_url": "http://localhost:8091/v1",
