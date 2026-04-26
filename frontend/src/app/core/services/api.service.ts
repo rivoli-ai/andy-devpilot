@@ -31,6 +31,11 @@ export class ApiService {
     return this.http.post<T>(`${this.apiUrl}${endpoint}`, body, httpOptions);
   }
 
+  /** Multipart (browser sets Content-Type with boundary for FormData). */
+  postFormData<T>(endpoint: string, formData: FormData): Observable<T> {
+    return this.http.post<T>(`${this.apiUrl}${endpoint}`, formData);
+  }
+
   /**
    * Generic PUT request
    */

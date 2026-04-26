@@ -3465,6 +3465,25 @@
   max-width: 62%;
 }
 
+/* Big in-app view: most width + tall iframe; chat stays readable in a narrow column. */
+.code-ask-shell--big-preview.code-ask-shell--preview-split .code-ask-body {
+  flex-direction: row;
+  align-items: stretch;
+}
+.code-ask-shell--big-preview.code-ask-shell--preview-split .code-ask-chat-pane {
+  flex: 0 1 32%;
+  max-width: min(420px, 36vw);
+  min-width: 200px;
+}
+.code-ask-shell--big-preview .code-ask-preview-pane {
+  flex: 1 1 68%;
+  min-width: 0;
+  max-width: none;
+}
+.code-ask-shell--big-preview .code-ask-preview-frame-wrap {
+  min-height: min(78vh, calc(100vh - 7rem));
+}
+
 .code-ask-chat-pane .code-ask-thread {
   flex: 1 1 0;
 }
@@ -3604,6 +3623,62 @@
   flex-wrap: wrap;
   gap: 0.35rem;
   flex-shrink: 0;
+}
+
+.code-ask-push-draft {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text-muted, #8b949e) 40%, transparent);
+  background: linear-gradient(180deg, rgba(99, 102, 241, 0.12), rgba(0, 0, 0, 0.12));
+  color: var(--text-secondary, #adbac7);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background 0.18s ease,
+    border-color 0.18s ease,
+    color 0.18s ease,
+    transform 0.12s ease;
+}
+
+.code-ask-push-draft:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--ask-accent, #a5b4fc) 50%, transparent);
+  color: var(--text-primary, #e6edf3);
+}
+
+.code-ask-push-draft:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+.code-ask-push-draft:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.code-ask-push-feedback {
+  margin: 0.4rem 0 0;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  padding: 0.3rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid transparent;
+}
+
+.code-ask-push-feedback--ok {
+  color: var(--text-secondary, #adbac7);
+  background: color-mix(in srgb, #22c55e 12%, transparent);
+  border-color: color-mix(in srgb, #22c55e 35%, transparent);
+}
+
+.code-ask-push-feedback--err {
+  color: #fecaca;
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  border-color: color-mix(in srgb, #ef4444 35%, transparent);
 }
 
 /* Ask tab — split preview: right column toolbar + iframe */
@@ -3894,6 +3969,16 @@
   cursor: not-allowed;
 }
 
+.code-ask-preview-icon-btn--on {
+  border-color: color-mix(in srgb, var(--ask-accent, #6366f1) 52%, transparent);
+  color: var(--ask-accent, #a5b4fc);
+  background: color-mix(
+    in srgb,
+    var(--ask-accent-soft, rgba(99, 102, 241, 0.2)) 68%,
+    rgba(0, 0, 0, 0.1)
+  );
+}
+
 .code-ask-preview-frame-wrap {
   flex: 1 1 0;
   min-height: 0;
@@ -3910,6 +3995,22 @@
   min-height: 200px;
   border: 0;
   background: #fff;
+}
+
+.code-ask-preview-frame-wrap:fullscreen,
+.code-ask-preview-frame-wrap:-webkit-full-screen {
+  display: flex;
+  flex-direction: column;
+  background: #0d1117;
+  border-radius: 0;
+}
+
+.code-ask-preview-frame-wrap:fullscreen .code-ask-preview-iframe,
+.code-ask-preview-frame-wrap:-webkit-full-screen .code-ask-preview-iframe {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
 }
 
 @media (max-width: 720px) {
@@ -3930,6 +4031,10 @@
     min-height: min(45vh, 360px);
     border-left: none;
     border-top: 1px solid var(--border-light);
+  }
+
+  .code-ask-shell--big-preview .code-ask-preview-frame-wrap {
+    min-height: min(64vh, 520px);
   }
 }
 
@@ -4501,43 +4606,29 @@
   letter-spacing: 0.02em;
 }
 
-.code-ask-send {
+.code-ask-composer-trailing {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   flex-shrink: 0;
+}
+
+/* Content inside design-system <app-button> (Ask composer) */
+.code-ask-composer-btn-inline {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
   gap: 0.35rem;
-  padding: 0.38rem 0.95rem;
-  border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  font-weight: 650;
-  font-size: 0.75rem;
-  cursor: pointer;
-  background: linear-gradient(180deg, var(--brand-primary, #6366f1) 0%, #4f46e5 100%);
-  color: #fff;
-  box-shadow: none;
-  transition: transform 0.12s ease, filter 0.12s ease;
 }
 
-.code-ask-send-icon {
+.code-ask-composer-btn-inline svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+
+.code-ask-composer-btn-inline--send .code-ask-send-icon {
   width: 14px;
   height: 14px;
-}
-
-.code-ask-send:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-  box-shadow: none;
-}
-
-.code-ask-send:not(:disabled):hover {
-  filter: brightness(1.06);
-  transform: translateY(-1px);
-  box-shadow: none;
-}
-
-.code-ask-send:not(:disabled):active {
-  transform: translateY(0);
 }
 
 /* Ask tab — light theme: higher contrast, less muddy gray */
@@ -4852,4 +4943,101 @@
 
 :host-context([data-theme="light"]) .code-ask-turn--assistant .code-ask-content.markdown-content hr {
   border-color: rgba(15, 23, 42, 0.12);
+}
+
+/* Add file — local (unpublished) workspace */
+.unpublished-add-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4, 16px);
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.unpublished-add-dialog {
+  width: 100%;
+  max-width: 480px;
+  max-height: min(90vh, 600px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 20px 22px 18px;
+  border-radius: 12px;
+  background: var(--surface-elevated, #1a1a2a);
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.1));
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+}
+
+.unpublished-add-title {
+  margin: 0 0 4px;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary, #f4f4f5);
+}
+
+.unpublished-add-hint {
+  margin: 0 0 6px;
+  font-size: 0.8rem;
+  color: var(--text-tertiary, #a1a1aa);
+  line-height: 1.4;
+}
+
+.unpublished-add-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--text-secondary, #d4d4d8);
+}
+
+.unpublished-add-input,
+.unpublished-add-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.8rem;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.12));
+  background: var(--surface-primary, #12121a);
+  color: var(--text-primary, #e4e4e7);
+}
+
+.unpublished-add-textarea {
+  resize: vertical;
+  min-height: 120px;
+}
+
+.unpublished-add-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.unpublished-add-cancel,
+.unpublished-add-save {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.unpublished-add-cancel {
+  background: transparent;
+  color: var(--text-secondary, #a1a1aa);
+  border-color: var(--border-light, rgba(255, 255, 255, 0.1));
+}
+
+.unpublished-add-save {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  color: #fff;
+}
+
+.unpublished-add-save:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

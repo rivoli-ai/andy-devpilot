@@ -1,7 +1,7 @@
 import { Injectable, Inject } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { BehaviorSubject, Observable, of } from 'rxjs';
-import { catchError, map, tap } from 'rxjs/operators';
+import { HttpClient, HttpParams } from '@angular/common/http';
+import { BehaviorSubject, Observable, of, Subject } from 'rxjs';
+import { catchError, distinctUntilChanged, map, tap } from 'rxjs/operators';
 import { APP_CONFIG, AppConfig } from './config.service';
 import { AuthService } from './auth.service';
 
@@ -23,6 +23,14 @@ export interface SandboxForRepositoryResponse {
   status: string;
   repo_branch: string;
   vnc_password?: string | null;
+}
+
+/** One Code → Ask row from GET /sandboxes/ask-bindings (live manager ∩ DB). */
+export interface CodeAskBinding {
+  sandboxId: string;
+  repositoryId: string;
+  repositoryName: string;
+  branch: string;
 }
 
 /**
@@ -60,6 +68,47 @@ export class SandboxService {
   private currentSandboxSubject = new BehaviorSubject<Sandbox | null>(null);
 
   currentSandbox$ = this.currentSandboxSubject.asObservable();
+
+  /**
+   * Code → Ask (headless) may run without a VNC viewer. The code page sets this so the
+   * header can show a running-sandbox count.
+   */
+  private readonly codeAskActiveSandboxIdSubject = new BehaviorSubject<string | null>(null);
+  readonly codeAskActiveSandboxId$ = this.codeAskActiveSandboxIdSubject
+    .asObservable()
+    .pipe(distinctUntilChanged());
+
+  /** `fullName` or `name` of the Code page repo, for the header when Ask is active. */
+  private readonly codeAskActiveRepositoryLabelSubject = new BehaviorSubject<string | null>(null);
+  readonly codeAskActiveRepositoryLabel$ = this.codeAskActiveRepositoryLabelSubject
+    .asObservable()
+    .pipe(distinctUntilChanged());
+
+  setCodeAskActiveSandboxId(id: string | null): void {
+    this.codeAskActiveSandboxIdSubject.next(id);
+    if (id == null) {
+      this.codeAskActiveRepositoryLabelSubject.next(null);
+    }
+  }
+
+  setCodeAskActiveRepositoryLabel(label: string | null): void {
+    this.codeAskActiveRepositoryLabelSubject.next(label?.trim() || null);
+  }
+
+  getCodeAskActiveSandboxId(): string | null {
+    return this.codeAskActiveSandboxIdSubject.value;
+  }
+
+  /**
+   * Code page subscribes and runs full Ask teardown when the id matches.
+   * The header uses this to close a headless (or VNC+Ask) sandbox from the running list.
+   */
+  private readonly releaseCodeChatRequestSubject = new Subject<string>();
+  readonly releaseCodeChatRequest$ = this.releaseCodeChatRequestSubject.asObservable();
+
+  requestReleaseCodeChatSandbox(sandboxId: string): void {
+    this.releaseCodeChatRequestSubject.next(sandboxId);
+  }
 
   constructor(
     private http: HttpClient,
@@ -110,12 +159,33 @@ export class SandboxService {
   }
 
   /**
-   * Returns the sandbox bound to this repository for the current user (Code Ask), if still running.
+   * All live Code-Ask sandboxes for this user (repo/branch), for header and similar UIs.
+   * Empty on failure so callers can keep a local fallback.
    */
-  getSandboxForRepository(repositoryId: string): Observable<SandboxForRepositoryResponse | null> {
-    return this.http.get<SandboxForRepositoryResponse>(`${this.apiUrl}/for-repository/${repositoryId}`).pipe(
-      catchError(() => of(null))
+  listCodeAskBindings(): Observable<CodeAskBinding[]> {
+    return this.http.get<{ bindings: CodeAskBinding[] }>(`${this.apiUrl}/ask-bindings`).pipe(
+      map(r => r.bindings ?? []),
+      catchError(error => {
+        console.error('Failed to list Code-Ask bindings:', error);
+        return of([]);
+      })
     );
+  }
+
+  /**
+   * Returns the sandbox bound to this repository and branch for the current user (Code Ask), if still running.
+   */
+  getSandboxForRepository(
+    repositoryId: string,
+    branch: string | null | undefined
+  ): Observable<SandboxForRepositoryResponse | null> {
+    const b = branch == null || String(branch).trim() === '' ? 'main' : String(branch).trim();
+    const params = new HttpParams().set('branch', b);
+    return this.http
+      .get<SandboxForRepositoryResponse>(`${this.apiUrl}/for-repository/${encodeURIComponent(repositoryId)}`, {
+        params
+      })
+      .pipe(catchError(() => of(null)));
   }
 
   /**

@@ -76,6 +76,62 @@ public class SandboxController : ControllerBase
         })});
     }
 
+    /// <summary>
+    /// All Code-Ask sandbox bindings for this user that still appear in the manager (running).
+    /// Used by the app header to list every branch/repo Ask container, not only the branch on the Code page.
+    /// </summary>
+    [HttpGet("ask-bindings")]
+    public async Task<IActionResult> GetCodeAskBindings(CancellationToken cancellationToken)
+    {
+        var userId = GetUserId();
+        if (userId == Guid.Empty)
+            return Unauthorized();
+
+        IReadOnlyList<SandboxListItem> live;
+        try
+        {
+            live = await _sandboxService.ListSandboxesAsync(userId, cancellationToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ListSandboxes for ask-bindings failed for user {UserId}", userId);
+            return Ok(new { bindings = Array.Empty<object>() });
+        }
+
+        var liveIds = live.Select(s => s.Id).ToHashSet(StringComparer.Ordinal);
+        if (liveIds.Count == 0)
+            return Ok(new { bindings = Array.Empty<object>() });
+
+        var allBindings = await _userRepositorySandboxBindingRepository.GetAllByUserIdAsync(userId, cancellationToken);
+        var outList = new List<object>();
+        var repoNameCache = new Dictionary<Guid, string>();
+        foreach (var b in allBindings)
+        {
+            if (!liveIds.Contains(b.SandboxId))
+                continue;
+            if (!repoNameCache.TryGetValue(b.RepositoryId, out var repoName))
+            {
+                var repo = await _repositoryRepository.GetByIdIfAccessibleAsync(b.RepositoryId, userId, cancellationToken);
+                if (repo is null)
+                    continue;
+                repoName = (repo.Name ?? string.Empty).Trim();
+                if (string.IsNullOrEmpty(repoName))
+                    repoName = b.RepositoryId.ToString();
+                repoNameCache[b.RepositoryId] = repoName;
+            }
+
+            outList.Add(new
+            {
+                sandboxId = b.SandboxId,
+                repositoryId = b.RepositoryId,
+                repositoryName = repoName,
+                branch = b.RepoBranch
+            });
+        }
+
+        return Ok(new { bindings = outList });
+    }
+
     /// <summary>Creates a new sandbox container for the authenticated user.</summary>
     [HttpPost]
     public async Task<IActionResult> CreateSandbox(
@@ -254,11 +310,14 @@ public class SandboxController : ControllerBase
     }
 
     /// <summary>
-    /// Returns the active sandbox for Code Ask for this repository (if any), for reconnecting after refresh.
-    /// Scoped by authenticated user and repository ownership.
+    /// Returns the active sandbox for Code Ask for this repository and branch (if any), for reconnecting after refresh.
+    /// One binding per (user, repository, branch) so each branch can have its own running container.
     /// </summary>
     [HttpGet("for-repository/{repositoryId:guid}")]
-    public async Task<IActionResult> GetSandboxForRepository(Guid repositoryId, CancellationToken cancellationToken)
+    public async Task<IActionResult> GetSandboxForRepository(
+        Guid repositoryId,
+        [FromQuery] string? branch = null,
+        CancellationToken cancellationToken = default)
     {
         var userId = GetUserId();
         if (userId == Guid.Empty)
@@ -268,8 +327,9 @@ public class SandboxController : ControllerBase
         if (repo is null)
             return NotFound();
 
-        var binding = await _userRepositorySandboxBindingRepository.GetByUserAndRepositoryAsync(
-            userId, repositoryId, cancellationToken);
+        var branchKey = string.IsNullOrWhiteSpace(branch) ? "main" : branch.Trim();
+        var binding = await _userRepositorySandboxBindingRepository.GetByUserRepositoryAndBranchAsync(
+            userId, repositoryId, branchKey, cancellationToken);
         if (binding is null)
             return NotFound();
 

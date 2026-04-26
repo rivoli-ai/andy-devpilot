@@ -40,6 +40,9 @@ export interface PriorSandboxSessionView {
   conversations: ZedConversation[];
 }
 
+/** Pinned edge for the fullscreen DevPilot toolbar (VNC + chat). */
+export type FsTopBarPosition = 'top' | 'right' | 'bottom' | 'left';
+
 /**
  * VNC Remote Desktop Viewer Component
  * Modern floating/dockable popup that displays a remote desktop via iframe
@@ -54,6 +57,8 @@ export interface PriorSandboxSessionView {
 export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   @ViewChild('vncIframe', { static: false }) vncIframeRef!: ElementRef<HTMLIFrameElement>;
   @ViewChild('popupContainer', { static: false }) popupContainerRef!: ElementRef<HTMLDivElement>;
+  @ViewChild('popupContent', { static: false }) popupContentRef?: ElementRef<HTMLDivElement>;
+  @ViewChild('fsFullscreenBar', { static: false }) fsFullscreenBarRef?: ElementRef<HTMLDivElement>;
   @ViewChild('chatContent', { static: false }) chatContentRef?: ElementRef<HTMLDivElement>;
 
   // Inputs
@@ -65,7 +70,15 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   viewerTitle = input<string>('Sandbox');
   embedded = input<boolean>(false); // When true, renders without container/header (for dock panel)
   sandboxId = input<string | undefined>(undefined);
-  implementationContext = input<{ repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string; azureDevOpsWorkItemId?: number } | undefined>(undefined); // Enables Push & Create PR
+  implementationContext = input<{
+    repositoryId: string;
+    repositoryFullName: string;
+    defaultBranch: string;
+    storyTitle: string;
+    storyId: string;
+    azureDevOpsWorkItemId?: number;
+    repositoryProvider?: string;
+  } | undefined>(undefined); // Enables Push & Create PR (or commit for Unpublished)
 
   // Output: Close event
   closeEvent = output<void>();
@@ -86,7 +99,73 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   // UI State
   dockPosition = signal<DockPosition>('floating');
   isFullscreen = signal<boolean>(false);
+  /** When true, fullscreen top bar is collapsed (show thin reveal control). */
+  fsTopBarHidden = signal<boolean>(false);
+  /** Fullscreen toolbar pinned to an edge of the viewer. */
+  fsTopBarPosition = signal<FsTopBarPosition>('top');
+  /** Degrees to rotate the collapse/expand chevrons for the current edge. */
+  readonly fsTopBarChevronRotation = computed(() => {
+    switch (this.fsTopBarPosition()) {
+      case 'bottom':
+        return 180;
+      case 'right':
+        return 90;
+      case 'left':
+        return -90;
+      default:
+        return 0;
+    }
+  });
+  /** True while the user is dragging the fullscreen toolbar (Citrix-style snap on release). */
+  fsToolbarDragActive = signal<boolean>(false);
+  /** Top-left of toolbar relative to `.popup-content` while dragging (px). */
+  fsToolbarDragLeft = signal<number>(0);
+  fsToolbarDragTop = signal<number>(0);
+  /**
+   * After snapping to top/bottom: horizontal offset from content center (px), so the bar
+   * stays where you drop it. After left/right: use {@link fsToolbarVOffset} instead.
+   */
+  fsToolbarHOffset = signal<number>(0);
+  /** After snapping to left/right: vertical offset from content center (px). */
+  fsToolbarVOffset = signal<number>(0);
+  /**
+   * Combined transform (edge + optional collapse) so offsets are preserved; CSS no longer
+   * hard-codes `translate(-50%, …)`.
+   */
+  readonly fsToolbarBarTransform = computed((): string | null => {
+    if (this.fsToolbarDragActive()) {
+      return null;
+    }
+    const h = this.fsToolbarHOffset();
+    const v = this.fsToolbarVOffset();
+    const collapsed = this.fsTopBarHidden();
+    switch (this.fsTopBarPosition()) {
+      case 'top':
+        return collapsed
+          ? `translate(calc(-50% + ${h}px), -100%)`
+          : `translateX(calc(-50% + ${h}px))`;
+      case 'bottom':
+        return collapsed
+          ? `translate(calc(-50% + ${h}px), 100%)`
+          : `translateX(calc(-50% + ${h}px))`;
+      case 'right':
+        return collapsed
+          ? `translate(100%, calc(-50% + ${v}px))`
+          : `translateY(calc(-50% + ${v}px))`;
+      case 'left':
+        return collapsed
+          ? `translate(-100%, calc(-50% + ${v}px))`
+          : `translateY(calc(-50% + ${v}px))`;
+    }
+  });
   showControls = signal<boolean>(true);
+
+  private fsToolbarDragOffsetX = 0;
+  private fsToolbarDragOffsetY = 0;
+  private fsToolbarDragHasMoved = false;
+  /** Bar size at drag start — avoids getBoundingClientRect on the bar every pointermove. */
+  private fsToolbarDragBarW = 0;
+  private fsToolbarDragBarH = 0;
 
   // Popup dimensions and position
   popupWidth = signal<number>(900);
@@ -126,6 +205,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   private static readonly BRIDGE_MAX_WAIT_MS = 25000;      // Stop waiting after 25s and load iframe anyway
   /** Match backlog / VNC mobile breakpoint — agent chat sidebar is not shown on narrow viewports */
   private static readonly AGENT_CHAT_SIDEBAR_MEDIA = '(max-width: 768px)';
+  private static readonly FS_TOP_BAR_POS_STORAGE_KEY = 'vncFsTopBarPos';
+  private static readonly FS_TOOLBAR_OFFSETS_STORAGE_KEY = 'vncFsToolbarOffsets';
 
   // Conversations: current sandbox bridge poll vs earlier runs (same story) loaded from API
   conversations = signal<ZedConversation[]>([]);
@@ -170,10 +251,12 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     consecutiveStableIdle: 0
   };
 
+  isUnpublishedImpl = computed(() => this.implementationContext()?.repositoryProvider === 'Unpublished');
+
   // Push & Create PR state
   pushCreatingPr = signal<boolean>(false);
   pushPrError = signal<string | null>(null);
-  pushPrSuccess = signal<{ url: string; title: string } | null>(null);
+  pushPrSuccess = signal<{ url?: string; title: string } | null>(null);
 
   /** Clipboard: paste from host OS into sandbox (bridge /clipboard/paste) */
   pasteFromHostBusy = signal<boolean>(false);
@@ -461,6 +544,8 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     });
 
     this.initAgentChatSidebarMediaQuery();
+    this.loadFsTopBarPositionFromStorage();
+    this.loadFsToolbarOffsetsFromStorage();
   }
 
   private initAgentChatSidebarMediaQuery(): void {
@@ -857,6 +942,11 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     const sid = this.sandboxId();
     if (!ctx || !sid || !this.canPushPrAfterQuiet()) return;
 
+    if (ctx.repositoryProvider === 'Unpublished') {
+      this.commitUnpublishedToServer();
+      return;
+    }
+
     this.pushCreatingPr.set(true);
     this.pushPrError.set(null);
     this.pushPrSuccess.set(null);
@@ -900,9 +990,51 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     return match ? match[1] : undefined;
   }
 
+  /**
+   * Zips the sandbox workspace and POSTs to the API to update the on-disk unpublished project.
+   */
+  private commitUnpublishedToServer(): void {
+    const ctx = this.implementationContext();
+    const sid = this.sandboxId();
+    if (!ctx || !sid || !this.canPushPrAfterQuiet()) {
+      return;
+    }
+
+    this.pushCreatingPr.set(true);
+    this.pushPrError.set(null);
+    this.pushPrSuccess.set(null);
+
+    this.sandboxBridgeService.getProjectArchiveZip(sid).subscribe({
+      next: (blob) => {
+        this.repositoryService.importUnpublishedFromZip(ctx.repositoryId, blob).subscribe({
+          next: () => {
+            this.pushCreatingPr.set(false);
+            this.pushPrSuccess.set({ title: 'Local project updated' });
+          },
+          error: (err: { error?: { message?: string }; message?: string }) => {
+            this.pushCreatingPr.set(false);
+            this.pushPrError.set(err.error?.message || err.message || 'Failed to save project');
+          }
+        });
+      },
+      error: (err: { message?: string }) => {
+        this.pushCreatingPr.set(false);
+        this.pushPrError.set(err?.message || 'Failed to read project from sandbox');
+      }
+    });
+  }
+
   private executePush(
     sandboxId: string,
-    ctx: { repositoryId: string; repositoryFullName: string; defaultBranch: string; storyTitle: string; storyId: string; azureDevOpsWorkItemId?: number },
+    ctx: {
+      repositoryId: string;
+      repositoryFullName: string;
+      defaultBranch: string;
+      storyTitle: string;
+      storyId: string;
+      azureDevOpsWorkItemId?: number;
+      repositoryProvider?: string;
+    },
     branchName: string,
     commitMessage: string,
     prTitle: string,
@@ -1006,7 +1138,174 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
 
   private onFullscreenChange(): void {
     const el = this.popupContainerRef?.nativeElement;
-    this.isFullscreen.set(!!el && this.getFullscreenElement() === el);
+    const fs = !!el && this.getFullscreenElement() === el;
+    this.isFullscreen.set(fs);
+    if (!fs) {
+      this.fsTopBarHidden.set(false);
+    }
+  }
+
+  toggleFsTopBarHidden(): void {
+    this.fsTopBarHidden.update((v) => !v);
+  }
+
+  showFsTopBar(): void {
+    this.fsTopBarHidden.set(false);
+  }
+
+  setFsTopBarPosition(pos: FsTopBarPosition): void {
+    this.fsTopBarPosition.set(pos);
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(VncViewerComponent.FS_TOP_BAR_POS_STORAGE_KEY, pos);
+      }
+    } catch {
+      /* private mode or quota */
+    }
+  }
+
+  /** Nearest screen edge in `.popup-content` to snap the bar (center-based). */
+  private nearestFsToolbarEdge(cx: number, cy: number, w: number, h: number): FsTopBarPosition {
+    const dTop = cy;
+    const dRight = w - cx;
+    const dBottom = h - cy;
+    const dLeft = cx;
+    let edge: FsTopBarPosition = 'top';
+    let d = dTop;
+    if (dRight < d) {
+      edge = 'right';
+      d = dRight;
+    }
+    if (dBottom < d) {
+      edge = 'bottom';
+      d = dBottom;
+    }
+    if (dLeft < d) {
+      edge = 'left';
+    }
+    return edge;
+  }
+
+  onFsToolbarDragStart(ev: PointerEvent): void {
+    if (ev.button !== 0) return;
+    const content = this.popupContentRef?.nativeElement;
+    const bar = this.fsFullscreenBarRef?.nativeElement;
+    if (!content || !bar) return;
+    ev.preventDefault();
+    this.fsToolbarDragHasMoved = false;
+    const cr = content.getBoundingClientRect();
+    const br = bar.getBoundingClientRect();
+    this.fsToolbarDragOffsetX = ev.clientX - br.left;
+    this.fsToolbarDragOffsetY = ev.clientY - br.top;
+    this.fsToolbarDragLeft.set(Math.max(0, br.left - cr.left));
+    this.fsToolbarDragTop.set(Math.max(0, br.top - cr.top));
+    this.fsToolbarDragActive.set(true);
+    (ev.currentTarget as HTMLElement).setPointerCapture(ev.pointerId);
+  }
+
+  onFsToolbarDragMove(ev: PointerEvent): void {
+    if (!this.fsToolbarDragActive()) return;
+    this.fsToolbarDragHasMoved = true;
+    const content = this.popupContentRef?.nativeElement;
+    const bar = this.fsFullscreenBarRef?.nativeElement;
+    if (!content || !bar) return;
+    const cr = content.getBoundingClientRect();
+    const br = bar.getBoundingClientRect();
+    const maxL = Math.max(0, cr.width - br.width);
+    const maxT = Math.max(0, cr.height - br.height);
+    let nl = ev.clientX - cr.left - this.fsToolbarDragOffsetX;
+    let nt = ev.clientY - cr.top - this.fsToolbarDragOffsetY;
+    nl = Math.max(0, Math.min(maxL, nl));
+    nt = Math.max(0, Math.min(maxT, nt));
+    this.fsToolbarDragLeft.set(nl);
+    this.fsToolbarDragTop.set(nt);
+  }
+
+  onFsToolbarDragEnd(ev: PointerEvent): void {
+    if (!this.fsToolbarDragActive()) {
+      return;
+    }
+    const content = this.popupContentRef?.nativeElement;
+    const bar = this.fsFullscreenBarRef?.nativeElement;
+    if (content && bar && this.fsToolbarDragHasMoved) {
+      const cr = content.getBoundingClientRect();
+      const br = bar.getBoundingClientRect();
+      const w = cr.width;
+      const h = cr.height;
+      const barW = br.width;
+      const barH = br.height;
+      const cx = br.left - cr.left + barW / 2;
+      const cy = br.top - cr.top + barH / 2;
+      const hMax = Math.max(0, w / 2 - barW / 2);
+      const vMax = Math.max(0, h / 2 - barH / 2);
+      const rawH = cx - w / 2;
+      const rawV = cy - h / 2;
+      const edge = this.nearestFsToolbarEdge(cx, cy, w, h);
+      if (edge === 'top' || edge === 'bottom') {
+        this.fsToolbarHOffset.set(hMax > 0 ? Math.max(-hMax, Math.min(hMax, rawH)) : 0);
+      } else {
+        this.fsToolbarVOffset.set(vMax > 0 ? Math.max(-vMax, Math.min(vMax, rawV)) : 0);
+      }
+      this.setFsTopBarPosition(edge);
+      this.persistFsToolbarOffsets();
+    }
+    this.fsToolbarDragActive.set(false);
+    const el = ev.currentTarget as HTMLElement | null;
+    try {
+      if (el?.hasPointerCapture?.(ev.pointerId)) {
+        el.releasePointerCapture(ev.pointerId);
+      }
+    } catch {
+      /* release may throw if not captured */
+    }
+  }
+
+  private loadFsTopBarPositionFromStorage(): void {
+    let raw: string | null = null;
+    try {
+      if (typeof localStorage !== 'undefined') {
+        raw = localStorage.getItem(VncViewerComponent.FS_TOP_BAR_POS_STORAGE_KEY);
+      }
+    } catch {
+      return;
+    }
+    if (raw === 'top' || raw === 'right' || raw === 'bottom' || raw === 'left') {
+      this.fsTopBarPosition.set(raw);
+    }
+  }
+
+  private loadFsToolbarOffsetsFromStorage(): void {
+    try {
+      if (typeof localStorage === 'undefined') {
+        return;
+      }
+      const raw = localStorage.getItem(VncViewerComponent.FS_TOOLBAR_OFFSETS_STORAGE_KEY);
+      if (!raw) {
+        return;
+      }
+      const o = JSON.parse(raw) as { h?: unknown; v?: unknown };
+      if (typeof o.h === 'number' && Number.isFinite(o.h)) {
+        this.fsToolbarHOffset.set(o.h);
+      }
+      if (typeof o.v === 'number' && Number.isFinite(o.v)) {
+        this.fsToolbarVOffset.set(o.v);
+      }
+    } catch {
+      /* bad JSON or private mode */
+    }
+  }
+
+  private persistFsToolbarOffsets(): void {
+    try {
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem(
+          VncViewerComponent.FS_TOOLBAR_OFFSETS_STORAGE_KEY,
+          JSON.stringify({ h: this.fsToolbarHOffset(), v: this.fsToolbarVOffset() })
+        );
+      }
+    } catch {
+      /* quota / private */
+    }
   }
 
   private getFullscreenElement(): Element | null {
@@ -1394,7 +1693,10 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
   toggleFullscreen(): void {
     const el = this.popupContainerRef?.nativeElement;
     if (!el) {
-      this.isFullscreen.update(v => !v);
+      this.isFullscreen.update(v => {
+        this.fsTopBarHidden.set(false);
+        return !v;
+      });
       return;
     }
     if (this.getFullscreenElement() === el) {
@@ -1403,7 +1705,10 @@ export class VncViewerComponent implements OnInit, AfterViewInit, OnDestroy {
     }
     void this.requestElementFullscreen(el).catch(() => {
       // Safari-blocked, or unsupported — fall back to CSS “fullscreen” (works for floating; may clip in dock)
-      this.isFullscreen.update(v => !v);
+      this.isFullscreen.update(v => {
+        this.fsTopBarHidden.set(false);
+        return !v;
+      });
     });
   }
 

@@ -15,6 +15,7 @@ import { SandboxService } from '../../core/services/sandbox.service';
 import { AIConfigService } from '../../core/services/ai-config.service';
 import { ArtifactFeedService } from '../../core/services/artifact-feed.service';
 import { SandboxBridgeService } from '../../core/services/sandbox-bridge.service';
+import { BacklogService, AzureDevOpsProject } from '../../core/services/backlog.service';
 import { Repository } from '../../shared/models/repository.model';
 import { ButtonComponent, CardComponent, GridColumn } from '../../shared/components';
 import { VPS_CONFIG } from '../../core/config/vps.config';
@@ -59,6 +60,26 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   showAddRepoModal = signal<boolean>(false);
   addRepoUrl = signal<string>('');
   addingRepo = signal<boolean>(false);
+  /** New local (unpublished) project — same modal pattern as add GitHub. */
+  showNewLocalModal = signal<boolean>(false);
+  newLocalName = signal<string>('');
+  newLocalDescription = signal<string>('');
+  creatingLocal = signal<boolean>(false);
+  /** Publish local project: choose GitHub or Azure, then show provider-specific form */
+  publishLocalTarget = signal<Repository | null>(null);
+  publishLocalStep = signal<'choose' | 'github' | 'azure' | null>(null);
+  publishGhRepoName = signal<string>('');
+  publishGhDescription = signal<string>('');
+  publishGhOrg = signal<string>('');
+  publishGhPrivate = signal<boolean>(false);
+  publishingGh = signal<boolean>(false);
+  publishAzOrg = signal<string>('');
+  publishAzProject = signal<string>('');
+  publishAzRepoName = signal<string>('');
+  publishingAz = signal<boolean>(false);
+  /** Azure project list (from API; org/PAT from Settings) */
+  publishAzProjectList = signal<AzureDevOpsProject[]>([]);
+  azProjectsLoading = signal<boolean>(false);
   viewMode = signal<'cards' | 'grid'>('cards');
 
   // Sync selection modal (choose which repos to sync)
@@ -89,7 +110,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   private shareSuggestQuery$ = new Subject<string>();
 
   // Provider filter
-  activeProviderTab = signal<'all' | 'GitHub' | 'AzureDevOps'>('all');
+  activeProviderTab = signal<'all' | 'GitHub' | 'AzureDevOps' | 'Unpublished'>('all');
   // Visibility filter: all repos, only mine, or only shared with me
   visibilityFilter = signal<'all' | 'mine' | 'shared'>('all');
 
@@ -104,7 +125,8 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     const repos = this.repositories();
     const tab = this.activeProviderTab();
     if (tab === 'all') return repos;
-    return repos.filter(r => r.provider === tab);
+    if (tab === 'Unpublished') return repos.filter((r) => r.provider === 'Unpublished');
+    return repos.filter((r) => r.provider === tab);
   });
 
   /**
@@ -147,8 +169,9 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
   });
   
   // Computed: repository counts per provider
-  githubCount = computed(() => this.repositories().filter(r => r.provider === 'GitHub').length);
-  azureDevOpsCount = computed(() => this.repositories().filter(r => r.provider === 'AzureDevOps').length);
+  githubCount = computed(() => this.repositories().filter((r) => r.provider === 'GitHub').length);
+  azureDevOpsCount = computed(() => this.repositories().filter((r) => r.provider === 'AzureDevOps').length);
+  unpublishedCount = computed(() => this.repositories().filter((r) => r.provider === 'Unpublished').length);
   allCount = computed(() => this.repositories().length);
 
   // Grid columns configuration (will be initialized in ngOnInit)
@@ -167,7 +190,8 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     private sandboxBridgeService: SandboxBridgeService,
     private elementRef: ElementRef,
     private lastVisited: LastVisitedRepositoryService,
-    private confirmDialog: ConfirmDialogService
+    private confirmDialog: ConfirmDialogService,
+    private backlogService: BacklogService
   ) {}
 
   // Close dropdown when clicking outside
@@ -382,8 +406,9 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     `;
   }
 
-  /** Derive project key for grouping: GitHub = org, Azure DevOps = org/project */
+  /** Derive project key for grouping: GitHub = org, Azure DevOps = org/project, Unpublished = single bucket */
   getProjectKey(repo: Repository): string {
+    if (repo.provider === 'Unpublished') return 'Local';
     if (repo.provider === 'AzureDevOps') {
       const parts = repo.fullName.split('/');
       return parts.length >= 2 ? parts.slice(0, 2).join('/') : repo.organizationName;
@@ -393,11 +418,12 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
 
   /** Format project key for display: friendly name without raw org/project */
   getProjectDisplayName(projectKey: string): string {
+    if (projectKey === 'Local') return 'Local (unpublished)';
     const parts = projectKey.split('/');
     const last = parts[parts.length - 1] || projectKey;
     return last
       .replace(/[-_]/g, ' ')
-      .replace(/\b\w/g, c => c.toUpperCase())
+      .replace(/\b\w/g, (c) => c.toUpperCase())
       .trim() || projectKey;
   }
 
@@ -792,6 +818,188 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     this.error.set(null);
   }
 
+  openNewLocalModal(): void {
+    this.closeSyncMenu();
+    this.showNewLocalModal.set(true);
+    this.newLocalName.set('');
+    this.newLocalDescription.set('');
+    this.error.set(null);
+  }
+
+  closeNewLocalModal(): void {
+    this.showNewLocalModal.set(false);
+    this.creatingLocal.set(false);
+    this.error.set(null);
+  }
+
+  submitNewLocal(): void {
+    const name = this.newLocalName().trim();
+    if (!name) return;
+    this.creatingLocal.set(true);
+    this.error.set(null);
+    this.repositoryService.createUnpublishedRepository(name, this.newLocalDescription().trim() || undefined).subscribe({
+      next: () => {
+        this.creatingLocal.set(false);
+        this.closeNewLocalModal();
+        this.successMessage.set(`Created local project “${name}”`);
+        this.loadRepositories(true);
+        this.activeProviderTab.set('Unpublished');
+        setTimeout(() => this.successMessage.set(null), 4000);
+      },
+      error: (err) => {
+        this.creatingLocal.set(false);
+        this.error.set(err.error?.message ?? err.message ?? 'Failed to create project');
+      }
+    });
+  }
+
+  openPublishLocalModal(repo: Repository): void {
+    this.publishLocalTarget.set(repo);
+    this.publishLocalStep.set('choose');
+    this.error.set(null);
+    this.publishAzProjectList.set([]);
+  }
+
+  closePublishLocalModal(): void {
+    this.publishLocalTarget.set(null);
+    this.publishLocalStep.set(null);
+    this.publishingGh.set(false);
+    this.publishingAz.set(false);
+    this.azProjectsLoading.set(false);
+    this.publishAzProjectList.set([]);
+    this.error.set(null);
+  }
+
+  backPublishLocalChoose(): void {
+    this.error.set(null);
+    this.publishAzProjectList.set([]);
+    this.publishLocalStep.set('choose');
+  }
+
+  goPublishLocalProvider(which: 'github' | 'azure'): void {
+    this.error.set(null);
+    const repo = this.publishLocalTarget();
+    if (!repo) return;
+
+    if (which === 'github') {
+      if (!this.isProviderLinked('GitHub')) {
+        this.error.set('Connect your GitHub account in Settings first.');
+        return;
+      }
+      this.publishGhRepoName.set(this.slugFromName(repo.name));
+      this.publishGhDescription.set(repo.description || '');
+      this.publishGhOrg.set('');
+      this.publishGhPrivate.set(false);
+      this.publishLocalStep.set('github');
+      return;
+    }
+
+    if (!this.isProviderLinked('AzureDevOps')) {
+      this.error.set('Connect Azure DevOps and add your organization and PAT in Settings first.');
+      return;
+    }
+
+    this.publishAzRepoName.set(this.slugFromName(repo.name));
+    this.publishAzProject.set('');
+    this.publishAzProjectList.set([]);
+    this.azProjectsLoading.set(true);
+    this.publishLocalStep.set('azure');
+    this.authService.getProviderSettings().subscribe({
+      next: (s) => {
+        this.publishAzOrg.set(s.azureDevOpsOrganization?.trim() || '');
+        this.loadAzureProjectsForPublish();
+      },
+      error: () => {
+        this.publishAzOrg.set('');
+        this.loadAzureProjectsForPublish();
+      }
+    });
+  }
+
+  private loadAzureProjectsForPublish(): void {
+    this.azProjectsLoading.set(true);
+    this.error.set(null);
+    this.backlogService.getAzureDevOpsProjects().subscribe({
+      next: (projects) => {
+        this.azProjectsLoading.set(false);
+        this.publishAzProjectList.set(projects);
+        const first = projects[0]?.name?.trim() ?? '';
+        if (first && !this.publishAzProject().trim()) {
+          this.publishAzProject.set(first);
+        }
+      },
+      error: (err) => {
+        this.azProjectsLoading.set(false);
+        this.publishAzProjectList.set([]);
+        this.error.set(
+          err.error?.message ?? err.message ?? 'Could not load Azure DevOps projects. Check organization and PAT in Settings.'
+        );
+      }
+    });
+  }
+
+  submitPublishGitHub(): void {
+    const repo = this.publishLocalTarget();
+    const repoName = this.publishGhRepoName().trim();
+    if (!repo || !repoName) return;
+    this.publishingGh.set(true);
+    this.error.set(null);
+    this.repositoryService
+      .publishUnpublishedToGitHub(repo.id, {
+        repositoryName: repoName,
+        description: this.publishGhDescription().trim() || undefined,
+        isPrivate: this.publishGhPrivate(),
+        organizationLogin: this.publishGhOrg().trim() || null
+      })
+      .subscribe({
+        next: (r) => {
+          this.publishingGh.set(false);
+          this.closePublishLocalModal();
+          this.successMessage.set(`Published to GitHub: ${r.fullName}`);
+          this.loadRepositories(true);
+          setTimeout(() => this.successMessage.set(null), 5000);
+        },
+        error: (err) => {
+          this.publishingGh.set(false);
+          this.error.set(err.error?.message ?? err.message ?? 'Publish failed');
+        }
+      });
+  }
+
+  submitPublishAzure(): void {
+    const repo = this.publishLocalTarget();
+    const org = this.publishAzOrg().trim();
+    const project = this.publishAzProject().trim();
+    const rname = this.publishAzRepoName().trim();
+    if (!repo || !org || !project || !rname) return;
+    this.publishingAz.set(true);
+    this.error.set(null);
+    this.repositoryService
+      .publishUnpublishedToAzure(repo.id, { organization: org, project, repositoryName: rname })
+      .subscribe({
+        next: (r) => {
+          this.publishingAz.set(false);
+          this.closePublishLocalModal();
+          this.successMessage.set(`Published to Azure DevOps: ${r.fullName}`);
+          this.loadRepositories(true);
+          setTimeout(() => this.successMessage.set(null), 5000);
+        },
+        error: (err) => {
+          this.publishingAz.set(false);
+          this.error.set(err.error?.message ?? err.message ?? 'Publish failed');
+        }
+      });
+  }
+
+  private slugFromName(name: string): string {
+    return name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'project';
+  }
+
   submitAddRepo(): void {
     const url = this.addRepoUrl().trim();
     if (!url) return;
@@ -879,7 +1087,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
     }
   }
 
-  setProviderTab(tab: 'all' | 'GitHub' | 'AzureDevOps'): void {
+  setProviderTab(tab: 'all' | 'GitHub' | 'AzureDevOps' | 'Unpublished'): void {
     this.activeProviderTab.set(tab);
   }
 
@@ -935,7 +1143,7 @@ export class RepositoriesComponent implements OnInit, OnDestroy, AfterViewInit {
 
   private createSandboxWithUrl(repo: Repository, repoUrl: string, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
     this.sandboxService.createSandbox({
-      repo_url: repoUrl,
+      ...(repoUrl?.trim() ? { repo_url: repoUrl } : {}),
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
       repo_archive_url: repoArchiveUrl,

@@ -15,7 +15,7 @@
           <path d="M13 6h3a2 2 0 0 1 2 2v7"/>
           <line x1="6" y1="9" x2="6" y2="21"/>
         </svg>
-        <span>Push PR</span>
+        <span>{{ isUnpublishedImpl() ? 'Commit' : 'Push PR' }}</span>
       </div>
     }
     <div class="minimized-icon" [class.has-story]="implementationContext() && !isAnalysisSandbox() && !isBacklogSandbox()" [class.has-analysis]="isAnalysisSandbox()" [class.has-backlog]="isBacklogSandbox()" [class.pr-ready]="readyForPr()">
@@ -48,7 +48,7 @@
     </div>
     <div class="minimized-info">
       @if (readyForPr() && !isBacklogSandbox() && !isAnalysisSandbox()) {
-        <span class="minimized-pr-ready">Ready to push</span>
+        <span class="minimized-pr-ready">{{ isUnpublishedImpl() ? 'Ready to commit' : 'Ready to push' }}</span>
         <span class="minimized-story">{{ implementationContext()?.storyTitle || viewerTitle() }}</span>
       } @else {
         @if (implementationContext(); as ctx) {
@@ -255,10 +255,151 @@
     </div>
 
     <!-- Content Area -->
-    <div class="popup-content"
+    <div #popupContent
+         class="popup-content"
          [class.mode-chat]="viewMode() === 'chat'"
          [class.mode-split]="viewMode() === 'split'"
          [class.mode-sandbox]="viewMode() === 'sandbox'">
+
+      @if (isFullscreen() && fsTopBarHidden()) {
+        <button
+          type="button"
+          class="fullscreen-bar-reveal"
+          [attr.data-fs-pos]="fsTopBarPosition()"
+          (click)="showFsTopBar()"
+          title="Show toolbar — chat, layout, paste, exit fullscreen">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <g [attr.transform]="'rotate(' + fsTopBarChevronRotation() + ' 12 12)'">
+              <polyline points="6 9 12 15 18 9"/>
+            </g>
+          </svg>
+          <span>Toolbar</span>
+        </button>
+      }
+
+      @if (isFullscreen()) {
+        <div
+          #fsFullscreenBar
+          class="fullscreen-bar"
+          [class.fullscreen-bar--collapsed]="fsTopBarHidden()"
+          [class.fullscreen-bar--dragging]="fsToolbarDragActive()"
+          [attr.data-fs-pos]="fsTopBarPosition()"
+          [style.left.px]="fsToolbarDragActive() ? fsToolbarDragLeft() : null"
+          [style.top.px]="fsToolbarDragActive() ? fsToolbarDragTop() : null"
+          [style.transform]="fsToolbarBarTransform()"
+          role="toolbar"
+          aria-label="Fullscreen controls">
+          <button
+            type="button"
+            class="fullscreen-bar-drag"
+            (pointerdown)="onFsToolbarDragStart($event)"
+            (pointermove)="onFsToolbarDragMove($event)"
+            (pointerup)="onFsToolbarDragEnd($event)"
+            (pointercancel)="onFsToolbarDragEnd($event)"
+            title="Drag to move — release to snap to the nearest edge (like Citrix)"
+            aria-label="Move toolbar; release to snap to edge">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <circle cx="9" cy="7" r="1.5"/>
+              <circle cx="15" cy="7" r="1.5"/>
+              <circle cx="9" cy="12" r="1.5"/>
+              <circle cx="15" cy="12" r="1.5"/>
+              <circle cx="9" cy="17" r="1.5"/>
+              <circle cx="15" cy="17" r="1.5"/>
+            </svg>
+          </button>
+          <span class="fullscreen-bar-title">{{ viewerTitle() }}</span>
+          @if (pasteFromHostMessage(); as fsMsg) {
+            <span class="fullscreen-bar-hint">{{ fsMsg }}</span>
+          }
+          @if (sandboxId() && agentChatSidebarAllowed()) {
+            <div class="fullscreen-bar-vms" aria-label="Layout">
+              <button
+                type="button"
+                class="fullscreen-bar-vms-btn"
+                [class.active]="viewMode() === 'chat'"
+                (click)="setViewMode('chat')"
+                title="Chat only">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="fullscreen-bar-vms-btn"
+                [class.active]="viewMode() === 'split'"
+                (click)="setViewMode('split')"
+                title="Split — chat and desktop">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="3" y="3" width="18" height="18" rx="2"/>
+                  <line x1="12" y1="3" x2="12" y2="21"/>
+                </svg>
+              </button>
+              <button
+                type="button"
+                class="fullscreen-bar-vms-btn"
+                [class.active]="viewMode() === 'sandbox'"
+                (click)="setViewMode('sandbox')"
+                title="Desktop only">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <rect x="2" y="3" width="20" height="14" rx="2"/>
+                  <line x1="8" y1="21" x2="16" y2="21"/>
+                  <line x1="12" y1="17" x2="12" y2="21"/>
+                </svg>
+              </button>
+            </div>
+          }
+          <div class="fullscreen-bar-actions">
+            @if (sandboxId() && isConnected()) {
+              <button
+                class="fullscreen-bar-btn"
+                type="button"
+                (click)="pasteFromHostClipboard()"
+                [disabled]="pasteFromHostBusy()"
+                title="Paste from your computer into Zed (host clipboard)">
+                @if (pasteFromHostBusy()) {
+                  <span class="send-spinner send-spinner--tiny"></span>
+                } @else {
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+                    <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
+                  </svg>
+                }
+              </button>
+            }
+            <button
+              class="fullscreen-bar-btn"
+              type="button"
+              (click)="toggleFsTopBarHidden()"
+              [title]="fsTopBarHidden() ? 'Show toolbar' : 'Hide toolbar'">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <g [attr.transform]="'rotate(' + fsTopBarChevronRotation() + ' 12 12)'">
+                  @if (fsTopBarHidden()) {
+                    <polyline points="6 9 12 15 18 9"/>
+                  } @else {
+                    <polyline points="18 15 12 9 6 15"/>
+                  }
+                </g>
+              </svg>
+            </button>
+            <button class="fullscreen-bar-btn" (click)="exitFullscreen(); toggleMinimize()" title="Minimize">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="5" y1="12" x2="19" y2="12"/>
+              </svg>
+            </button>
+            <button class="fullscreen-bar-btn" (click)="exitFullscreen()" title="Exit Fullscreen">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>
+              </svg>
+            </button>
+            <button class="fullscreen-bar-btn close" (click)="exitFullscreen(); close()" title="Close">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="18" y1="6" x2="6" y2="18"/>
+                <line x1="6" y1="6" x2="18" y2="18"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      }
 
       <!-- Chat Panel -->
       @if (showChat() && sandboxId() && agentChatSidebarAllowed()) {
@@ -277,8 +418,12 @@
                       <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
                       <polyline points="22 4 12 14.01 9 11.01"/>
                     </svg>
-                    <span>PR created!</span>
-                    <a [href]="pushPrSuccess()!.url" target="_blank" rel="noopener" class="pr-link">Open PR</a>
+                    @if (pushPrSuccess()!.url) {
+                      <span>PR created!</span>
+                      <a [href]="pushPrSuccess()!.url" target="_blank" rel="noopener" class="pr-link">Open PR</a>
+                    } @else {
+                      <span>{{ pushPrSuccess()!.title }}</span>
+                    }
                   </div>
                 } @else {
                   <button 
@@ -290,13 +435,13 @@
                     [title]="!canPushPrAfterQuiet() ? 'Wait until the AI has finished (quiet period after the last reply)' : ''">
                     @if (pushCreatingPr()) {
                       <span class="push-spinner"></span>
-                      <span>Pushing...</span>
+                      <span>{{ isUnpublishedImpl() ? 'Saving…' : 'Pushing...' }}</span>
                     } @else {
                       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <path d="M22 2L11 13"/>
                         <path d="M22 2L15 22L11 13L2 9L22 2Z"/>
                       </svg>
-                      <span>Push & Create PR</span>
+                      <span>{{ isUnpublishedImpl() ? 'Commit to local project' : 'Push & Create PR' }}</span>
                     }
                   </button>
                   @if (pushPrError()) {
@@ -634,51 +779,6 @@
           (load)="onIframeLoad()"
           (error)="onIframeError()">
         </iframe>
-
-        <!-- Fullscreen floating bar (RDP-style, always visible, centered) -->
-        @if (isFullscreen()) {
-          <div class="fullscreen-bar">
-            <span class="fullscreen-bar-title">{{ viewerTitle() }}</span>
-            @if (pasteFromHostMessage(); as fsMsg) {
-              <span class="fullscreen-bar-hint">{{ fsMsg }}</span>
-            }
-            <div class="fullscreen-bar-actions">
-              @if (sandboxId() && isConnected()) {
-                <button
-                  class="fullscreen-bar-btn"
-                  type="button"
-                  (click)="pasteFromHostClipboard()"
-                  [disabled]="pasteFromHostBusy()"
-                  title="Paste from your computer into Zed (host clipboard)">
-                  @if (pasteFromHostBusy()) {
-                    <span class="send-spinner send-spinner--tiny"></span>
-                  } @else {
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-                      <rect x="8" y="2" width="8" height="4" rx="1" ry="1"/>
-                    </svg>
-                  }
-                </button>
-              }
-              <button class="fullscreen-bar-btn" (click)="exitFullscreen(); toggleMinimize()" title="Minimize">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="5" y1="12" x2="19" y2="12"/>
-                </svg>
-              </button>
-              <button class="fullscreen-bar-btn" (click)="exitFullscreen()" title="Exit Fullscreen">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>
-                </svg>
-              </button>
-              <button class="fullscreen-bar-btn close" (click)="exitFullscreen(); close()" title="Close">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <line x1="18" y1="6" x2="6" y2="18"/>
-                  <line x1="6" y1="6" x2="18" y2="18"/>
-                </svg>
-              </button>
-            </div>
-          </div>
-        }
       </div>
       }
     </div>

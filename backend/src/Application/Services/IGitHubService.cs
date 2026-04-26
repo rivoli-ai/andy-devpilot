@@ -24,6 +24,18 @@ public interface IGitHubService
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Creates a new Git repository under the authenticated user, or under an organization.
+    /// </summary>
+    /// <param name="organizationLogin">If null, creates under the user; otherwise under this org (requires org permissions).</param>
+    System.Threading.Tasks.Task<GitHubRepositoryDto> CreateRepositoryAsync(
+        string accessToken,
+        string? organizationLogin,
+        string name,
+        string? description,
+        bool isPrivate,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Fetches a single repository by owner and repo name
     /// </summary>
     System.Threading.Tasks.Task<GitHubRepositoryDto?> GetRepositoryAsync(

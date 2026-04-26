@@ -485,6 +485,9 @@ def _docker_create_sandbox():
             ports[f"{int(p)}/tcp"] = None
 
     try:
+        # So REPO_ARCHIVE_URL (host API) can use host.docker.internal (Linux + Docker 20.10+)
+        extra_hosts = {"host.docker.internal": "host-gateway"}
+
         container = docker_client.containers.run(
             SANDBOX_IMAGE,
             name=cname,
@@ -495,6 +498,7 @@ def _docker_create_sandbox():
             environment=environment,
             volumes=volumes or None,
             ports=ports,
+            extra_hosts=extra_hosts,
         )
 
         with lock:

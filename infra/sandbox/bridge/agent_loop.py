@@ -14,6 +14,9 @@ from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any, Callable, Optional
 
+# Optional: checked each iteration and during LLM streaming (headless + abort).
+ShouldAbort = Optional[Callable[[], bool]]
+
 from . import tools
 
 logger = logging.getLogger(__name__)
@@ -220,6 +223,7 @@ def _message_from_stream(
     messages: list[dict[str, Any]],
     *,
     on_assistant_delta: Optional[AssistantStreamCallback] = None,
+    should_abort: ShouldAbort = None,
 ) -> Any:
     """One chat completion with ``stream=True``; returns an object like ``choice.message``."""
     accumulated = ""
@@ -231,6 +235,13 @@ def _message_from_stream(
         stream=True,
     )
     for chunk in stream:
+        if should_abort is not None and should_abort():
+            if on_assistant_delta is not None and accumulated:
+                on_assistant_delta(accumulated + "\n\n[Stopped by user.]")
+            return SimpleNamespace(
+                content=accumulated or "Stopped by user.",
+                tool_calls=None,
+            )
         if not chunk.choices:
             continue
         ch0 = chunk.choices[0]
@@ -274,6 +285,7 @@ def run(
     on_tool_call: Optional[ToolCallback] = None,
     on_assistant_delta: Optional[AssistantStreamCallback] = None,
     conversation_history: Optional[list[dict[str, Any]]] = None,
+    should_abort: ShouldAbort = None,
 ) -> AgentResult:
     """Execute the agent loop synchronously.
 
@@ -320,6 +332,10 @@ def run(
         result.iterations = iteration + 1
         logger.info("agent loop iteration %d/%d", result.iterations, max_iterations)
 
+        if should_abort is not None and should_abort():
+            result.content = "Stopped by user."
+            return result
+
         try:
             if on_assistant_delta is not None:
                 on_assistant_delta("")
@@ -329,12 +345,16 @@ def run(
                         model,
                         messages,
                         on_assistant_delta=on_assistant_delta,
+                        should_abort=should_abort,
                     )
                 except Exception as stream_exc:
                     logger.warning(
                         "LLM streaming failed (%s), falling back to non-streaming",
                         stream_exc,
                     )
+                    if should_abort is not None and should_abort():
+                        result.content = "Stopped by user."
+                        return result
                     response = llm_client.chat.completions.create(
                         model=model,
                         messages=messages,
@@ -346,6 +366,9 @@ def run(
                         if piece:
                             on_assistant_delta(piece)
             else:
+                if should_abort is not None and should_abort():
+                    result.content = "Stopped by user."
+                    return result
                 response = llm_client.chat.completions.create(
                     model=model,
                     messages=messages,
@@ -364,6 +387,9 @@ def run(
             return result
 
         for tc in message.tool_calls:
+            if should_abort is not None and should_abort():
+                result.content = "Stopped by user."
+                return result
             try:
                 args = json.loads(tc.function.arguments)
             except json.JSONDecodeError:

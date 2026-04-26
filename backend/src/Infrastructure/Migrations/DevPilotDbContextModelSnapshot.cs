@@ -975,8 +975,9 @@ namespace DevPilot.Infrastructure.Migrations
 
                     b.HasIndex("RepositoryId");
 
-                    b.HasIndex("UserId", "RepositoryId")
-                        .IsUnique();
+                    b.HasIndex("UserId", "RepositoryId", "RepoBranch")
+                        .IsUnique()
+                        .HasDatabaseName("IX_ur_sb_binding_user_id_repo_id_branch");
 
                     b.ToTable("user_repository_sandbox_bindings", (string)null);
                 });

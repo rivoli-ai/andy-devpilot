@@ -26,6 +26,7 @@ app.Run();
 static void ConfigureServices(WebApplicationBuilder builder)
 {
     builder.Services.AddControllers();
+    builder.Services.AddHttpContextAccessor();
     builder.Services.AddHttpClient();
     builder.Services.AddMemoryCache();
     builder.Services.AddOpenApi();

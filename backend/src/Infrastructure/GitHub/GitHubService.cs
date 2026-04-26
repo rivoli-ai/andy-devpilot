@@ -84,6 +84,38 @@ public class GitHubService : IGitHubService
         }
     }
 
+    public async System.Threading.Tasks.Task<GitHubRepositoryDto> CreateRepositoryAsync(
+        string accessToken,
+        string? organizationLogin,
+        string name,
+        string? description,
+        bool isPrivate,
+        CancellationToken cancellationToken = default)
+    {
+        var client = CreateGitHubClient(accessToken);
+        var newRepo = new NewRepository(name)
+        {
+            AutoInit = true,
+            Description = string.IsNullOrWhiteSpace(description) ? null : description.Trim(),
+            Private = isPrivate
+        };
+        try
+        {
+            Octokit.Repository created;
+            if (string.IsNullOrWhiteSpace(organizationLogin))
+                created = await client.Repository.Create(newRepo);
+            else
+                created = await client.Repository.Create(organizationLogin.Trim(), newRepo);
+
+            return MapToDto(created);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error creating GitHub repository {Name}", name);
+            throw;
+        }
+    }
+
     public async System.Threading.Tasks.Task<GitHubPullRequestDto> CreatePullRequestAsync(
         string accessToken,
         string owner,

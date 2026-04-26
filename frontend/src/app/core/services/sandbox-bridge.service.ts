@@ -238,10 +238,14 @@ export class SandboxBridgeService {
   }
 
   /** True while the sandbox bridge is running a headless agent task (HTTP 409 if a second starts). */
-  getAgentRunningStatus(sandboxId: string): Observable<{ running: boolean }> {
-    return this.http.get<{ running: boolean }>(`${this.getBridgeUrl(sandboxId)}/agent/status`).pipe(
-      catchError(() => of({ running: false }))
-    );
+  getAgentRunningStatus(
+    sandboxId: string
+  ): Observable<{ running: boolean; prompt_id?: string | null }> {
+    return this.http
+      .get<{ running: boolean; prompt_id?: string | null }>(
+        `${this.getBridgeUrl(sandboxId)}/agent/status`
+      )
+      .pipe(catchError(() => of({ running: false, prompt_id: null })));
   }
 
   sendZedPrompt(sandboxId: string, prompt: string): Observable<{ status: string; prompt_sent?: string; prompt_id?: string }> {
@@ -354,6 +358,11 @@ export class SandboxBridgeService {
         git_credentials: params.gitCredentials
       }
     );
+  }
+
+  /** Zip of the in-sandbox project root (for unpublished "Commit" flow). */
+  getProjectArchiveZip(sandboxId: string): Observable<Blob> {
+    return this.http.get(`${this.getBridgeUrl(sandboxId)}/project/archive.zip`, { responseType: 'blob' });
   }
 
   // ============================================================

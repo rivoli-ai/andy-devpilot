@@ -231,6 +231,35 @@ export class RepositoryService {
     );
   }
 
+  /** Local-only project with backlog; publish to GitHub or Azure DevOps when ready. */
+  createUnpublishedRepository(name: string, description?: string): Observable<Repository> {
+    return this.apiService.post<Repository>('/repositories/unpublished', { name, description });
+  }
+
+  publishUnpublishedToGitHub(
+    repositoryId: string,
+    body: {
+      repositoryName: string;
+      description?: string;
+      isPrivate: boolean;
+      organizationLogin?: string | null;
+    }
+  ): Observable<Repository> {
+    return this.apiService.post<Repository>(`/repositories/${repositoryId}/publish/github`, body);
+  }
+
+  publishUnpublishedToAzure(
+    repositoryId: string,
+    body: { organization: string; project: string; repositoryName: string; readme?: string }
+  ): Observable<Repository> {
+    return this.apiService.post<Repository>(`/repositories/${repositoryId}/publish/azure-devops`, body);
+  }
+
+  /** Create or replace a text file in the server-side local (unpublished) workspace. */
+  putUnpublishedFile(repositoryId: string, path: string, content: string): Observable<void> {
+    return this.apiService.put<void>(`/repositories/${repositoryId}/unpublished/file`, { path, content });
+  }
+
   /**
    * Sync repositories from GitHub
    * Uses authenticated user's GitHub token
@@ -553,6 +582,13 @@ export class RepositoryService {
    */
   getAuthenticatedCloneUrl(repositoryId: string): Observable<{ cloneUrl: string; archiveUrl?: string }> {
     return this.apiService.get<{ cloneUrl: string; archiveUrl?: string }>(`/repositories/${repositoryId}/clone-url`);
+  }
+
+  /** Replace on-disk unpublished project with a zip from the sandbox (Commit to local project). */
+  importUnpublishedFromZip(repositoryId: string, zipBlob: Blob): Observable<{ message: string }> {
+    const fd = new FormData();
+    fd.append('file', zipBlob, 'project.zip');
+    return this.apiService.postFormData<{ message: string }>(`/repositories/${repositoryId}/unpublished/import-zip`, fd);
   }
 
   /**

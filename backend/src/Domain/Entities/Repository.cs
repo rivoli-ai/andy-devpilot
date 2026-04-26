@@ -88,4 +88,34 @@ public class Repository : Entity
         AzureIdentityTenantId = tenantId;
         MarkAsUpdated();
     }
+
+    /// <summary>
+    /// Replace provider/clone metadata when a previously unpublished (local) repo is pushed to GitHub or Azure DevOps.
+    /// </summary>
+    public void PromoteToPublishedRemote(
+        string name,
+        string fullName,
+        string cloneUrl,
+        string provider,
+        string organizationName,
+        bool isPrivate,
+        string? defaultBranch)
+    {
+        Name = name ?? throw new ArgumentNullException(nameof(name));
+        FullName = fullName ?? throw new ArgumentNullException(nameof(fullName));
+        CloneUrl = cloneUrl ?? throw new ArgumentNullException(nameof(cloneUrl));
+        Provider = provider ?? throw new ArgumentNullException(nameof(provider));
+        OrganizationName = organizationName ?? throw new ArgumentNullException(nameof(organizationName));
+        IsPrivate = isPrivate;
+        DefaultBranch = defaultBranch;
+        MarkAsUpdated();
+    }
+
+    /// <summary>After the entity has been persisted, set stable local-only identity paths (uses Id in clone URL / fullName).</summary>
+    public void SetUnpublishedLocalIdentity(string fullName, string cloneUrl)
+    {
+        FullName = fullName ?? throw new ArgumentNullException(nameof(fullName));
+        CloneUrl = cloneUrl ?? throw new ArgumentNullException(nameof(cloneUrl));
+        MarkAsUpdated();
+    }
 }

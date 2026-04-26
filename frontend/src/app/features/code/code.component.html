@@ -104,6 +104,19 @@
           }
         </div>
       }
+      @if (repository()?.provider === 'Unpublished' && activeTab() === 'code') {
+        <button
+          type="button"
+          class="branch-btn unpublished-add-file-btn"
+          (click)="openUnpublishedAddFileModal()"
+          title="Create or update a text file in this project (stored on the server)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16" aria-hidden="true">
+            <line x1="12" y1="5" x2="12" y2="19"/>
+            <line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          <span>Add file</span>
+        </button>
+      }
     </div>
   </div>
 
@@ -523,11 +536,14 @@
     }
   }
 
-  <!-- ASK TAB (headless sandbox agent — same tool loop as ACP; no VNC) -->
+  <!-- ASK TAB (headless sandbox agent) — only rendered on Ask; sandbox is not stopped when switching tabs -->
   @if (activeTab() === 'ask') {
     <div
       class="code-ask-shell"
-      [class.code-ask-shell--preview-split]="codeAskPreviewEmbedded() && codeChatSandboxId()">
+      [class.code-ask-shell--preview-split]="codeAskPreviewEmbedded() && codeChatSandboxId()"
+      [class.code-ask-shell--big-preview]="
+        codeAskPreviewBigView() && codeAskPreviewEmbedded() && codeChatSandboxId()
+      ">
       <header class="code-ask-hero">
         <div class="code-ask-hero-row">
           <div class="code-ask-hero-text">
@@ -537,6 +553,26 @@
             </div>
           </div>
           <div class="code-ask-hero-actions">
+            @if (askCanSaveDraftToServer()) {
+              <button
+                type="button"
+                class="code-ask-push-draft"
+                (click)="saveAskDraftToLocalProject()"
+                title="Copy the Ask sandbox project to your unpublished project on the server"
+                [disabled]="askPushBusy() || codeChatBusy()">
+                <span>Save draft locally</span>
+              </button>
+            }
+            @if (askCanPushBranchFromAsk()) {
+              <button
+                type="button"
+                class="code-ask-push-draft"
+                (click)="pushAskToNewBranch()"
+                title="Commit and push sandbox changes to a new remote branch"
+                [disabled]="askPushBusy() || codeChatBusy()">
+                <span>Push to new branch</span>
+              </button>
+            }
             @if (codeChatMessages().length > 0) {
               <button
                 type="button"
@@ -582,6 +618,14 @@
             }
           </div>
         </div>
+        @if (askPushFeedback(); as apf) {
+          <p
+            class="code-ask-push-feedback"
+            [class.code-ask-push-feedback--ok]="apf.type === 'success'"
+            [class.code-ask-push-feedback--err]="apf.type === 'error'">
+            {{ apf.message }}
+          </p>
+        }
       </header>
 
       <div class="code-ask-body">
@@ -708,22 +752,42 @@
           ></textarea>
           <div class="code-ask-composer-actions">
             <span class="code-ask-hint">Enter send · Shift+Enter newline</span>
-            <button
-              type="button"
-              class="code-ask-send"
-              [disabled]="codeChatBusy() || !codeChatInput().trim() || !repository()"
-              (click)="sendCodeChat()">
+            <div class="code-ask-composer-trailing">
               @if (codeChatBusy()) {
-                <span class="loading-spinner small"></span>
-                <span>Working</span>
-              } @else {
-                <span>Send</span>
-                <svg class="code-ask-send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <line x1="22" y1="2" x2="11" y2="13"/>
-                  <polygon points="22 2 15 22 11 13 2 9 22 2"/>
-                </svg>
+                <app-button
+                  variant="secondary"
+                  size="sm"
+                  type="button"
+                  [attr.title]="'Stop the current task (creating sandbox, cloning, or agent)'"
+                  (click)="stopAskAgent()">
+                  <span class="code-ask-composer-btn-inline">
+                    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                      <rect x="5" y="5" width="14" height="14" rx="1"/>
+                    </svg>
+                    Stop
+                  </span>
+                </app-button>
               }
-            </button>
+              <app-button
+                variant="primary"
+                size="sm"
+                type="button"
+                [loading]="codeChatBusy()"
+                [disabled]="!codeChatInput().trim() || !repository()"
+                (click)="sendCodeChat()">
+                @if (codeChatBusy()) {
+                  <span>Working</span>
+                } @else {
+                  <span class="code-ask-composer-btn-inline code-ask-composer-btn-inline--send">
+                    Send
+                    <svg class="code-ask-send-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <line x1="22" y1="2" x2="11" y2="13"/>
+                      <polygon points="22 2 15 22 11 13 2 9 22 2"/>
+                    </svg>
+                  </span>
+                }
+              </app-button>
+            </div>
           </div>
         </div>
       </footer>
@@ -824,6 +888,19 @@
                 <button
                   type="button"
                   class="code-ask-preview-icon-btn"
+                  (click)="refreshCodeAskPreview()"
+                  [disabled]="codeAskPreviewPort() === null"
+                  aria-label="Refresh preview"
+                  title="Refresh preview">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                    <path d="M23 4v6h-6"/>
+                    <path d="M1 20v-6h6"/>
+                    <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+                  </svg>
+                </button>
+                <button
+                  type="button"
+                  class="code-ask-preview-icon-btn"
                   (click)="openCodeAskPreviewInNewTab()"
                   [disabled]="codeAskPreviewPort() === null"
                   aria-label="Open preview in new tab"
@@ -837,14 +914,53 @@
                 <button
                   type="button"
                   class="code-ask-preview-icon-btn"
-                  (click)="openCodeAskPreviewPopOut()"
+                  [class.code-ask-preview-icon-btn--on]="codeAskPreviewBigView()"
+                  (click)="toggleCodeAskPreviewBigView()"
                   [disabled]="codeAskPreviewPort() === null"
-                  aria-label="Open preview in pop-out window"
-                  title="Pop-out window">
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                    <rect x="2" y="4" width="10" height="8" rx="1"/>
-                    <rect x="12" y="10" width="10" height="10" rx="1"/>
-                  </svg>
+                  [attr.aria-pressed]="codeAskPreviewBigView()"
+                  [attr.aria-label]="
+                    codeAskPreviewBigView() ? 'Use normal split' : 'Big preview: give the app more space'
+                  "
+                  [attr.title]="
+                    codeAskPreviewBigView() ? 'Back to even split' : 'Big view — wider, taller app preview'
+                  ">
+                  @if (codeAskPreviewBigView()) {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="3" y="4" width="7.5" height="16" rx="1.5"/>
+                      <rect x="13.5" y="4" width="7.5" height="16" rx="1.5"/>
+                    </svg>
+                  } @else {
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true">
+                      <rect x="3" y="5" width="4.5" height="14" rx="1.25"/>
+                      <rect x="9" y="4" width="12" height="16" rx="1.5"/>
+                    </svg>
+                  }
+                </button>
+                <button
+                  type="button"
+                  class="code-ask-preview-icon-btn"
+                  [class.code-ask-preview-icon-btn--on]="isCodeAskPreviewInFullscreen()"
+                  (click)="toggleCodeAskPreviewFullscreen()"
+                  [disabled]="codeAskPreviewPort() === null"
+                  [attr.aria-pressed]="isCodeAskPreviewInFullscreen()"
+                  [attr.aria-label]="
+                    isCodeAskPreviewInFullscreen() ? 'Exit full screen' : 'Full screen preview'
+                  "
+                  [attr.title]="
+                    isCodeAskPreviewInFullscreen() ? 'Exit full screen' : 'Full screen (this monitor)'
+                  ">
+                  @if (isCodeAskPreviewInFullscreen()) {
+                    <!-- Same as VNC viewer fullscreen bar “Exit Fullscreen” -->
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M4 14h6v6M20 10h-6V4M14 10l7-7M3 21l7-7"/>
+                    </svg>
+                  } @else {
+                    <!-- Same as VNC viewer header “Fullscreen” -->
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path
+                        d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"/>
+                    </svg>
+                  }
                 </button>
               </div>
             </div>
@@ -854,7 +970,7 @@
               </div>
             } @else {
               @if (askPreviewSafeUrl(); as safeUrl) {
-                <div class="code-ask-preview-frame-wrap">
+                <div class="code-ask-preview-frame-wrap" #codeAskPreviewFrameWrap>
                   <iframe
                     class="code-ask-preview-iframe"
                     [src]="safeUrl"
@@ -1180,4 +1296,40 @@
 <!-- Click outside to close branch dropdown -->
 @if (showBranchDropdown()) {
   <div class="dropdown-backdrop" (click)="showBranchDropdown.set(false)"></div>
+}
+
+@if (showUnpublishedAddModal()) {
+  <div class="unpublished-add-overlay" (click)="closeUnpublishedAddFileModal()">
+    <div class="unpublished-add-dialog" (click)="$event.stopPropagation()">
+      <h3 class="unpublished-add-title">Add local file</h3>
+      <p class="unpublished-add-hint">Path is relative to the project (e.g. <code>src/app.ts</code>). UTF-8 text only.</p>
+      <label class="unpublished-add-label" for="unpub-new-path">Path</label>
+      <input
+        id="unpub-new-path"
+        class="unpublished-add-input"
+        type="text"
+        autocomplete="off"
+        [value]="unpublishedNewFilePath()"
+        (input)="unpublishedNewFilePath.set($any($event.target).value)"
+        (keydown.enter)="$event.preventDefault(); submitUnpublishedAddFile()"
+      />
+      <label class="unpublished-add-label" for="unpub-new-body">Content</label>
+      <textarea
+        id="unpub-new-body"
+        class="unpublished-add-textarea"
+        rows="10"
+        [value]="unpublishedNewFileBody()"
+        (input)="unpublishedNewFileBody.set($any($event.target).value)"></textarea>
+      <div class="unpublished-add-actions">
+        <button type="button" class="unpublished-add-cancel" (click)="closeUnpublishedAddFileModal()">Cancel</button>
+        <button
+          type="button"
+          class="unpublished-add-save"
+          (click)="submitUnpublishedAddFile()"
+          [disabled]="!unpublishedNewFilePath().trim() || unpublishedFileSaving()">
+          @if (unpublishedFileSaving()) { Saving… } @else { Save }
+        </button>
+      </div>
+    </div>
+  </div>
 }

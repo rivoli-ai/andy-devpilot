@@ -263,6 +263,19 @@ public interface IAzureDevOpsService
         string organization,
         string accessToken,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Creates a new Git repository in a project and pushes an initial README commit on the default branch.
+    /// </summary>
+    System.Threading.Tasks.Task<AzureDevOpsRepositoryDto> CreateGitRepositoryWithInitialReadmeAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string repositoryName,
+        string readmeContent,
+        string defaultBranch = "main",
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false);
 }
 
 /// <summary>

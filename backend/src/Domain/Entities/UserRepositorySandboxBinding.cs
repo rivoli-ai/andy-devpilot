@@ -1,7 +1,7 @@
 namespace DevPilot.Domain.Entities;
 
 /// <summary>
-/// Tracks the active DevPilot sandbox container for Code Ask, per user and repository.
+/// Tracks the active DevPilot sandbox container for Code Ask, per user, repository, and branch.
 /// Used to reconnect after refresh without client-side storage.
 /// </summary>
 public class UserRepositorySandboxBinding : Entity
@@ -10,7 +10,7 @@ public class UserRepositorySandboxBinding : Entity
     public Guid RepositoryId { get; private set; }
     /// <summary>Container id from the VPS sandbox manager.</summary>
     public string SandboxId { get; private set; } = string.Empty;
-    /// <summary>Git branch the sandbox was created for (Ask is released on branch switch).</summary>
+    /// <summary>Git branch this sandbox is bound to (separate row per branch for the same repository).</summary>
     public string RepoBranch { get; private set; } = "main";
 
     private UserRepositorySandboxBinding()

@@ -1294,7 +1294,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
     artifactFeeds?: any[]
   ): void {
     this.sandboxService.createSandbox({
-      repo_url: repoUrl,
+      ...(repoUrl?.trim() ? { repo_url: repoUrl } : {}),
       repo_name: repo.name,
       repo_branch: branch,
       repo_archive_url: repoArchiveUrl,
@@ -1324,6 +1324,7 @@ export class BacklogComponent implements OnInit, OnDestroy {
               defaultBranch: repo.defaultBranch || 'main',
               storyTitle: story.title,
               storyId: story.id,
+              repositoryProvider: repo.provider,
               azureDevOpsWorkItemId: story.azureDevOpsWorkItemId
             },
             sandbox.vnc_password
@@ -1536,7 +1537,7 @@ ${story.acceptanceCriteria}
     artifactFeeds?: any[]
   ): void {
     this.sandboxService.createSandbox({
-      repo_url: repoUrl,
+      ...(repoUrl?.trim() ? { repo_url: repoUrl } : {}),
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
       repo_archive_url: repoArchiveUrl,

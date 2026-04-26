@@ -362,7 +362,10 @@ public class DevPilotDbContext : DbContext
             entity.Property(e => e.RepositoryId).HasColumnName("repository_id");
             entity.Property(e => e.SandboxId).HasColumnName("sandbox_id").HasMaxLength(64).IsRequired();
             entity.Property(e => e.RepoBranch).HasColumnName("repo_branch").HasMaxLength(256).IsRequired();
-            entity.HasIndex(e => new { e.UserId, e.RepositoryId }).IsUnique();
+            // One active Ask sandbox per (user, repository, branch) so branches do not share a container.
+            entity.HasIndex(e => new { e.UserId, e.RepositoryId, e.RepoBranch })
+                .IsUnique()
+                .HasDatabaseName("IX_ur_sb_binding_user_id_repo_id_branch");
             entity.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Cascade);
             entity.HasOne<Repository>().WithMany().HasForeignKey(e => e.RepositoryId).OnDelete(DeleteBehavior.Cascade);
         });

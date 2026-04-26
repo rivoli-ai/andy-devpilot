@@ -836,24 +836,370 @@
   display: none;
 }
 
-/* ==================== FULLSCREEN BAR (RDP-style, always visible, centered) ==================== */
+/* ==================== FULLSCREEN BAR (over chat + VNC; pin edge + collapse + reveal) ==================== */
 .fullscreen-bar {
   position: absolute;
-  top: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 100;
+  z-index: 200;
   display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 6px 16px;
   background: rgba(15, 15, 25, 0.85);
   backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
+  /* No transition on transform/position — those animated on touch and caused a lag before drag
+     followed the finger. Opacity/visibility only for show/hide. */
+  transition: opacity 0.2s ease, visibility 0.2s;
+  box-sizing: border-box;
+}
+
+/* --- Top (default) --- */
+.fullscreen-bar[data-fs-pos="top"] {
+  top: 0;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  flex-direction: row;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  max-width: calc(100% - 8px);
   border-top: none;
   border-radius: 0 0 10px 10px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.35);
   white-space: nowrap;
+}
+
+/* --- Bottom --- */
+.fullscreen-bar[data-fs-pos="bottom"] {
+  bottom: 0;
+  top: auto;
+  left: 50%;
+  right: auto;
+  flex-direction: row;
+  align-items: center;
+  flex-wrap: wrap;
+  row-gap: 6px;
+  column-gap: 12px;
+  padding: 6px 16px;
+  max-width: calc(100% - 8px);
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
+  white-space: nowrap;
+  justify-content: center;
+}
+
+/* --- Right: vertical bar, centered in the viewer (like top/bottom are centered on their axis) --- */
+.fullscreen-bar[data-fs-pos="right"] {
+  right: 0;
+  left: auto;
+  top: 50%;
+  bottom: auto;
+  width: 52px;
+  min-width: 48px;
+  max-width: 56px;
+  max-height: min(calc(100% - 16px), 100%);
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 8px 4px 10px;
+  border-right: none;
+  border-radius: 10px 0 0 10px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: normal;
+  box-shadow: -4px 0 20px rgba(0, 0, 0, 0.25);
+}
+
+/* --- Left: vertical bar, vertically centered --- */
+.fullscreen-bar[data-fs-pos="left"] {
+  left: 0;
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  width: 52px;
+  min-width: 48px;
+  max-width: 56px;
+  max-height: min(calc(100% - 16px), 100%);
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  padding: 8px 4px 10px;
+  border-left: none;
+  border-radius: 0 10px 10px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  white-space: normal;
+  box-shadow: 4px 0 20px rgba(0, 0, 0, 0.25);
+}
+
+.fullscreen-bar[data-fs-pos="right"] .fullscreen-bar-vms,
+.fullscreen-bar[data-fs-pos="left"] .fullscreen-bar-vms {
+  flex-direction: column;
+  margin-left: 0;
+  margin-top: 0;
+  padding: 3px 2px;
+  align-items: center;
+  align-self: center;
+  width: auto;
+}
+
+.fullscreen-bar[data-fs-pos="right"] .fullscreen-bar-vms-btn,
+.fullscreen-bar[data-fs-pos="left"] .fullscreen-bar-vms-btn {
+  width: 32px;
+  height: 30px;
+}
+
+.fullscreen-bar[data-fs-pos="right"] .fullscreen-bar-actions,
+.fullscreen-bar[data-fs-pos="left"] .fullscreen-bar-actions {
+  flex-direction: column;
+  flex-wrap: nowrap;
+  margin-left: 0;
+  margin-top: 0;
+  gap: 2px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.fullscreen-bar[data-fs-pos="right"] .fullscreen-bar-title,
+.fullscreen-bar[data-fs-pos="left"] .fullscreen-bar-title {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.2;
+  max-height: 10rem;
+  overflow: hidden;
+  text-align: center;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+.fullscreen-bar[data-fs-pos="right"] .fullscreen-bar-hint,
+.fullscreen-bar[data-fs-pos="left"] .fullscreen-bar-hint {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 9px;
+  max-height: 6rem;
+  line-height: 1.2;
+  overflow: hidden;
+  text-align: center;
+  max-width: none;
+  opacity: 0.9;
+}
+
+/* Collapse + slide-off transform comes from [style.transform] in component (includes offsets) */
+.fullscreen-bar--collapsed[data-fs-pos="top"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.fullscreen-bar--collapsed[data-fs-pos="bottom"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.fullscreen-bar--collapsed[data-fs-pos="right"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.fullscreen-bar--collapsed[data-fs-pos="left"] {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* --- Reveal tab (per edge) --- */
+.fullscreen-bar-reveal {
+  position: absolute;
+  z-index: 201;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px 6px;
+  background: rgba(15, 15, 25, 0.92);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+  transition: background 0.15s, color 0.15s;
+  box-sizing: border-box;
+}
+
+.fullscreen-bar-reveal[data-fs-pos="top"] {
+  top: 0;
+  left: 50%;
+  right: auto;
+  bottom: auto;
+  transform: translateX(-50%);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+}
+
+.fullscreen-bar-reveal[data-fs-pos="bottom"] {
+  bottom: 0;
+  top: auto;
+  left: 50%;
+  right: auto;
+  transform: translateX(-50%);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  padding: 6px 12px 4px;
+}
+
+/* Side reveal: vertically centered (same idea as top/bottom horizontal centering) */
+.fullscreen-bar-reveal[data-fs-pos="right"] {
+  right: 0;
+  left: auto;
+  top: 50%;
+  bottom: auto;
+  height: auto;
+  width: 30px;
+  min-width: 28px;
+  max-height: min(calc(100% - 16px), 100%);
+  transform: translateY(-50%);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 4px 10px 6px;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  box-shadow: -4px 0 16px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.fullscreen-bar-reveal[data-fs-pos="left"] {
+  left: 0;
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  height: auto;
+  width: 30px;
+  min-width: 28px;
+  max-height: min(calc(100% - 16px), 100%);
+  transform: translateY(-50%);
+  border-left: none;
+  border-radius: 0 8px 8px 0;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+  padding: 10px 6px 10px 4px;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  box-shadow: 4px 0 16px rgba(0, 0, 0, 0.28);
+  overflow: hidden;
+}
+
+.fullscreen-bar-reveal:hover {
+  background: rgba(30, 30, 45, 0.95);
+  color: #fff;
+}
+
+/* Citrix-style: drag the bar; on release it snaps to the nearest edge */
+.fullscreen-bar.fullscreen-bar--dragging {
+  right: auto !important;
+  bottom: auto !important;
+  transform: none !important;
+  z-index: 250;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  cursor: grabbing;
+  /* Instant follow: no interpolation on top/left/box while pointer moves */
+  transition: none !important;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.fullscreen-bar-drag {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  min-height: 28px;
+  margin: -2px 6px -2px -2px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.5);
+  cursor: grab;
+  /* Avoid browser scroll/gesture taking the first ~300ms; no grey tap box on iOS */
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.fullscreen-bar-drag:hover {
+  color: rgba(255, 255, 255, 0.9);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.fullscreen-bar.fullscreen-bar--dragging .fullscreen-bar-drag {
+  cursor: grabbing;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.fullscreen-bar[data-fs-pos="right"] .fullscreen-bar-drag,
+.fullscreen-bar[data-fs-pos="left"] .fullscreen-bar-drag {
+  align-self: center;
+  margin: 0 0 4px 0;
+  width: 32px;
+  min-height: 24px;
+  flex-shrink: 0;
+}
+
+.fullscreen-bar-vms {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  padding: 2px;
+  margin-left: 4px;
+  flex-shrink: 0;
+}
+
+.fullscreen-bar-vms-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.5);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.fullscreen-bar-vms-btn:hover {
+  color: rgba(255, 255, 255, 0.85);
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.fullscreen-bar-vms-btn.active {
+  background: var(--accent-color, #6366f1);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
 }
 
 .fullscreen-bar-title {

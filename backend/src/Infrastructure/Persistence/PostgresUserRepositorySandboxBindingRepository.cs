@@ -1,5 +1,6 @@
 namespace DevPilot.Infrastructure.Persistence;
 
+using System.Collections.Generic;
 using DevPilot.Domain.Entities;
 using DevPilot.Domain.Interfaces;
 using Microsoft.EntityFrameworkCore;
@@ -14,14 +15,30 @@ public class PostgresUserRepositorySandboxBindingRepository : IUserRepositorySan
         _context = context ?? throw new ArgumentNullException(nameof(context));
     }
 
-    public async Task<UserRepositorySandboxBinding?> GetByUserAndRepositoryAsync(
+    public async Task<IReadOnlyList<UserRepositorySandboxBinding>> GetAllByUserIdAsync(
         Guid userId,
-        Guid repositoryId,
         CancellationToken cancellationToken = default)
     {
         return await _context.UserRepositorySandboxBindings
             .AsNoTracking()
-            .FirstOrDefaultAsync(x => x.UserId == userId && x.RepositoryId == repositoryId, cancellationToken);
+            .Where(x => x.UserId == userId)
+            .OrderBy(x => x.RepositoryId)
+            .ThenBy(x => x.RepoBranch)
+            .ToListAsync(cancellationToken);
+    }
+
+    public async Task<UserRepositorySandboxBinding?> GetByUserRepositoryAndBranchAsync(
+        Guid userId,
+        Guid repositoryId,
+        string repoBranch,
+        CancellationToken cancellationToken = default)
+    {
+        var key = NormalizeBranchKey(repoBranch);
+        return await _context.UserRepositorySandboxBindings
+            .AsNoTracking()
+            .FirstOrDefaultAsync(
+                x => x.UserId == userId && x.RepositoryId == repositoryId && x.RepoBranch == key,
+                cancellationToken);
     }
 
     public async Task UpsertAsync(
@@ -31,17 +48,20 @@ public class PostgresUserRepositorySandboxBindingRepository : IUserRepositorySan
         string repoBranch,
         CancellationToken cancellationToken = default)
     {
+        var key = NormalizeBranchKey(repoBranch);
         var existing = await _context.UserRepositorySandboxBindings
-            .FirstOrDefaultAsync(x => x.UserId == userId && x.RepositoryId == repositoryId, cancellationToken);
+            .FirstOrDefaultAsync(
+                x => x.UserId == userId && x.RepositoryId == repositoryId && x.RepoBranch == key,
+                cancellationToken);
 
         if (existing is not null)
         {
-            existing.ReplaceSandbox(sandboxId, repoBranch);
+            existing.ReplaceSandbox(sandboxId, key);
         }
         else
         {
             _context.UserRepositorySandboxBindings.Add(new UserRepositorySandboxBinding(
-                userId, repositoryId, sandboxId, repoBranch));
+                userId, repositoryId, sandboxId, key));
         }
 
         await _context.SaveChangesAsync(cancellationToken);
@@ -56,4 +76,7 @@ public class PostgresUserRepositorySandboxBindingRepository : IUserRepositorySan
         _context.UserRepositorySandboxBindings.RemoveRange(rows);
         await _context.SaveChangesAsync(cancellationToken);
     }
+
+    private static string NormalizeBranchKey(string? repoBranch) =>
+        string.IsNullOrWhiteSpace(repoBranch) ? "main" : repoBranch.Trim();
 }

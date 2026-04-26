@@ -2645,6 +2645,107 @@ public class AzureDevOpsService : IAzureDevOpsService
         return n;
     }
 
+    public async System.Threading.Tasks.Task<AzureDevOpsRepositoryDto> CreateGitRepositoryWithInitialReadmeAsync(
+        string accessToken,
+        string organization,
+        string project,
+        string repositoryName,
+        string readmeContent,
+        string defaultBranch = "main",
+        CancellationToken cancellationToken = default,
+        bool useBasicAuth = false)
+    {
+        if (string.IsNullOrWhiteSpace(repositoryName))
+            throw new ArgumentException("Repository name is required.", nameof(repositoryName));
+        EnsureSafeGitPath(repositoryName, nameof(repositoryName));
+        if (string.IsNullOrWhiteSpace(defaultBranch) || defaultBranch.Contains('/', StringComparison.Ordinal))
+            defaultBranch = "main";
+
+        var httpClient = CreateHttpClient(accessToken, useBasicAuth);
+        var org = AzureDevOpsPathSegment(organization, nameof(organization));
+        var proj = AzureDevOpsPathSegment(project, nameof(project));
+
+        var createUrl =
+            $"https://dev.azure.com/{org}/{proj}/_apis/git/repositories?api-version={AzureDevOpsApiVersion}";
+        var createBody = JsonSerializer.Serialize(new { name = repositoryName.Trim() });
+        var createResponse = await httpClient.PostAsync(
+            createUrl,
+            new StringContent(createBody, Encoding.UTF8, "application/json"),
+            cancellationToken);
+        var createText = await createResponse.Content.ReadAsStringAsync(cancellationToken);
+        if (!createResponse.IsSuccessStatusCode)
+        {
+            _logger.LogError("Create ADO repository failed: {Status} {Body}", createResponse.StatusCode, createText);
+            throw new InvalidOperationException(
+                $"Azure DevOps could not create the repository: {(int)createResponse.StatusCode} {createText}");
+        }
+
+        var created = JsonDocument.Parse(createText);
+        var repoId = created.RootElement.GetProperty("id").GetString() ?? "";
+        var webUrl = created.RootElement.TryGetProperty("webUrl", out var w) ? w.GetString() ?? "" : "";
+        var remoteUrl = created.RootElement.TryGetProperty("remoteUrl", out var r) ? r.GetString() ?? "" : webUrl;
+        if (string.IsNullOrEmpty(remoteUrl) && !string.IsNullOrEmpty(webUrl))
+            remoteUrl = webUrl;
+
+        var refName = $"refs/heads/{defaultBranch}";
+        var pushPayload = new
+        {
+            refUpdates = new object[]
+            {
+                new
+                {
+                    name = refName,
+                    oldObjectId = "0000000000000000000000000000000000000000"
+                }
+            },
+            commits = new object[]
+            {
+                new
+                {
+                    comment = "Initial commit from DevPilot",
+                    changes = new object[]
+                    {
+                        new
+                        {
+                            changeType = "add",
+                            item = new { path = "/README.md" },
+                            newContent = new { content = readmeContent, contentType = "rawtext" }
+                        }
+                    }
+                }
+            }
+        };
+
+        var pushUrl =
+            $"https://dev.azure.com/{org}/{proj}/_apis/git/repositories/{Uri.EscapeDataString(repoId)}/pushes?api-version={AzureDevOpsApiVersion}";
+        var pushResponse = await httpClient.PostAsync(
+            pushUrl,
+            new StringContent(
+                JsonSerializer.Serialize(pushPayload),
+                Encoding.UTF8,
+                "application/json"),
+            cancellationToken);
+        var pushText = await pushResponse.Content.ReadAsStringAsync(cancellationToken);
+        if (!pushResponse.IsSuccessStatusCode)
+        {
+            _logger.LogError("Initial push to ADO repo failed: {Status} {Body}", pushResponse.StatusCode, pushText);
+            throw new InvalidOperationException(
+                $"Repository was created but the initial commit failed: {(int)pushResponse.StatusCode}. You may have an empty remote to fix in Azure DevOps. {pushText}");
+        }
+
+        return new AzureDevOpsRepositoryDto
+        {
+            Id = repoId,
+            Name = repositoryName.Trim(),
+            RemoteUrl = remoteUrl,
+            WebUrl = webUrl,
+            ProjectName = project,
+            OrganizationName = organization,
+            DefaultBranch = defaultBranch,
+            IsDisabled = false
+        };
+    }
+
     private static void EnsureSafeGitPath(string? path, string parameterName)
     {
         if (string.IsNullOrEmpty(path)) return;

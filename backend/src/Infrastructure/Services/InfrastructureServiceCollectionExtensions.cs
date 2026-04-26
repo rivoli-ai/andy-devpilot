@@ -64,8 +64,12 @@ public static class InfrastructureServiceCollectionExtensions
         // ------------------------------------------------------------------
         // Auth provider registry (configuration-driven)
         // ------------------------------------------------------------------
+        services.AddSingleton<IUnpublishedRepositoryFileStore, UnpublishedRepositoryFileStore>();
+
         if (configuration != null)
         {
+            services.Configure<UnpublishedRepositoryOptions>(
+                configuration.GetSection(UnpublishedRepositoryOptions.SectionName));
             // Bind the AuthProviders config section
             services.Configure<AuthProvidersOptions>(opts =>
             {

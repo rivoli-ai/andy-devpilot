@@ -815,6 +815,12 @@
   color: #7cc4ff;
 }
 
+.repo-chip--provider.local {
+  background: rgba(129, 140, 248, 0.2);
+  border-color: rgba(129, 140, 248, 0.35);
+  color: #c4b5fd;
+}
+
 /* Reste sur la ligne du provider : prend l'espace libre, tronque avec ellipsis */
 .repo-chip--branch {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -1139,6 +1145,17 @@
   height: 15px;
 }
 
+.repo-card-actions--unpublished {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.repo-card-actions--unpublished .action-btn {
+  flex: initial;
+  min-width: 0;
+}
+
 .action-btn {
   display: flex;
   align-items: center;
@@ -1181,6 +1198,18 @@
   background: var(--surface-elevated, rgba(255, 255, 255, 0.08));
   border-color: var(--brand-primary, #6366f1);
   color: var(--brand-primary, #6366f1);
+}
+
+span.action-btn.secondary.action-btn--disabled {
+  pointer-events: none;
+  opacity: 0.5;
+  transform: none;
+}
+
+.action-btn.secondary.action-btn--disabled:hover {
+  border-color: var(--border-light, rgba(255, 255, 255, 0.1));
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  background: var(--surface-hover, rgba(255, 255, 255, 0.05));
 }
 
 .action-btn.danger {
@@ -1234,6 +1263,12 @@
   background: rgba(0, 120, 212, 0.1);
   border-color: rgba(0, 120, 212, 0.25);
   color: #0062b1;
+}
+
+:host-context([data-theme="light"]) .repo-chip--provider.local {
+  background: rgba(99, 102, 241, 0.1);
+  border-color: rgba(99, 102, 241, 0.25);
+  color: #4f46e5;
 }
 
 :host-context([data-theme="light"]) .repo-chip--branch {
@@ -2481,6 +2516,112 @@
   color: var(--text-primary);
 }
 
+.modal-header-with-back {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.modal-header-with-back h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.modal-back {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.modal-back:hover {
+  background: var(--surface-hover, rgba(255, 255, 255, 0.1));
+  color: var(--text-primary);
+}
+
+.publish-local-provider-pick {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+@media (max-width: 520px) {
+  .publish-local-provider-pick {
+    grid-template-columns: 1fr;
+  }
+}
+
+.publish-local-provider-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 16px;
+  background: var(--surface-primary, #12121a);
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.1));
+  border-radius: 12px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text-primary);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.publish-local-provider-btn:hover {
+  border-color: var(--primary, #6366f1);
+  background: var(--surface-hover, rgba(255, 255, 255, 0.06));
+}
+
+.publish-local-provider-title {
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.publish-local-provider-sub {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.35;
+}
+
+.publish-local-provider-icon {
+  margin-bottom: 4px;
+}
+
+.publish-local-provider-icon--az {
+  color: #0078d4;
+}
+
+.modal-body .input-readonly {
+  opacity: 0.85;
+  cursor: not-allowed;
+}
+
+.modal-body .form-control-select {
+  width: 100%;
+  padding: 12px 16px;
+  background: var(--surface-primary, #12121a);
+  border: 1px solid var(--border-light, rgba(255, 255, 255, 0.1));
+  border-radius: 10px;
+  color: var(--text-primary);
+  font-size: 14px;
+  box-sizing: border-box;
+}
+
+.modal-body .form-control-select:focus {
+  outline: none;
+  border-color: var(--primary, #6366f1);
+}
+
 .modal-body {
   padding: 24px;
 }
@@ -2541,6 +2682,27 @@
 
 .modal-body .form-group input::placeholder {
   color: var(--text-tertiary);
+}
+
+.modal-body .form-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  user-select: none;
+}
+
+.modal-body .form-checkbox input {
+  width: auto;
+  margin: 0;
+  flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--primary, #6366f1);
 }
 
 /* Light theme – Add repo / Azure DevOps modals */
@@ -2904,6 +3066,15 @@
   color: inherit;
 }
 
+.provider-tab.local.active {
+  background: linear-gradient(135deg, #4c4c68 0%, #35354a 100%);
+  color: #e8e8f0;
+}
+
+.provider-tab.local svg {
+  color: inherit;
+}
+
 .tab-count {
   display: inline-flex;
   align-items: center;
@@ -2976,6 +3147,15 @@
   color: white;
 }
 
+:host-context([data-theme="light"]) .provider-tab.local {
+  color: #4b5563;
+}
+
+:host-context([data-theme="light"]) .provider-tab.local.active {
+  background: linear-gradient(135deg, #52526e 0%, #3d3d56 100%);
+  color: #f9fafb;
+}
+
 :host-context([data-theme="light"]) .tab-count {
   background: var(--surface-tertiary, #e5e7eb);
   color: #374151;
@@ -2986,7 +3166,8 @@
 }
 
 :host-context([data-theme="light"]) .provider-tab.github.active .tab-count,
-:host-context([data-theme="light"]) .provider-tab.azure.active .tab-count {
+:host-context([data-theme="light"]) .provider-tab.azure.active .tab-count,
+:host-context([data-theme="light"]) .provider-tab.local.active .tab-count {
   color: white;
 }
 

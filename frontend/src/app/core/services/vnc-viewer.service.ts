@@ -13,6 +13,8 @@ export interface ImplementationContext {
   defaultBranch: string;
   storyTitle: string;
   storyId: string;
+  /** e.g. GitHub, AzureDevOps, Unpublished — controls Push PR vs commit-to-local */
+  repositoryProvider?: string;
   /** Azure DevOps work item ID (e.g. 190) - used to link PR to work item */
   azureDevOpsWorkItemId?: number;
 }

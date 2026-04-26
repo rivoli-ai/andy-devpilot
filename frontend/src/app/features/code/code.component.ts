@@ -38,6 +38,7 @@ import { VPS_CONFIG } from '../../core/config/vps.config';
 import { LastVisitedRepositoryService } from '../../core/services/last-visited-repository.service';
 import { CodeAskConversationService } from '../../core/services/code-ask-conversation.service';
 import { ConfirmDialogService } from '../../core/services/confirm-dialog.service';
+import { ButtonComponent } from '../../shared/components';
 
 // Extended tree item with children and state
 export interface TreeNode extends RepositoryTreeItem {
@@ -64,7 +65,7 @@ export interface CodeAskMessage {
 @Component({
   selector: 'app-code',
   standalone: true,
-  imports: [CommonModule, FormsModule, RouterLink, CodeHighlightPipe, MarkdownPipe],
+  imports: [CommonModule, FormsModule, RouterLink, CodeHighlightPipe, MarkdownPipe, ButtonComponent],
   templateUrl: './code.component.html',
   styleUrl: './code.component.css'
 })
@@ -83,6 +84,12 @@ export class CodeComponent implements OnInit, OnDestroy {
   fileLoading = signal<boolean>(false);
   error = signal<string | null>(null);
   showBranchDropdown = signal<boolean>(false);
+
+  /** Unpublished: add text file to server-stored local workspace */
+  showUnpublishedAddModal = signal(false);
+  unpublishedNewFilePath = signal('');
+  unpublishedNewFileBody = signal('');
+  unpublishedFileSaving = signal(false);
 
   // Tab and PR state
   activeTab = signal<TabType>('code');
@@ -132,7 +139,7 @@ export class CodeComponent implements OnInit, OnDestroy {
   codeChatSandboxId = signal<string | null>(null);
   /** VNC password from create response (needed to open the desktop viewer; not returned by GET). */
   codeChatVncPassword = signal<string | undefined>(undefined);
-  /** If true, this sandbox was created for Ask and should be deleted on branch change / destroy. */
+  /** If true, this sandbox was created for Ask; deleted only on explicit teardown / leave, not on branch switch. */
   codeChatSandboxOwned = signal<boolean>(false);
   /** Live tool calls while the headless agent is running (from /all-conversations headless_progress). */
   codeChatLiveTools = signal<{ name: string; args_preview?: string }[]>([]);
@@ -160,6 +167,17 @@ export class CodeComponent implements OnInit, OnDestroy {
    * when the user hits Enter, clicks Go, or picks a new port.
    */
   codeAskPreviewAppliedPath = signal<string>('');
+  /**
+   * Bumped on embedded preview refresh so the iframe `src` changes and reloads.
+   */
+  private readonly codeAskPreviewReloadNonce = signal(0);
+  /**
+   * When true (with split preview on), the preview column gets most of the width and
+   * the iframe a tall min-height for a “big view” without leaving the app.
+   */
+  codeAskPreviewBigView = signal(false);
+  /** Wrapper around the preview iframe; used for browser fullscreen. */
+  private readonly askPreviewFrameHost = viewChild<ElementRef<HTMLElement>>('codeAskPreviewFrameWrap');
 
   /** Ports blocked by the proxy (keep in sync with DENIED_PREVIEW_PORTS on the backend / manager). */
   private readonly codeAskPreviewDeniedPorts: ReadonlySet<number> = new Set([
@@ -174,6 +192,19 @@ export class CodeComponent implements OnInit, OnDestroy {
 
   /** Avoid double restore when branches + tree load triggers twice. */
   private codeAskRestoreDoneForRepo: string | null = null;
+  /**
+   * Bumped when Ask UI is cleared (e.g. branch switch). In-flight `tryRestoreCodeAskSession` must
+   * not reattach a sandbox (and repopulate the global header) after the user has moved on.
+   */
+  private codeAskRestoreGeneration = 0;
+
+  /** Set while pushing Ask sandbox to local zip or to a new remote branch. */
+  askPushBusy = signal<boolean>(false);
+  askPushFeedback = signal<{ type: 'success' | 'error'; message: string } | null>(null);
+  /** User requested stop while the headless agent is running. */
+  private codeAskStopRequested = false;
+  /** Set after `/agent/prompt` returns so we can resolve partial output on user stop. */
+  private lastCodeAskPromptId: string | null = null;
 
   /** Ask tab: scrollable message list (auto-scroll to latest). */
   readonly codeAskScroll = viewChild<ElementRef<HTMLElement>>('codeAskScroll');
@@ -254,7 +285,9 @@ export class CodeComponent implements OnInit, OnDestroy {
     const port = this.codeAskPreviewPort();
     if (port == null) return null;
     const raw = this.buildCodeAskPreviewUrl(sid, port, this.codeAskPreviewAppliedPath());
-    return this.sanitizer.bypassSecurityTrustResourceUrl(raw);
+    const bust = this.codeAskPreviewReloadNonce();
+    const withBust = this.appendPreviewQueryParam(raw, '__dpPreview', String(bust));
+    return this.sanitizer.bypassSecurityTrustResourceUrl(withBust);
   });
 
   /**
@@ -269,6 +302,19 @@ export class CodeComponent implements OnInit, OnDestroy {
     const hasQueryOrHash = trimmed.startsWith('?') || trimmed.startsWith('#');
     const normalized = hasQueryOrHash ? trimmed : trimmed.replace(/^\/+/, '');
     return `${base}${normalized}`;
+  }
+
+  /**
+   * Add a query param to a preview URL without breaking an existing `?` / `#` structure.
+   */
+  private appendPreviewQueryParam(url: string, key: string, value: string): string {
+    const sep = (s: string) => (s.includes('?') ? '&' : '?') + key + '=' + encodeURIComponent(value);
+    const hashIdx = url.indexOf('#');
+    if (hashIdx === -1) {
+      return url + sep(url);
+    }
+    const before = url.slice(0, hashIdx);
+    return before + sep(before) + url.slice(hashIdx);
   }
 
   constructor(
@@ -311,6 +357,28 @@ export class CodeComponent implements OnInit, OnDestroy {
       this.analysisLiveTools();
       queueMicrotask(() => this.queueAnalysisLiveScrollToEnd());
     });
+
+    // Navbar: headless Code → Ask sandboxes + repo name for the running list.
+    effect(() => {
+      const sid = this.codeChatSandboxId();
+      const repo = this.repository();
+      if (!sid) {
+        this.sandboxService.setCodeAskActiveSandboxId(null);
+        return;
+      }
+      this.sandboxService.setCodeAskActiveSandboxId(sid);
+      this.sandboxService.setCodeAskActiveRepositoryLabel(
+        this.repositoryLabelForAskNavbar(repo)
+      );
+    });
+
+    this.sandboxService.releaseCodeChatRequest$
+      .pipe(takeUntil(this.destroy$))
+      .subscribe(id => {
+        if (this.codeChatSandboxId() === id) {
+          this.releaseCodeChatSandbox();
+        }
+      });
   }
 
   private askThreadMutationObserver: MutationObserver | null = null;
@@ -371,6 +439,7 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
+    this.sandboxService.setCodeAskActiveSandboxId(null);
     if (this.analysisLiveScrollRaf) {
       cancelAnimationFrame(this.analysisLiveScrollRaf);
       this.analysisLiveScrollRaf = 0;
@@ -620,6 +689,40 @@ export class CodeComponent implements OnInit, OnDestroy {
     );
   }
 
+  openUnpublishedAddFileModal(): void {
+    this.unpublishedNewFilePath.set('src/example.ts');
+    this.unpublishedNewFileBody.set('// Add your code here\n');
+    this.error.set(null);
+    this.showUnpublishedAddModal.set(true);
+  }
+
+  closeUnpublishedAddFileModal(): void {
+    this.showUnpublishedAddModal.set(false);
+    this.unpublishedFileSaving.set(false);
+  }
+
+  submitUnpublishedAddFile(): void {
+    const path = this.unpublishedNewFilePath().trim();
+    const id = this.repositoryId();
+    if (!path) return;
+    this.unpublishedFileSaving.set(true);
+    this.error.set(null);
+    this.repositoryService.putUnpublishedFile(id, path, this.unpublishedNewFileBody()).subscribe({
+      next: () => {
+        this.unpublishedFileSaving.set(false);
+        this.closeUnpublishedAddFileModal();
+        this.loadRootTree();
+        if (this.selectedFilePath() === path) {
+          this.loadFileContent(path);
+        }
+      },
+      error: (err) => {
+        this.unpublishedFileSaving.set(false);
+        this.error.set(err.error?.message ?? err.message ?? 'Failed to save file');
+      }
+    });
+  }
+
   toggleBranchDropdown(): void {
     this.showBranchDropdown.update(v => !v);
   }
@@ -635,10 +738,10 @@ export class CodeComponent implements OnInit, OnDestroy {
       let message: string;
       if (ask && analyzing) {
         message =
-          'Switching branches will stop the running Ask sandbox, cancel in-progress repository analysis, and clear the in-page chat. Continue?';
+          'Switching branches will cancel in-progress repository analysis, detach the live Ask view for the branch you select, and show that branch’s saved chat. The Ask sandbox container will keep running. Continue?';
       } else if (ask) {
         message =
-          'Switching branches will stop the running Ask sandbox and clear the in-page chat for this repository. Continue?';
+          'Switching branches will detach the live Ask view and show this branch’s saved chat. The running sandbox will not be stopped. Continue?';
       } else {
         message =
           'Switching branches will cancel in-progress repository analysis and remove its temporary sandbox. Continue?';
@@ -656,7 +759,7 @@ export class CodeComponent implements OnInit, OnDestroy {
       }
     }
     this.cancelActiveRepositoryAnalysisRun();
-    this.releaseCodeChatSandbox();
+    this.clearCodeChatUiStateAndOptionallyDeleteRunningSandbox(false);
     this.codeAskRestoreDoneForRepo = null;
     this.currentBranch.set(branch.name);
     this.showBranchDropdown.set(false);
@@ -674,26 +777,17 @@ export class CodeComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Router guard: leaving `/code/:id` with an active Ask sandbox or in-progress repository analysis
-   * requires confirmation and tears down sandboxes.
+   * Router guard for leaving `/code/:id`. The Ask sandbox is **never** torn down from here
+   * (reconnect with `getSandboxForRepository` + saved chat). Only in-progress
+   * **Analysis** is cancelled, and we confirm in that case.
    */
   async confirmLeaveCodePage(): Promise<boolean> {
-    const ask = !!this.codeChatSandboxId();
-    const analyzing = this.analysisRunActive();
-    if (!ask && !analyzing) {
+    if (!this.analysisRunActive()) {
       return true;
     }
-    let message: string;
-    if (ask && analyzing) {
-      message =
-        'You have an Ask sandbox running and repository analysis in progress. Leaving will stop both and clear the in-session chat.';
-    } else if (ask) {
-      message =
-        'You have an Ask sandbox running. Leaving will stop the container and clear the in-session chat.';
-    } else {
-      message =
-        'Repository analysis is still running. Leaving will cancel it and remove the temporary sandbox.';
-    }
+    const message = this.codeChatSandboxId()
+      ? 'Repository analysis is in progress. Leave and cancel the analysis run? (Your Ask sandbox will keep running.)'
+      : 'Repository analysis is still running. Leaving will cancel it and remove the temporary sandbox.';
     const ok = await this.confirmDialog.confirm({
       title: 'Leave this page?',
       message,
@@ -705,13 +799,17 @@ export class CodeComponent implements OnInit, OnDestroy {
       return false;
     }
     this.cancelActiveRepositoryAnalysisRun();
-    this.releaseCodeChatSandbox();
     return true;
   }
 
+  /**
+   * Only warn on unload for in-progress **Analysis** (throwaway sandbox).
+   * Do not tie this to the Ask sandbox — the Ask container is kept, and a generic
+   * "leave page?" on every refresh is noisy.
+   */
   @HostListener('window:beforeunload', ['$event'])
   protected onWindowBeforeUnload(event: BeforeUnloadEvent): void {
-    if (this.codeChatSandboxId() || this.analysisRunActive()) {
+    if (this.analysisRunActive()) {
       event.preventDefault();
       event.returnValue = '';
     }
@@ -727,7 +825,7 @@ export class CodeComponent implements OnInit, OnDestroy {
       if (this.vncViewerService.getViewer(askSid)) {
         this.vncViewerService.dismissViewerKeepSandbox(askSid);
       }
-      this.sandboxService.requestDeleteSandboxOnUnload(askSid);
+      // Do not DELETE the Ask sandbox on navigation away: keep the container for when the user returns.
     }
     const analysisSid = this.analysisSandboxId();
     if (analysisSid) {
@@ -788,6 +886,8 @@ export class CodeComponent implements OnInit, OnDestroy {
     this.codeChatError.set(null);
     this.codeChatLiveTools.set([]);
     this.codeChatStreamHint.set(null);
+    this.lastCodeAskPromptId = null;
+    this.codeAskStopRequested = false;
     this.codeChatBusy.set(true);
     const conversationHistoryForAgent = this.buildAgentConversationHistoryFromAskMessages(this.codeChatMessages());
     this.codeChatMessages.update(msgs => [
@@ -832,37 +932,90 @@ export class CodeComponent implements OnInit, OnDestroy {
       if (!promptId) {
         throw new Error('Failed to start agent');
       }
+      this.lastCodeAskPromptId = promptId;
 
       this.codeChatStatus.set('Agent is exploring the repository…');
       const conv = await this.pollForHeadlessAnswer(sid, promptId);
-
-      const toolSummary =
-        conv.tool_calls && conv.tool_calls.length > 0
-          ? `Tools: ${conv.tool_calls.map(t => t.name).join(', ')}`
-          : undefined;
-
-      this.codeChatMessages.update(msgs => [
-        ...msgs,
-        {
-          id: promptId,
-          role: 'assistant',
-          content: conv.assistant_message || '',
-          toolCallsSummary: toolSummary
-        }
-      ]);
+      this.applyCompletedAskAssistantTurn(promptId, conv);
       this.codeChatStatus.set('');
       this.codeChatLiveTools.set([]);
       this.codeChatStreamHint.set(null);
       this.persistCodeAskToServer();
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Request failed';
-      this.codeChatError.set(msg);
-      this.codeChatStatus.set('');
-      this.codeChatLiveTools.set([]);
-      this.codeChatStreamHint.set(null);
+      if (msg === 'Stopped') {
+        this.codeChatError.set(null);
+        this.codeChatStatus.set('');
+        const sid = this.codeChatSandboxId();
+        if (sid && this.lastCodeAskPromptId) {
+          await this.appendPartialAssistantAfterAskStop(sid, this.lastCodeAskPromptId);
+        } else {
+          this.codeChatLiveTools.set([]);
+          this.codeChatStreamHint.set(null);
+        }
+      } else {
+        this.codeChatError.set(msg);
+        this.codeChatStatus.set('');
+        this.codeChatLiveTools.set([]);
+        this.codeChatStreamHint.set(null);
+      }
     } finally {
+      this.codeAskStopRequested = false;
       this.codeChatBusy.set(false);
     }
+  }
+
+  /**
+   * When the user stops the run, keep visible progress: model output snapshot, tools,
+   * and (if the bridge has already saved it) any assistant text — as a normal turn,
+   * not a red error banner.
+   */
+  private async appendPartialAssistantAfterAskStop(
+    sandboxId: string,
+    promptId: string
+  ): Promise<void> {
+    const hint = (this.codeChatStreamHint() || '').trim();
+    const liveTools = [...this.codeChatLiveTools()];
+    let fromServer = '';
+    try {
+      const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(sandboxId));
+      const hit = all.conversations.find(c => c.id === promptId);
+      fromServer = (hit?.assistant_message || '').trim();
+    } catch {
+      /* use UI snapshot only */
+    }
+    this.codeChatLiveTools.set([]);
+    this.codeChatStreamHint.set(null);
+
+    const generic =
+      fromServer === 'Stopped by user.' || fromServer === 'Stopped by user' || fromServer === '';
+    let main = '';
+    if (fromServer && !generic) {
+      main = fromServer;
+    } else if (hint) {
+      main = hint;
+    } else if (liveTools.length > 0) {
+      main =
+        'The model had not written a final answer yet. The tool steps from this run are listed below.';
+    } else {
+      return;
+    }
+
+    const toolSummary = liveTools.length
+      ? `Tools: ${liveTools.map(t => t.name).filter(Boolean).join(', ')}`
+      : undefined;
+
+    this.codeChatMessages.update(msgs => [
+      ...msgs,
+      {
+        id: `a-stopped-${Date.now()}`,
+        role: 'assistant',
+        content: main,
+        toolCallsSummary: toolSummary
+      }
+    ]);
+    this.persistCodeAskToServer();
+    queueMicrotask(() => this.scrollAskThreadToBottom());
   }
 
   private async bootstrapCodeChatSandbox(
@@ -873,7 +1026,7 @@ export class CodeComponent implements OnInit, OnDestroy {
   ): Promise<string> {
     const sandbox = await firstValueFrom(
       this.sandboxService.createSandbox({
-        repo_url: cloneUrl,
+        ...(cloneUrl?.trim() ? { repo_url: cloneUrl } : {}),
         repo_name: repo.name,
         repository_id: repo.id,
         repo_branch: branch,
@@ -959,23 +1112,85 @@ export class CodeComponent implements OnInit, OnDestroy {
     });
   }
 
-  private async tryRestoreCodeAskSession(): Promise<void> {
+  /**
+   * Header sandbox list: avoid leading org/owner. Azure `org/project/repo` → `project/repo`;
+   * GitHub `owner/repo` and similar → `repo` only.
+   */
+  private repositoryLabelForAskNavbar(repo: Repository | null | undefined): string | null {
+    if (!repo) {
+      return null;
+    }
+    const nameFallback = repo.name?.trim() || null;
+    const fn = repo.fullName?.trim();
+    if (!fn) {
+      return nameFallback;
+    }
+    const parts = fn
+      .split('/')
+      .map(p => p.trim())
+      .filter(s => s.length > 0);
+    if (parts.length === 0) {
+      return nameFallback;
+    }
+    if (repo.provider === 'AzureDevOps') {
+      if (parts.length >= 3) {
+        return `${parts[1]}/${parts[2]}`;
+      }
+      if (parts.length === 2) {
+        return parts[1]!;
+      }
+      return nameFallback;
+    }
+    if (parts.length === 1) {
+      return parts[0]!;
+    }
+    if (parts.length === 2) {
+      return parts[1]!;
+    }
+    return parts[parts.length - 1]! || nameFallback;
+  }
+
+  /**
+   * Rebind `codeChatSandboxId` from the server after navigation (e.g. Code → Backlog → Code).
+   * Retries when the API or bridge is briefly unavailable — do not give up on the first
+   * empty binding or failed health, or returning users will look “disconnected” while the
+   * container is still running.
+   */
+  private async tryRestoreCodeAskSession(attempt = 0): Promise<void> {
+    const maxAttempts = 6;
+    const restoreGen = this.codeAskRestoreGeneration;
+    const isStale = (): boolean => this.codeAskRestoreGeneration !== restoreGen;
+
     const repoId = this.repositoryId();
-    if (!repoId) return;
-    if (this.codeAskRestoreDoneForRepo === repoId) return;
+    if (!repoId) {
+      return;
+    }
+    if (this.codeChatSandboxId()) {
+      this.codeAskRestoreDoneForRepo = repoId;
+      return;
+    }
+    if (attempt === 0 && this.codeAskRestoreDoneForRepo === repoId) {
+      return;
+    }
 
     const branch = this.currentBranch() || 'main';
 
     const fromDb = await firstValueFrom(
       this.codeAskConversationService.getMessages(repoId, branch).pipe(catchError(() => of([])))
     );
+    if (isStale()) {
+      return;
+    }
     if (fromDb.length > 0) {
       this.codeChatMessages.set(this.mapApiMessagesToAsk(fromDb));
     }
 
     const session = await firstValueFrom(
-      this.sandboxService.getSandboxForRepository(repoId).pipe(catchError(() => of(null)))
+      this.sandboxService.getSandboxForRepository(repoId, branch).pipe(catchError(() => of(null)))
     );
+    if (isStale()) {
+      return;
+    }
 
     const finishScroll = () => {
       queueMicrotask(() => {
@@ -984,9 +1199,25 @@ export class CodeComponent implements OnInit, OnDestroy {
       });
     };
 
+    const scheduleRetry = (reason: 'no_session' | 'health'): void => {
+      if (isStale() || this.codeChatSandboxId() || attempt >= maxAttempts) {
+        return;
+      }
+      const delayMs = reason === 'health' ? 500 + attempt * 150 : 350 + attempt * 200;
+      setTimeout(() => void this.tryRestoreCodeAskSession(attempt + 1), delayMs);
+    };
+
     if (!session?.id) {
-      this.codeAskRestoreDoneForRepo = repoId;
       finishScroll();
+      if (this.codeChatSandboxId()) {
+        return;
+      }
+      const canRetryNoSession = attempt < maxAttempts && (fromDb.length > 0 || attempt > 0);
+      if (canRetryNoSession) {
+        scheduleRetry('no_session');
+        return;
+      }
+      this.codeAskRestoreDoneForRepo = repoId;
       return;
     }
 
@@ -1005,25 +1236,52 @@ export class CodeComponent implements OnInit, OnDestroy {
       return;
     }
 
-    try {
-      const h = await firstValueFrom(this.sandboxBridgeService.health(session.id));
-      if (h.status !== 'ok') {
-        this.codeAskRestoreDoneForRepo = repoId;
-        finishScroll();
+    let healthOk = false;
+    for (let t = 0; t < 4; t++) {
+      if (isStale()) {
         return;
       }
-    } catch {
-      this.codeAskRestoreDoneForRepo = repoId;
+      try {
+        const h = await firstValueFrom(this.sandboxBridgeService.health(session.id));
+        if (h.status === 'ok') {
+          healthOk = true;
+          break;
+        }
+      } catch {
+        /* retry */
+      }
+      await this.delay(200 * (t + 1));
+    }
+    if (isStale()) {
+      return;
+    }
+    if (!healthOk) {
       finishScroll();
+      if (this.codeChatSandboxId()) {
+        return;
+      }
+      if (attempt < maxAttempts) {
+        scheduleRetry('health');
+        return;
+      }
+      this.codeAskRestoreDoneForRepo = repoId;
       return;
     }
 
+    if (isStale()) {
+      return;
+    }
     this.codeChatSandboxId.set(session.id);
-    if (session.vnc_password) this.codeChatVncPassword.set(session.vnc_password);
+    if (session.vnc_password) {
+      this.codeChatVncPassword.set(session.vnc_password);
+    }
     this.codeChatSandboxOwned.set(true);
 
     try {
       const all = await firstValueFrom(this.sandboxBridgeService.getAllConversations(session.id));
+      if (isStale()) {
+        return;
+      }
       const headless = (all.conversations || [])
         .filter(c => c.source === 'headless_agent')
         .sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
@@ -1052,8 +1310,12 @@ export class CodeComponent implements OnInit, OnDestroy {
       console.warn('Ask: could not load conversations from bridge:', e);
     }
 
+    if (isStale()) {
+      return;
+    }
     this.codeAskRestoreDoneForRepo = repoId;
     finishScroll();
+    void this.resumeInFlightCodeAskIfNeeded(session.id);
   }
 
   /** Open the running Ask sandbox in the VNC viewer (same container as headless chat). */
@@ -1074,20 +1336,70 @@ export class CodeComponent implements OnInit, OnDestroy {
     const port = this.codeAskPreviewPort();
     if (!sid || port == null) return;
     const url = this.buildCodeAskPreviewUrl(sid, port, this.codeAskPreviewAppliedPath());
-    window.open(url, '_blank', 'noopener,noreferrer');
+    const t = window.open(url, '_blank', 'noopener,noreferrer');
+    t?.focus();
   }
 
-  /** Same preview URL in a separate window (user preference vs. a normal tab). */
-  openCodeAskPreviewPopOut(): void {
-    const sid = this.codeChatSandboxId();
-    const port = this.codeAskPreviewPort();
-    if (!sid || port == null) return;
-    const url = this.buildCodeAskPreviewUrl(sid, port, this.codeAskPreviewAppliedPath());
-    const w = Math.min(1280, Math.max(800, window.screen.availWidth - 96));
-    const h = Math.min(860, Math.max(560, window.screen.availHeight - 96));
-    const name = `devpilot-preview-${sid.slice(0, 8)}`;
-    const features = `popup=yes,width=${w},height=${h},left=${Math.max(0, Math.floor((window.screen.availWidth - w) / 2))},top=${Math.max(0, Math.floor((window.screen.availHeight - h) / 2))},menubar=no,toolbar=no`;
-    window.open(url, name, features);
+  /** Widen the preview and give the iframe a much larger share of the page (in-app, no popup). */
+  toggleCodeAskPreviewBigView(): void {
+    this.codeAskPreviewBigView.update(was => {
+      if (was) {
+        this.exitCodeAskPreviewFullscreenIfNeeded();
+      }
+      return !was;
+    });
+  }
+
+  isCodeAskPreviewInFullscreen(): boolean {
+    const el = this.askPreviewFrameHost()?.nativeElement;
+    return !!el && document.fullscreenElement === el;
+  }
+
+  @HostListener('document:fullscreenchange')
+  onCodeAskPreviewDocumentFullscreenChange(): void {
+    /* Ensures the fullscreen toggle icon updates when the user hits Escape. */
+  }
+
+  /** Fullscreen the preview frame on the current monitor (best paired with big view). */
+  toggleCodeAskPreviewFullscreen(): void {
+    const el = this.askPreviewFrameHost()?.nativeElement;
+    if (!el) {
+      return;
+    }
+    if (document.fullscreenElement === el) {
+      this.exitCodeAskPreviewFullscreenIfNeeded();
+      return;
+    }
+    const req =
+      el.requestFullscreen?.bind(el) ||
+      (el as HTMLElement & { webkitRequestFullscreen?: () => Promise<void> }).webkitRequestFullscreen?.bind(
+        el
+      );
+    if (req) {
+      void req();
+    }
+  }
+
+  private exitCodeAskPreviewFullscreenIfNeeded(): void {
+    if (!document.fullscreenElement) {
+      return;
+    }
+    const ex =
+      document.exitFullscreen?.bind(document) ||
+      (document as Document & { webkitExitFullscreen?: () => Promise<void> }).webkitExitFullscreen?.bind(
+        document
+      );
+    if (ex) {
+      void ex();
+    }
+  }
+
+  /** Reload the embedded preview iframe (full navigation). */
+  refreshCodeAskPreview(): void {
+    if (this.codeAskPreviewPort() == null) {
+      return;
+    }
+    this.codeAskPreviewReloadNonce.update(n => n + 1);
   }
 
   toggleCodeAskPreviewEmbedded(): void {
@@ -1099,6 +1411,9 @@ export class CodeComponent implements OnInit, OnDestroy {
         this.codeAskPreviewPortError.set(null);
         this.codeAskPreviewPath.set('');
         this.codeAskPreviewAppliedPath.set('');
+      } else {
+        this.codeAskPreviewBigView.set(false);
+        this.exitCodeAskPreviewFullscreenIfNeeded();
       }
       this.showCodeAskPreviewPortDropdown.set(false);
       return next;
@@ -1215,8 +1530,156 @@ export class CodeComponent implements OnInit, OnDestroy {
     }
   }
 
+  /**
+   * Request the running Ask headless task to end (clone wait, or agent poll).
+   * Best-effort: also POSTs to the bridge stream abort endpoint.
+   */
+  stopAskAgent(): void {
+    if (!this.codeChatBusy()) {
+      return;
+    }
+    this.codeAskStopRequested = true;
+    const sid = this.codeChatSandboxId();
+    if (sid) {
+      this.sandboxBridgeService.abortStream(sid).subscribe({ error: () => void 0 });
+    }
+  }
+
+  askCanSaveDraftToServer(): boolean {
+    return this.repository()?.provider === 'Unpublished' && !!this.codeChatSandboxId();
+  }
+
+  /** GitHub / Azure DevOps: show “push sandbox to a new remote branch” (no automatic PR). */
+  askCanPushBranchFromAsk(): boolean {
+    const p = this.repository()?.provider;
+    return (p === 'GitHub' || p === 'AzureDevOps') && !!this.codeChatSandboxId();
+  }
+
+  private formatAskPushError(err: unknown): string {
+    const http = err as {
+      error?: unknown;
+      message?: string;
+    };
+    const body = http?.error;
+    if (body && typeof body === 'object') {
+      const o = body as {
+        error?: string;
+        hint?: string;
+        stderr?: string;
+        stdout?: string;
+        branch?: string;
+      };
+      if (typeof o.error === 'string' && o.error.length > 0) {
+        let out = o.error;
+        if (o.hint?.trim()) {
+          out += ` — ${o.hint.trim()}`;
+        }
+        if (o.stderr?.trim()) {
+          out += ` ${o.stderr.trim().slice(0, 800)}`;
+        } else if (o.stdout?.trim() && /error|fatal|denied|rejected/i.test(o.stdout)) {
+          out += `: ${o.stdout.trim().slice(0, 400)}`;
+        }
+        return out;
+      }
+    }
+    if (typeof body === 'string' && body.length > 0) {
+      return body;
+    }
+    if (http?.message && !/^Http failure response:/i.test(http.message)) {
+      return http.message;
+    }
+    return 'Could not complete the operation. Check the browser network tab for the bridge response body.';
+  }
+
+  private extractCredentialsFromCloneUrl(url: string): string | undefined {
+    const match = url.match(/https:\/\/([^@]+)@/);
+    return match ? match[1] : undefined;
+  }
+
+  /**
+   * Unpublished: zip sandbox project and import to server disk (same as VNC “save to local project”).
+   */
+  saveAskDraftToLocalProject(): void {
+    const repo = this.repository();
+    const sid = this.codeChatSandboxId();
+    if (!repo || repo.provider !== 'Unpublished' || !sid) {
+      return;
+    }
+    this.askPushBusy.set(true);
+    this.askPushFeedback.set(null);
+    this.sandboxBridgeService.getProjectArchiveZip(sid).subscribe({
+      next: blob => {
+        this.repositoryService.importUnpublishedFromZip(repo.id, blob).subscribe({
+          next: r => {
+            this.askPushBusy.set(false);
+            this.askPushFeedback.set({
+              type: 'success',
+              message: r?.message || 'Local project updated.'
+            });
+          },
+          error: err => {
+            this.askPushBusy.set(false);
+            this.askPushFeedback.set({ type: 'error', message: this.formatAskPushError(err) });
+          }
+        });
+      },
+      error: err => {
+        this.askPushBusy.set(false);
+        this.askPushFeedback.set({ type: 'error', message: this.formatAskPushError(err) });
+      }
+    });
+  }
+
+  /**
+   * GitHub / Azure DevOps: commit Ask sandbox changes and push to a new remote branch (no PR).
+   */
+  pushAskToNewBranch(): void {
+    const repo = this.repository();
+    const sid = this.codeChatSandboxId();
+    if (!repo || !sid || (repo.provider !== 'GitHub' && repo.provider !== 'AzureDevOps')) {
+      return;
+    }
+    this.askPushBusy.set(true);
+    this.askPushFeedback.set(null);
+
+    const branchName = `devpilot-ask-${Date.now().toString(36)}`;
+    const commitMessage = 'chore: changes from DevPilot Ask sandbox';
+
+    const doPush = (creds: string | undefined) => {
+      this.sandboxBridgeService
+        .pushAndCreatePr(sid, {
+          branchName,
+          commitMessage,
+          prTitle: '',
+          prBody: '',
+          gitCredentials: creds
+        })
+        .subscribe({
+          next: () => {
+            this.askPushBusy.set(false);
+            this.askPushFeedback.set({
+              type: 'success',
+              message: `Pushed branch \`${branchName}\` to origin. Open your Git provider to open a pull request if you need one.`
+            });
+          },
+          error: err => {
+            this.askPushBusy.set(false);
+            this.askPushFeedback.set({ type: 'error', message: this.formatAskPushError(err) });
+          }
+        });
+    };
+
+    this.repositoryService.getAuthenticatedCloneUrl(repo.id).subscribe({
+      next: r => doPush(this.extractCredentialsFromCloneUrl(r.cloneUrl)),
+      error: () => doPush(undefined)
+    });
+  }
+
   private async waitForCodeChatBridge(sandboxId: string): Promise<void> {
     for (let i = 0; i < 90; i++) {
+      if (this.codeAskStopRequested) {
+        throw new Error('Stopped');
+      }
       try {
         const h = await firstValueFrom(this.sandboxBridgeService.health(sandboxId));
         if (h.status === 'ok') {
@@ -1245,6 +1708,9 @@ export class CodeComponent implements OnInit, OnDestroy {
     const pollMs = 2000;
     let lastEntriesLog = 0;
     for (let i = 0; i < maxAttempts; i++) {
+      if (this.codeAskStopRequested) {
+        throw new Error('Stopped');
+      }
       const status = await firstValueFrom(this.sandboxBridgeService.repoStatus(sandboxId));
       if (status?.ready) {
         return;
@@ -1268,9 +1734,98 @@ export class CodeComponent implements OnInit, OnDestroy {
     );
   }
 
+  /**
+   * Merge or append the assistant turn after {@link pollForHeadlessAnswer} (send flow or refresh-resume).
+   */
+  private applyCompletedAskAssistantTurn(promptId: string, conv: ZedConversation): void {
+    const toolSummary =
+      conv.tool_calls && conv.tool_calls.length > 0
+        ? `Tools: ${conv.tool_calls.map(t => t.name).join(', ')}`
+        : undefined;
+    const hasAssistant = this.codeChatMessages().some(
+      m => m.id === promptId && m.role === 'assistant'
+    );
+    if (hasAssistant) {
+      this.codeChatMessages.update(msgs =>
+        msgs.map(m =>
+          m.id === promptId && m.role === 'assistant'
+            ? { ...m, content: conv.assistant_message || '', toolCallsSummary: toolSummary }
+            : m
+        )
+      );
+    } else {
+      this.codeChatMessages.update(msgs => [
+        ...msgs,
+        {
+          id: promptId,
+          role: 'assistant',
+          content: conv.assistant_message || '',
+          toolCallsSummary: toolSummary
+        }
+      ]);
+    }
+  }
+
+  /**
+   * After session restore, if the bridge still has a headless agent in flight (e.g. user refreshed
+   * mid-run), resume polling the same way as a live send so progress and the final answer appear.
+   */
+  private async resumeInFlightCodeAskIfNeeded(sandboxId: string): Promise<void> {
+    if (this.codeChatBusy()) {
+      return;
+    }
+    let st: { running: boolean; prompt_id?: string | null };
+    try {
+      st = await firstValueFrom(this.sandboxBridgeService.getAgentRunningStatus(sandboxId));
+    } catch {
+      return;
+    }
+    const pid = st.prompt_id?.trim();
+    if (!st.running || !pid) {
+      return;
+    }
+    this.lastCodeAskPromptId = pid;
+    this.codeChatBusy.set(true);
+    this.codeChatError.set(null);
+    this.codeChatStatus.set('Agent still running — reconnecting…');
+    this.codeAskStopRequested = false;
+    try {
+      const conv = await this.pollForHeadlessAnswer(sandboxId, pid);
+      this.applyCompletedAskAssistantTurn(pid, conv);
+      this.codeChatStatus.set('');
+      this.codeChatLiveTools.set([]);
+      this.codeChatStreamHint.set(null);
+      this.persistCodeAskToServer();
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Request failed';
+      if (msg === 'Stopped') {
+        this.codeChatError.set(null);
+        this.codeChatStatus.set('');
+        if (sandboxId && this.lastCodeAskPromptId) {
+          await this.appendPartialAssistantAfterAskStop(sandboxId, this.lastCodeAskPromptId);
+        } else {
+          this.codeChatLiveTools.set([]);
+          this.codeChatStreamHint.set(null);
+        }
+      } else {
+        this.codeChatError.set(msg);
+        this.codeChatStatus.set('');
+        this.codeChatLiveTools.set([]);
+        this.codeChatStreamHint.set(null);
+      }
+    } finally {
+      this.codeAskStopRequested = false;
+      this.codeChatBusy.set(false);
+    }
+  }
+
   private async pollForHeadlessAnswer(sandboxId: string, promptId: string): Promise<ZedConversation> {
     const maxAttempts = 600;
     for (let i = 0; i < maxAttempts; i++) {
+      if (this.codeAskStopRequested) {
+        this.sandboxBridgeService.abortStream(sandboxId).subscribe({ error: () => void 0 });
+        throw new Error('Stopped');
+      }
       // Check running FIRST. The bridge appends the conversation entry then
       // flips _agent_running to false, so reading conversations AFTER we
       // observed running=false guarantees we see the final write.
@@ -1329,29 +1884,44 @@ export class CodeComponent implements OnInit, OnDestroy {
     }
   }
 
-  private releaseCodeChatSandbox(): void {
+  /**
+   * Clears Ask tab UI and the local sandbox binding. When `deleteContainer` is true, stops the
+   * sandbox in the API (removes the container). When false (e.g. branch switch), the container
+   * keeps running; `tryRestoreCodeAskSession` can reconnect if the user selects the matching branch again.
+   */
+  private clearCodeChatUiStateAndOptionallyDeleteRunningSandbox(deleteContainer: boolean): void {
+    this.codeAskRestoreGeneration++;
     const sid = this.codeChatSandboxId();
     if (sid) {
       this.detachAskViewerIfOpen(sid);
-      this.sandboxService.deleteSandbox(sid).subscribe({
-        error: err => console.warn('Code chat sandbox cleanup:', err)
-      });
+      if (deleteContainer) {
+        this.sandboxService.deleteSandbox(sid).subscribe({
+          error: err => console.warn('Code chat sandbox cleanup:', err)
+        });
+      }
     }
     this.codeChatSandboxId.set(null);
+    this.codeAskRestoreDoneForRepo = null;
     this.codeChatVncPassword.set(undefined);
     this.codeChatSandboxOwned.set(false);
     this.codeAskPreviewEmbedded.set(false);
+    this.codeAskPreviewBigView.set(false);
     this.codeAskPreviewPort.set(null);
     this.codeAskPreviewPortInput.set('');
     this.codeAskPreviewPortError.set(null);
     this.codeAskPreviewPath.set('');
     this.codeAskPreviewAppliedPath.set('');
     this.showCodeAskPreviewPortDropdown.set(false);
+    this.exitCodeAskPreviewFullscreenIfNeeded();
     this.codeChatMessages.set([]);
     this.codeChatStatus.set('');
     this.codeChatError.set(null);
     this.codeChatLiveTools.set([]);
     this.codeChatStreamHint.set(null);
+  }
+
+  private releaseCodeChatSandbox(): void {
+    this.clearCodeChatUiStateAndOptionallyDeleteRunningSandbox(true);
   }
 
   formatFileSize(size?: number): string {
@@ -1482,7 +2052,7 @@ export class CodeComponent implements OnInit, OnDestroy {
     // Ephemeral sandbox only (no repository_id) so Code Ask bindings are not overwritten.
     this.sandboxService
       .createSandbox({
-        repo_url: cloneUrl,
+        ...(cloneUrl?.trim() ? { repo_url: cloneUrl } : {}),
         repo_name: repo.name,
         repo_branch: branch,
         repo_archive_url: repoArchiveUrl

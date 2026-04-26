@@ -2,6 +2,9 @@
 backend/src/API/appsettings.Development.json
 .env
 
+# Unpublished (local) repo file storage (server disk)
+backend/src/API/App_Data/
+
 # .NET build output
 **/bin/
 **/obj/

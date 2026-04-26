@@ -4,13 +4,18 @@ using System.Security.Claims;
 using Azure.Core;
 using Azure.Identity;
 using DevPilot.Application.Commands;
+using DevPilot.Application.Options;
 using DevPilot.Application.Queries;
 using DevPilot.Application.Services;
+using DevPilot.Application.UseCases;
 using DevPilot.Domain.Entities;
 using DevPilot.Domain.Interfaces;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Options;
 
 /// <summary>
 /// Request body for adding a GitHub repo manually
@@ -18,6 +23,36 @@ using Microsoft.AspNetCore.Mvc;
 public class AddManualGitHubRepoRequest
 {
     public required string RepoUrl { get; set; }
+}
+
+public class CreateUnpublishedRepositoryRequest
+{
+    public required string Name { get; set; }
+    public string? Description { get; set; }
+}
+
+public class PublishUnpublishedToGitHubRequest
+{
+    public required string RepositoryName { get; set; }
+    public string? Description { get; set; }
+    public bool IsPrivate { get; set; }
+    /// <summary>If set, create under this GitHub org; if null, create under the user account.</summary>
+    public string? OrganizationLogin { get; set; }
+}
+
+public class PublishUnpublishedToAzureRequest
+{
+    public required string Organization { get; set; }
+    public required string Project { get; set; }
+    public required string RepositoryName { get; set; }
+    public string? Readme { get; set; }
+}
+
+/// <summary>Write or update a text file in a local (unpublished) project workspace.</summary>
+public class UnpublishedWriteFileRequest
+{
+    public required string Path { get; set; }
+    public required string Content { get; set; }
 }
 
 /// <summary>
@@ -118,6 +153,10 @@ public class RepositoriesController : ControllerBase
     private readonly IGitHubService _gitHubService;
     private readonly IAzureDevOpsService _azureDevOpsService;
     private readonly IRepositoryAgentRuleRepository _repositoryAgentRuleRepository;
+    private readonly IUnpublishedRepositoryFileStore _unpublishedFileStore;
+    private readonly IConfiguration _configuration;
+    private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IOptions<UnpublishedRepositoryOptions> _unpublishedOptions;
     private readonly ILogger<RepositoriesController> _logger;
 
     public RepositoriesController(
@@ -130,6 +169,10 @@ public class RepositoriesController : ControllerBase
         IGitHubService gitHubService,
         IAzureDevOpsService azureDevOpsService,
         IRepositoryAgentRuleRepository repositoryAgentRuleRepository,
+        IUnpublishedRepositoryFileStore unpublishedFileStore,
+        IConfiguration configuration,
+        IHttpContextAccessor httpContextAccessor,
+        IOptions<UnpublishedRepositoryOptions> unpublishedOptions,
         ILogger<RepositoriesController> logger)
     {
         _mediator = mediator ?? throw new ArgumentNullException(nameof(mediator));
@@ -141,6 +184,10 @@ public class RepositoriesController : ControllerBase
         _gitHubService = gitHubService ?? throw new ArgumentNullException(nameof(gitHubService));
         _azureDevOpsService = azureDevOpsService ?? throw new ArgumentNullException(nameof(azureDevOpsService));
         _repositoryAgentRuleRepository = repositoryAgentRuleRepository ?? throw new ArgumentNullException(nameof(repositoryAgentRuleRepository));
+        _unpublishedFileStore = unpublishedFileStore ?? throw new ArgumentNullException(nameof(unpublishedFileStore));
+        _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        _httpContextAccessor = httpContextAccessor ?? throw new ArgumentNullException(nameof(httpContextAccessor));
+        _unpublishedOptions = unpublishedOptions ?? throw new ArgumentNullException(nameof(unpublishedOptions));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
     }
 
@@ -809,6 +856,116 @@ public class RepositoriesController : ControllerBase
             defaultBranch = newRepo.DefaultBranch,
             alreadyExists = false
         });
+    }
+
+    /// <summary>
+    /// Create a local-only (unpublished) repository with starter backlog. Publish later to GitHub or Azure DevOps.
+    /// </summary>
+    [HttpPost("unpublished")]
+    [Authorize]
+    public async Task<IActionResult> CreateUnpublishedRepository(
+        [FromBody] CreateUnpublishedRepositoryRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+        if (string.IsNullOrWhiteSpace(request?.Name))
+            return BadRequest(new { message = "Name is required" });
+
+        try
+        {
+            var dto = await _mediator.Send(
+                new CreateUnpublishedRepositoryCommand(userId, request.Name.Trim(), request.Description?.Trim()),
+                cancellationToken);
+            return Ok(dto);
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Create a GitHub repository and point this DevPilot project at it (unpublished → GitHub).
+    /// </summary>
+    [HttpPost("{id:guid}/publish/github")]
+    [Authorize]
+    public async Task<IActionResult> PublishUnpublishedToGitHub(
+        Guid id,
+        [FromBody] PublishUnpublishedToGitHubRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+        if (string.IsNullOrWhiteSpace(request?.RepositoryName))
+            return BadRequest(new { message = "RepositoryName is required" });
+
+        try
+        {
+            var dto = await _mediator.Send(
+                new PublishUnpublishedToGitHubCommand(
+                    userId,
+                    id,
+                    request.RepositoryName.Trim(),
+                    request.Description?.Trim(),
+                    request.IsPrivate,
+                    request.OrganizationLogin?.Trim()),
+                cancellationToken);
+            return Ok(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Create an Azure DevOps Git repo in a project and point this DevPilot project at it (unpublished → Azure).
+    /// </summary>
+    [HttpPost("{id:guid}/publish/azure-devops")]
+    [Authorize]
+    public async Task<IActionResult> PublishUnpublishedToAzureDevOps(
+        Guid id,
+        [FromBody] PublishUnpublishedToAzureRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+            return Unauthorized("User ID not found in token");
+        if (string.IsNullOrWhiteSpace(request?.Organization)
+            || string.IsNullOrWhiteSpace(request?.Project)
+            || string.IsNullOrWhiteSpace(request?.RepositoryName))
+        {
+            return BadRequest(new { message = "Organization, Project, and RepositoryName are required" });
+        }
+
+        try
+        {
+            var dto = await _mediator.Send(
+                new PublishUnpublishedToAzureCommand(
+                    userId,
+                    id,
+                    request.Organization.Trim(),
+                    request.Project.Trim(),
+                    request.RepositoryName.Trim(),
+                    request.Readme),
+                cancellationToken);
+            return Ok(dto);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     private static (string? owner, string? repo) ParseGitHubRepoUrl(string input)
@@ -1973,6 +2130,10 @@ public class RepositoriesController : ControllerBase
             {
                 return await GetAzureDevOpsTree(userId, repository, path, branch, cancellationToken);
             }
+            else if (repository.Provider == "Unpublished")
+            {
+                return await GetUnpublishedTree(repository, path, branch, cancellationToken);
+            }
             else
             {
                 return BadRequest($"Unsupported provider: {repository.Provider}");
@@ -2023,6 +2184,10 @@ public class RepositoriesController : ControllerBase
             {
                 return await GetAzureDevOpsFileContent(userId, repository, path, branch, cancellationToken);
             }
+            else if (repository.Provider == "Unpublished")
+            {
+                return await GetUnpublishedFileContent(repository, path, branch, cancellationToken);
+            }
             else
             {
                 return BadRequest($"Unsupported provider: {repository.Provider}");
@@ -2070,6 +2235,10 @@ public class RepositoriesController : ControllerBase
             {
                 return await GetAzureDevOpsBranches(userId, repository, cancellationToken);
             }
+            else if (repository.Provider == "Unpublished")
+            {
+                return Ok(_unpublishedFileStore.GetBranches(repository.DefaultBranch));
+            }
             else
             {
                 return BadRequest($"Unsupported provider: {repository.Provider}");
@@ -2078,6 +2247,60 @@ public class RepositoriesController : ControllerBase
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to get branches for {RepositoryId}", repositoryId);
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Save UTF-8 text to the server-local workspace of an unpublished project.</summary>
+    [HttpPut("{repositoryId:guid}/unpublished/file")]
+    [Authorize]
+    public async Task<IActionResult> PutUnpublishedFile(
+        Guid repositoryId,
+        [FromBody] UnpublishedWriteFileRequest? request,
+        CancellationToken cancellationToken = default)
+    {
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized("User ID not found in token");
+        }
+
+        if (request == null || string.IsNullOrWhiteSpace(request.Path))
+        {
+            return BadRequest(new { message = "Path is required" });
+        }
+
+        var repository = await _repositoryRepository.GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken);
+        if (repository == null)
+        {
+            return NotFound("Repository not found");
+        }
+
+        if (repository.Provider != "Unpublished")
+        {
+            return BadRequest(new { message = "Only local (unpublished) projects support this endpoint" });
+        }
+
+        try
+        {
+            await _unpublishedFileStore.EnsurePresentAsync(
+                    repositoryId,
+                    repository.Name,
+                    repository.Description,
+                    cancellationToken)
+                .ConfigureAwait(false);
+            await _unpublishedFileStore
+                .WriteTextFileAsync(repositoryId, request.Path.Trim(), request.Content ?? string.Empty, cancellationToken)
+                .ConfigureAwait(false);
+            return NoContent();
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to write unpublished file {RepositoryId} {Path}", repositoryId, request.Path);
             return BadRequest(new { message = ex.Message });
         }
     }
@@ -2128,6 +2351,28 @@ public class RepositoriesController : ControllerBase
         var tree = await _azureDevOpsService.GetRepositoryTreeAsync(
             accessToken, parts[0], parts[1], parts[2], path, branch, cancellationToken, useBasicAuth);
         return Ok(tree);
+    }
+
+    private async Task<IActionResult> GetUnpublishedTree(Repository repository, string? path, string? branch, CancellationToken cancellationToken)
+    {
+        await _unpublishedFileStore
+            .EnsurePresentAsync(repository.Id, repository.Name, repository.Description, cancellationToken)
+            .ConfigureAwait(false);
+        var tree = await _unpublishedFileStore
+            .GetTreeAsync(repository.Id, path, branch, repository.DefaultBranch, cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(tree);
+    }
+
+    private async Task<IActionResult> GetUnpublishedFileContent(Repository repository, string path, string? branch, CancellationToken cancellationToken)
+    {
+        await _unpublishedFileStore
+            .EnsurePresentAsync(repository.Id, repository.Name, repository.Description, cancellationToken)
+            .ConfigureAwait(false);
+        var content = await _unpublishedFileStore
+            .GetFileContentAsync(repository.Id, path, branch, repository.DefaultBranch, cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(content);
     }
 
     private async Task<IActionResult> GetGitHubFileContent(Guid userId, Repository repository, string path, string? branch, CancellationToken cancellationToken)
@@ -2302,6 +2547,10 @@ public class RepositoriesController : ControllerBase
             {
                 return await GetAzureDevOpsPullRequests(userId, repository, state, cancellationToken);
             }
+            else if (repository.Provider == "Unpublished")
+            {
+                return Ok(new List<PullRequestDto>());
+            }
             else
             {
                 return BadRequest($"Unsupported provider: {repository.Provider}");
@@ -2410,9 +2659,48 @@ public class RepositoriesController : ControllerBase
             }
         }
 
-        // For GitHub, also return archive URL (zipball) so sandbox can download code without git clone when clone is blocked
+        // Local (unpublished) projects: no git remote — signed zip URL for sandbox bootstrap; clone URL empty
+        // GitHub: archive URL (zipball) so sandbox can download without git when clone is blocked
         string? archiveUrl = null;
-        if (repository.Provider == ProviderTypes.GitHub)
+        if (repository.Provider == "Unpublished")
+        {
+            var opt = _unpublishedOptions.Value;
+            var secret = !string.IsNullOrEmpty(opt.ArchiveSigningKey)
+                ? opt.ArchiveSigningKey!
+                : _configuration["JWT:SecretKey"] ?? string.Empty;
+            if (string.IsNullOrEmpty(secret))
+            {
+                return StatusCode(500, new
+                {
+                    message = "Configure JWT:SecretKey or UnpublishedRepositories:ArchiveSigningKey for unpublished sandboxes."
+                });
+            }
+
+            var exp = DateTimeOffset.UtcNow.AddHours(2).ToUnixTimeSeconds();
+            var sig = UnpublishedArchiveToken.Sign(secret, repository.Id, exp);
+            var baseUrl = opt.DownloadBaseUrl?.Trim();
+            if (string.IsNullOrEmpty(baseUrl))
+            {
+                var req = _httpContextAccessor.HttpContext?.Request;
+                if (req is null)
+                {
+                    return StatusCode(500, new
+                    {
+                        message = "Set UnpublishedRepositories:DownloadBaseUrl to the API URL reachable from the sandbox (no HTTP request context to infer it)."
+                    });
+                }
+
+                // The sandbox is another Docker container: localhost/127.0.0.1 would not reach the
+                // host where the API runs. Use host.docker.internal (Docker Desktop) or
+                // UnpublishedRepositories:DownloadBaseUrl / extra_hosts on the sandbox container (Linux).
+                baseUrl = BuildApiBaseForSandboxUnpublishedDownload(req);
+            }
+
+            archiveUrl =
+                $"{baseUrl.TrimEnd('/')}/api/repositories/{repositoryId}/unpublished/sandbox-archive?exp={exp}&sig={Uri.EscapeDataString(sig)}";
+            cloneUrl = string.Empty;
+        }
+        else if (repository.Provider == ProviderTypes.GitHub)
         {
             var parts = repository.FullName.Split('/');
             if (parts.Length == 2)
@@ -2424,4 +2712,118 @@ public class RepositoriesController : ControllerBase
 
         return Ok(new { cloneUrl, archiveUrl });
     }
+
+    /// <summary>Anonymous download: HMAC-protected zip of an unpublished project (for sandbox container bootstrap).</summary>
+    [HttpGet("{repositoryId:guid}/unpublished/sandbox-archive")]
+    [AllowAnonymous]
+    public async Task<IActionResult> GetUnpublishedSandboxArchive(
+        Guid repositoryId,
+        [FromQuery] long exp,
+        [FromQuery] string? sig,
+        CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrEmpty(sig))
+        {
+            return BadRequest(new { message = "Missing signature" });
+        }
+
+        var opt = _unpublishedOptions.Value;
+        var secret = !string.IsNullOrEmpty(opt.ArchiveSigningKey)
+            ? opt.ArchiveSigningKey!
+            : _configuration["JWT:SecretKey"] ?? string.Empty;
+        if (string.IsNullOrEmpty(secret))
+        {
+            return Unauthorized(new { message = "Server misconfiguration" });
+        }
+
+        if (!UnpublishedArchiveToken.Validate(secret, repositoryId, exp, sig, out var err))
+        {
+            return Unauthorized(new { message = err ?? "Invalid token" });
+        }
+
+        var repository = await _repositoryRepository.GetByIdAsync(repositoryId, cancellationToken);
+        if (repository is null)
+        {
+            return NotFound(new { message = "Repository not found" });
+        }
+
+        if (repository.Provider != "Unpublished")
+        {
+            return Forbid();
+        }
+
+        await _unpublishedFileStore
+            .EnsurePresentAsync(
+                repositoryId,
+                repository.Name,
+                repository.Description,
+                cancellationToken)
+            .ConfigureAwait(false);
+        var stream = await _unpublishedFileStore
+            .OpenArchiveAsZipStreamAsync(repositoryId, cancellationToken)
+            .ConfigureAwait(false);
+        return File(stream, "application/zip", "project.zip");
+    }
+
+    /// <summary>Replace unpublished project files from a zip (from sandbox "Commit" flow).</summary>
+    [HttpPost("{repositoryId:guid}/unpublished/import-zip")]
+    [Authorize]
+    [RequestSizeLimit(104_857_600)]
+    public async Task<IActionResult> ImportUnpublishedFromZip(
+        Guid repositoryId,
+        IFormFile? file,
+        CancellationToken cancellationToken)
+    {
+        if (file is null || file.Length == 0)
+        {
+            return BadRequest(new { message = "Expected multipart file 'file' with a zip body" });
+        }
+
+        var userIdClaim = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        if (string.IsNullOrEmpty(userIdClaim) || !Guid.TryParse(userIdClaim, out var userId))
+        {
+            return Unauthorized();
+        }
+
+        var repository = await _repositoryRepository
+            .GetByIdIfAccessibleAsync(repositoryId, userId, cancellationToken)
+            .ConfigureAwait(false);
+        if (repository is null)
+        {
+            return NotFound(new { message = "Repository not found" });
+        }
+
+        if (repository.Provider != "Unpublished")
+        {
+            return BadRequest(new { message = "This endpoint applies only to unpublished (local) projects" });
+        }
+
+        await using var stream = file.OpenReadStream();
+        await _unpublishedFileStore
+            .ReplaceTreeFromZipAsync(repositoryId, stream, cancellationToken)
+            .ConfigureAwait(false);
+        return Ok(new { message = "Project files updated" });
+    }
+
+    /// <summary>
+    /// Base URL for the API as seen from inside a sandbox container (must not use loopback).
+    /// </summary>
+    private static string BuildApiBaseForSandboxUnpublishedDownload(HttpRequest req)
+    {
+        var pathBase = req.PathBase;
+        if (IsLoopbackHost(req.Host.Host))
+        {
+            var port = req.Host.Port;
+            var portSegment = port.HasValue ? $":{port.Value}" : "";
+            return $"{req.Scheme}://host.docker.internal{portSegment}{pathBase}";
+        }
+
+        return $"{req.Scheme}://{req.Host}{pathBase}";
+    }
+
+    private static bool IsLoopbackHost(string host) =>
+        host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+        || host.Equals("127.0.0.1", StringComparison.Ordinal)
+        || host.Equals("::1", StringComparison.Ordinal)
+        || host.Equals("[::1]", StringComparison.Ordinal);
 }

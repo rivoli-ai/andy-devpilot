@@ -1085,11 +1085,13 @@ Exposes endpoints to:
 import os
 import sys
 import json
+import io
+import zipfile
 import subprocess
 import logging
 import threading
 import time as _time_mod
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 
 bridge_start_time = _time_mod.time()
@@ -1190,6 +1192,8 @@ live_stream_user_message = ""
 headless_live_tools = []
 headless_live_user_prompt = ""
 _agent_running = False
+# Set while a headless /agent/prompt thread is active (for refresh → resume polling in the UI)
+current_headless_prompt_id = None
 
 # Set to True by POST /stream/abort — checked each iteration of generate_stream().
 abort_stream = False
@@ -2048,13 +2052,16 @@ def get_all_conversations():
 
 @app.route('/stream/abort', methods=['POST'])
 def stream_abort():
-    """Signal the in-flight LLM stream to stop. The partial response is saved."""
+    """Signal the in-flight LLM stream or headless /agent/prompt loop to stop."""
     global abort_stream
-    if not bridge_request_in_progress:
-        return jsonify({"status": "no_stream", "message": "No generation in progress"}), 200
-    abort_stream = True
-    logger.info("=== ABORT REQUESTED BY FRONTEND ===")
-    return jsonify({"status": "aborted"})
+    # Headless agent sets bridge_request_in_progress and _agent_running; only the
+    # Zed streaming path used to set abort_stream. Without this, Stop clears the
+    # UI but the background thread keeps _agent_running True (409 on next prompt).
+    if _agent_running or bridge_request_in_progress:
+        abort_stream = True
+        logger.info("=== ABORT REQUESTED (stream and/or headless agent) ===")
+        return jsonify({"status": "aborted"})
+    return jsonify({"status": "no_stream", "message": "No generation in progress"}), 200
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -2674,6 +2681,32 @@ def get_git_project_path():
         return os.path.join(PROJECT_PATH, repo_name)
     return PROJECT_PATH
 
+@app.route('/project/archive.zip', methods=['GET'])
+def download_project_archive():
+    """Zip project files for uploading back to the DevPilot API (unpublished / local projects)."""
+    root = get_git_project_path()
+    if not os.path.isdir(root):
+        return jsonify({"error": "Project path not found"}), 404
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+        for dirpath, dirnames, filenames in os.walk(root):
+            if '.git' in dirnames:
+                dirnames.remove('.git')
+            for fn in filenames:
+                abspath = os.path.join(dirpath, fn)
+                relp = os.path.relpath(abspath, root)
+                relp = relp.replace(os.sep, '/')
+                if relp.startswith('.git/') or '/.git/' in relp:
+                    continue
+                zf.write(abspath, relp)
+    buf.seek(0)
+    return send_file(
+        buf,
+        mimetype='application/zip',
+        as_attachment=True,
+        download_name='project.zip'
+    )
+
 @app.route('/git/push-and-create-pr', methods=['POST'])
 def git_push_and_create_pr():
     """
@@ -2693,7 +2726,11 @@ def git_push_and_create_pr():
     
     git_path = get_git_project_path()
     if not os.path.isdir(os.path.join(git_path, '.git')):
-        return jsonify({"error": "Not a git repository", "path": git_path}), 400
+        return jsonify({
+            "error": "Not a git repository",
+            "path": git_path,
+            "hint": "If the clone is still in progress, wait and retry. Otherwise check REPO_NAME vs the directory created under the project path."
+        }), 400
     
     env = {**os.environ, 'GIT_TERMINAL_PROMPT': '0'}
     
@@ -2742,8 +2779,8 @@ def git_push_and_create_pr():
             subprocess.run(['git', 'checkout', branch_name],
                          cwd=git_path, capture_output=True, text=True, env=env, check=True)
         
-        # Add all changes
-        add_result = subprocess.run(['git', 'add', '.'],
+        # Stage everything (including renames/deletes / new files under subdirs)
+        add_result = subprocess.run(['git', 'add', '-A'],
                                   cwd=git_path, capture_output=True, text=True, env=env)
         results.append({"step": "add", "returncode": add_result.returncode})
         
@@ -2753,7 +2790,9 @@ def git_push_and_create_pr():
         if not status_result.stdout.strip():
             return jsonify({
                 "error": "No changes to commit",
-                "branch": branch_name
+                "hint": "The sandbox working tree has no diffs vs HEAD. Save edits in the repo (not only in ignored paths), or ensure the Ask agent modified files under the cloned project.",
+                "branch": branch_name,
+                "path": git_path
             }), 400
         
         # Commit
@@ -2841,8 +2880,10 @@ def agent_prompt():
 
     def _run():
         global _agent_running, bridge_request_in_progress, live_stream_user_message, live_stream_content
-        global headless_live_tools, headless_live_user_prompt
+        global headless_live_tools, headless_live_user_prompt, abort_stream, current_headless_prompt_id
+        abort_stream = False
         _agent_running = True
+        current_headless_prompt_id = prompt_id
         bridge_request_in_progress = True
         headless_live_tools = []
         headless_live_user_prompt = prompt
@@ -2881,12 +2922,13 @@ def agent_prompt():
                 _prior = _headless_hist(zed_conversations, max_turns=6)
             result = _run_loop(
                 prompt=prompt,
-                project_path=PROJECT_PATH,
+                project_path=get_git_project_path(),
                 llm_client=client,
                 model=MODEL,
                 on_tool_call=_on_tool,
                 on_assistant_delta=_on_assistant_stream,
                 conversation_history=_prior if _prior else None,
+                should_abort=lambda: abort_stream,
             )
             import time as _time
             conversation_entry = {
@@ -2918,7 +2960,9 @@ def agent_prompt():
             logger.error(traceback.format_exc())
         finally:
             _agent_running = False
+            current_headless_prompt_id = None
             bridge_request_in_progress = False
+            abort_stream = False
             live_stream_content = ""
             live_stream_user_message = ""
             headless_live_tools = []
@@ -2930,8 +2974,8 @@ def agent_prompt():
 
 @app.route('/agent/status', methods=['GET'])
 def agent_status():
-    """Check whether a headless agent task is currently running."""
-    return jsonify({"running": _agent_running})
+    """Check whether a headless agent task is currently running; includes prompt_id while running."""
+    return jsonify({"running": _agent_running, "prompt_id": current_headless_prompt_id})
 
 if __name__ == '__main__':
     threading.Thread(target=_deferred_terminal_open, daemon=True).start()
@@ -3608,15 +3652,29 @@ if [ -n "$REPO_ARCHIVE_URL" ] && [ ! -d "$WORK_DIR/$REPO_NAME" ] && [ ! -d "/hom
     echo "Downloading repository from archive: $REPO_ARCHIVE_URL"
     cd /home/sandbox/projects
     if curl -sSfL -H "User-Agent: DevPilot" -o repo.zip "$REPO_ARCHIVE_URL" 2>>/tmp/sandbox-debug.log; then
-        unzip -o -q repo.zip 2>>/tmp/sandbox-debug.log
-        TOPDIR=$(ls -d */ 2>/dev/null | head -1)
-        if [ -n "$TOPDIR" ]; then
-            mv "${TOPDIR%/}" "$REPO_NAME"
-            WORK_DIR="/home/sandbox/projects/$REPO_NAME"
-            chown -R sandbox:sandbox "$WORK_DIR"
-            echo "Repository extracted to: $WORK_DIR"
-            echo "Archive download successful: $WORK_DIR" >> /tmp/sandbox-debug.log
+        rm -rf .archive-extract
+        mkdir -p .archive-extract
+        if unzip -o -q repo.zip -d .archive-extract 2>>/tmp/sandbox-debug.log; then
+            top_list=(.archive-extract/*)
+            n=${#top_list[@]}
+            if [ "$n" -eq 1 ] && [ -d "${top_list[0]}" ]; then
+                mv "${top_list[0]}" "$REPO_NAME"
+            else
+                mkdir -p "$REPO_NAME"
+                shopt -s dotglob nullglob
+                for item in .archive-extract/*; do
+                    [ -e "$item" ] && mv "$item" "$REPO_NAME"/
+                done
+                shopt -u dotglob nullglob
+            fi
+            if [ -d "/home/sandbox/projects/$REPO_NAME" ]; then
+                WORK_DIR="/home/sandbox/projects/$REPO_NAME"
+                chown -R sandbox:sandbox "$WORK_DIR"
+                echo "Repository extracted to: $WORK_DIR"
+                echo "Archive download successful: $WORK_DIR" >> /tmp/sandbox-debug.log
+            fi
         fi
+        rm -rf .archive-extract
         rm -f repo.zip
     else
         echo "ERROR: Failed to download repository archive" >> /tmp/sandbox-debug.log

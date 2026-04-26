@@ -455,7 +455,7 @@ export class BacklogGeneratorModalComponent implements OnInit, OnDestroy {
 
   private createSandboxWithUrl(repo: Repository, repoUrl: string, repoArchiveUrl?: string, artifactFeeds?: any[]): void {
     this.sandboxService.createSandbox({
-      repo_url: repoUrl,
+      ...(repoUrl?.trim() ? { repo_url: repoUrl } : {}),
       repo_name: repo.name,
       repo_branch: repo.defaultBranch || 'main',
       repo_archive_url: repoArchiveUrl,
